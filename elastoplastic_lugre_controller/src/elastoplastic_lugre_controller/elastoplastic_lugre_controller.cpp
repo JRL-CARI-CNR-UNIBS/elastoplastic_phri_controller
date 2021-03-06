@@ -401,7 +401,7 @@ namespace phri
     {
       m_x(iAx)=m_joint_handles.at(iAx).getPosition(); // read actual position
       m_Dx(iAx)=m_joint_handles.at(iAx).getVelocity(); // read actual position
-      m_joint_handles.at(iAx).setCommand(m_x(iAx),m_Dx(iAx),0.0);
+      m_joint_handles.at(iAx).setCommand(m_x(iAx),m_Dx(iAx),0.0);//  send position and velocity command to lower level
     }
     m_target=m_x;
     m_Dtarget=m_Dx;
@@ -416,6 +416,12 @@ namespace phri
 
   void CartImpedanceLuGreController::stopping(const ros::Time& time)
   {
+    for (unsigned int iAx=0;iAx<m_nAx;iAx++)
+    {
+      m_x(iAx)=m_joint_handles.at(iAx).getPosition(); // read actual position
+      m_Dx(iAx)=m_joint_handles.at(iAx).getVelocity(); // read actual position
+      m_joint_handles.at(iAx).setCommand(m_x(iAx),m_Dx(iAx),0.0); //  send position and velocity command to lower level
+    }
     ROS_INFO("[ %s ] Stopping controller at time %f", m_controller_nh.getNamespace().c_str(),time.toSec());
   }
 
@@ -566,7 +572,7 @@ namespace phri
       m_Dx(idx)=std::max(-m_velocity_limits(idx),std::min(m_velocity_limits(idx),m_x(idx)));
     }
 
-    // send position and velocity to lower level
+    // send position and velocity command to lower level
     for (unsigned int iAx=0;iAx<m_nAx;iAx++)
       m_joint_handles.at(iAx).setCommand(m_x(iAx),m_Dx(iAx),0.0);
   }

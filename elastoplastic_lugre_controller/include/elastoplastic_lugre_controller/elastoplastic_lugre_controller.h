@@ -21,9 +21,13 @@ namespace phri
     class CartImpedanceLuGreController : public controller_interface::Controller<hardware_interface::PosVelEffJointInterface>
     {
     public:
+      // initialize controller (called once when the controller is created)
       bool init(hardware_interface::PosVelEffJointInterface* hw, ros::NodeHandle& root_nh, ros::NodeHandle& controller_nh);
+      // update controller (called every period)
       void update(const ros::Time& time, const ros::Duration& period);
+      // starting controller (called every time the controller is started)
       void starting(const ros::Time& time);
+      // stopping controller (called every time the controller is stopped)
       void stopping(const ros::Time& time);
     
       
