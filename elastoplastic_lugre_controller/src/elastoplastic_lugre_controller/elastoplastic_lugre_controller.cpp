@@ -41,12 +41,6 @@ namespace phri
       return false;
     }
 
-    if (!m_controller_nh.getParam("sensor_frame",m_sensor_frame))  // frame of the sensor
-    {
-      ROS_ERROR("%s/sensor_frame not defined", m_controller_nh.getNamespace().c_str());
-      return false;
-    }
-
     // if true,  the base is the reference of impedance equations (x=x_base, y=y_base, z=z_base)
     // if false, the tool is the reference of impedance equations (x=x_tool, y=y_tool, z=z_tool)
     if (!m_controller_nh.getParam("base_is_reference", m_base_is_reference))
