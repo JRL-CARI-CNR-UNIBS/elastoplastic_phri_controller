@@ -68,8 +68,8 @@ namespace phri
       double m_cart_force_limit;
 
       Eigen::Vector6d m_Jinv;
-      Eigen::VectorXd m_damping;
-      Eigen::VectorXd m_k;
+      Eigen::Vector6d m_damping;
+      Eigen::Vector6d m_k;
       Eigen::Vector6d m_wrench_deadband;
 
       Eigen::Vector6d m_wrench_of_tool_in_base_with_deadband;
@@ -81,6 +81,7 @@ namespace phri
       double m_vel_norm;
       double m_Dz_norm;
 
+      double m_mu_k;
       double m_wrench_norm;
       double m_vel_old;
       double m_acc_norm;

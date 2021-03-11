@@ -41,6 +41,12 @@ namespace phri
       return false;
     }
 
+    if (!m_controller_nh.getParam("sensor_frame",m_sensor_frame))  // frame of the sensor
+    {
+      ROS_ERROR("%s/sensor_frame not defined", m_controller_nh.getNamespace().c_str());
+      return false;
+    }
+
     // if true,  the base is the reference of impedance equations (x=x_base, y=y_base, z=z_base)
     // if false, the tool is the reference of impedance equations (x=x_tool, y=y_tool, z=z_tool)
     if (!m_controller_nh.getParam("base_is_reference", m_base_is_reference))
@@ -313,6 +319,13 @@ namespace phri
     }
 
 
+    if (!m_controller_nh.getParam("mu_k", m_mu_k ))
+    {
+      ROS_ERROR("%s/mu_k does not exist, set 0.78", m_controller_nh.getNamespace().c_str());
+      m_mu_k=0.78;
+    }
+
+
     for (unsigned int iAx=0;iAx<6;iAx++)
     {
       if (inertia.at(iAx)<=0)
@@ -457,14 +470,13 @@ namespace phri
     Eigen::VectorXd cartesian_error_actual_target_in_b;
     rosdyn::getFrameDistance(T_base_targetpose, T_b_t , cartesian_error_actual_target_in_b);
 
-    double mu_k =0.78;  // questo parametro settato qui grida vendetta!!!
 
     m_z_norm = m_z.head(3).norm();
     m_vel_norm = cart_vel_of_t_in_b.head(3).norm();
 
     if (m_base_is_reference)
     {
-      double lambda=mu_k*mu_k*cart_vel_of_t_in_b.head(3).norm(); // perché mu_k^2???
+      double lambda=m_mu_k*cart_vel_of_t_in_b.head(3).norm();
       for (int i=0;i<m_z.size();i++)
       {
         if (std::abs(m_z_norm) < m_z_ba)
@@ -481,11 +493,11 @@ namespace phri
         }
         m_scale(i) = (1.0-m_alpha(i));
         double lambda_1 = lambda/m_c0;
-        m_c0_v(i) = m_sigma0*lambda_1*m_alpha(i)/(mu_k*mu_k)*(cart_vel_of_t_in_b(i)/std::abs(cart_vel_of_t_in_b(i)));
+        m_c0_v(i) = m_sigma0*lambda_1*m_alpha(i)/(m_mu_k*m_mu_k)*(cart_vel_of_t_in_b(i)/std::abs(cart_vel_of_t_in_b(i)));
       }
 
       m_Dz = cart_vel_of_t_in_b.head(3) - m_c0_v.cwiseProduct(m_z.cwiseProduct(cart_vel_of_t_in_b.head(3)));
-      m_F_frc = m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_sigma1*cart_vel_of_t_in_b.head(3);
+      m_F_frc = m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cart_vel_of_t_in_b.head(3));
 
       // accelerazione cartesiana
       cart_acc_of_t_in_b.head(3) = m_Jinv.head(3).cwiseProduct(-m_F_frc+m_wrench_of_tool_in_base_with_deadband.head(3));
