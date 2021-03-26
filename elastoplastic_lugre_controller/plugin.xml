@@ -1,0 +1,8 @@
+<library path="lib/libelastoplastic_lugre_controller">
+  <class name="phri/control/CartImpedanceLuGreController" type="phri::control::CartImpedanceLuGreController" base_class_type="controller_interface::ControllerBase">
+    <description>
+      Lugre Impedance Controller
+    </description>
+  </class>
+</library>
+
