@@ -115,6 +115,8 @@ namespace phri
       Eigen::Vector3d m_alpha;
       Eigen::Vector3d m_c0_v;
 
+      //int iter=0;
+
       Eigen::Vector6d m_acc_LuGre;
       Eigen::Vector6d m_vel_LuGre;
       Eigen::Vector6d m_pos_LuGre;

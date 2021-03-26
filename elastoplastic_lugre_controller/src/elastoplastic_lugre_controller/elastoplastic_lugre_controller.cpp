@@ -134,20 +134,12 @@ namespace phri
     m_damping.resize(6);  // (absolute) damping coefficient
     m_k.resize(6);  // spring
 
-    m_target.setZero();
-    m_Dtarget.setZero();
-    m_x.setZero();
-    m_Dx.setZero();
-    m_DDx.setZero();
-    m_wrench_of_tool_in_base_with_deadband.setZero();
 
     m_velocity_limits.resize(m_nAx);
     m_acceleration_limits.resize(m_nAx);
     m_upper_limits.resize(m_nAx);
     m_lower_limits.resize(m_nAx);
 
-    m_z.setZero();  // lugre state
-    m_Dz.setZero();
 
     // read limits from urdf and/or moveit
     for (unsigned int iAx=0; iAx<m_nAx; iAx++)
@@ -403,6 +395,13 @@ namespace phri
 
   void CartImpedanceLuGreController::starting(const ros::Time& time)
   {
+    m_target.setZero();
+    m_Dtarget.setZero();
+    m_x.setZero();
+    m_Dx.setZero();
+    m_DDx.setZero();
+    m_alpha.setZero();
+    m_wrench_of_tool_in_base_with_deadband.setZero();
 
     for (unsigned int iAx=0;iAx<m_nAx;iAx++)
     {
@@ -412,6 +411,11 @@ namespace phri
     }
     m_target=m_x;
     m_Dtarget=m_Dx;
+    ROS_INFO_STREAM("m_x = " << m_x.transpose());
+    ROS_INFO_STREAM("target = " << m_target.transpose());
+
+    m_z.setZero();  // lugre state
+    m_Dz.setZero();
 
     m_queue.callAvailable(); // check for new messages
 
@@ -444,6 +448,8 @@ namespace phri
     }
     m_is_configured = (m_target_ok && m_effort_ok); // true if there are messages from the subscribed topics
 
+    //ROS_INFO_STREAM_COND(iter<10,"m_Dx = " << m_Dx.transpose());
+
     // Transformation matrix  base <- target pose of the tool
     Eigen::Affine3d T_base_targetpose = m_chain_bt->getTransformation(m_target);
 
@@ -464,13 +470,14 @@ namespace phri
     Eigen::VectorXd cartesian_error_actual_target_in_b;
     rosdyn::getFrameDistance(T_base_targetpose, T_b_t , cartesian_error_actual_target_in_b);
 
+    //ROS_INFO_STREAM_COND(iter<10,"cart_vel_of_t_in_b = " << cart_vel_of_t_in_b.transpose());
 
     m_z_norm = m_z.head(3).norm();
     m_vel_norm = cart_vel_of_t_in_b.head(3).norm();
 
     if (m_base_is_reference)
     {
-      double lambda=m_mu_k*cart_vel_of_t_in_b.head(3).norm();
+      double lambda=std::pow(m_mu_k,2.0)*cart_vel_of_t_in_b.head(3).norm();
       for (int i=0;i<m_z.size();i++)
       {
         if (std::abs(m_z_norm) < m_z_ba)
@@ -487,11 +494,12 @@ namespace phri
         }
         m_scale(i) = (1.0-m_alpha(i));
         double lambda_1 = lambda/m_c0;
-        m_c0_v(i) = m_sigma0*lambda_1*m_alpha(i)/(m_mu_k*m_mu_k)*(cart_vel_of_t_in_b(i)/std::abs(cart_vel_of_t_in_b(i)));
+        m_c0_v(i) = m_sigma0*lambda_1*m_alpha(i)/(m_mu_k*m_mu_k);
       }
 
-      m_Dz = cart_vel_of_t_in_b.head(3) - m_c0_v.cwiseProduct(m_z.cwiseProduct(cart_vel_of_t_in_b.head(3)));
+      m_Dz = cart_vel_of_t_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
       m_F_frc = m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cart_vel_of_t_in_b.head(3));
+
 
       // accelerazione cartesiana
       cart_acc_of_t_in_b.head(3) = m_Jinv.head(3).cwiseProduct(-m_F_frc+m_wrench_of_tool_in_base_with_deadband.head(3));
@@ -516,9 +524,12 @@ namespace phri
       // TODO
     }
 
+    //ROS_INFO_STREAM_COND(iter<10,"z = " << m_z.transpose());
+    //ROS_INFO_STREAM_COND(iter<10,"Dz = " << m_Dz.transpose());
 
     //  m_err_norm = cart_err;
     m_cart_acc_of_t_in_b = cart_acc_of_t_in_b;
+    //ROS_INFO_STREAM_COND(iter<10,"cart_acc_of_t_in_b = " << cart_acc_of_t_in_b.transpose());
 
     // Compute svd decomposition of jacobian (to compute joint acceleration "inverting" the Jacobian)
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_of_t_in_b, Eigen::ComputeThinU | Eigen::ComputeThinV);
@@ -528,9 +539,10 @@ namespace phri
     else if (svd.singularValues()(0)/svd.singularValues()(svd.cols()-1) > 1e2)
       ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
 
-    // cartesian acceleration = D(J)*Dq+J*DDq -> DDq=(cartesian_acceleration-D(J)*Dq)
+    // cartesian acceleration = D(J)*Dq+J*DDq -> DDq=J\(cartesian_acceleration-D(J)*Dq)
     m_DDx = svd.solve(cart_acc_of_t_in_b-cart_acc_nl_of_t_in_b);
 
+    //ROS_INFO_STREAM_COND(iter<10,"m_DDx = " << m_DDx.transpose());
 
     // saturate acceleration to compute distance
     Eigen::VectorXd saturated_acc=m_DDx;
@@ -566,21 +578,28 @@ namespace phri
       }
     }
     m_DDx=saturated_acc;
+    //ROS_INFO_STREAM_COND(iter<10,"sat m_DDx = " << m_DDx.transpose());
 
     // integrate acceleration
     m_x  += m_Dx  * period.toSec() + m_DDx*std::pow(period.toSec(),2.0)*0.5;
     m_Dx += m_DDx * period.toSec();
 
+    //ROS_INFO_STREAM_COND(iter<10,"m_Dx = " << m_Dx.transpose());
+    //ROS_INFO_STREAM_COND(iter<10,"m_x = " << m_x.transpose());
+    //ROS_INFO_STREAM_COND(iter<10,"target = " << m_target.transpose());
+
     // saturate position and velocity
     for (unsigned int idx=0;idx<m_nAx;idx++)
     {
       m_x(idx)=std::max(m_lower_limits(idx),std::min(m_upper_limits(idx),m_x(idx)));
-      m_Dx(idx)=std::max(-m_velocity_limits(idx),std::min(m_velocity_limits(idx),m_x(idx)));
+      m_Dx(idx)=std::max(-m_velocity_limits(idx),std::min(m_velocity_limits(idx),m_Dx(idx)));
     }
 
     // send position and velocity command to lower level
     for (unsigned int iAx=0;iAx<m_nAx;iAx++)
       m_joint_handles.at(iAx).setCommand(m_x(iAx),m_Dx(iAx),0.0);
+
+    //iter++;
   }
 
   // callback for the new target position messages
