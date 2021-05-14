@@ -115,8 +115,6 @@ namespace phri
       Eigen::Vector3d m_alpha;
       Eigen::Vector3d m_c0_v;
 
-      //int iter=0;
-
       Eigen::Vector6d m_acc_LuGre;
       Eigen::Vector6d m_vel_LuGre;
       Eigen::Vector6d m_pos_LuGre;
@@ -126,7 +124,9 @@ namespace phri
       Eigen::Vector3d m_Dangle_count;
       Eigen::Vector3d m_real_F_angle;
 
-      double m_old_vel = 0.0;
+      //double m_old_vel = 0.0;
+      double m_old_Dx_norm = 0.0;
+      double m_Tp = 0.5; // Costante di tempo di previsione. ros::Time o ros::Duration?
 
 
       Eigen::Vector6d m_cart_vel_of_t_in_b;
@@ -135,7 +135,8 @@ namespace phri
       Eigen::Vector6d m_cart_acc_of_t_in_b;
 
 
-
+      Eigen::Vector3d m_alpha_prec;
+      Eigen::Vector3d m_max_Dz;
      
       void setTargetCallback(const sensor_msgs::JointStateConstPtr& msg);
       void setWrenchCallback(const geometry_msgs::WrenchStampedConstPtr& msg);

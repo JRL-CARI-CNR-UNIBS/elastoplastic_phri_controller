@@ -523,6 +523,7 @@ namespace phri
       //RESET Z
       double norm_Dx = m_Dx.norm();
       double D_norm_Dx = (norm_Dx - m_old_Dx_norm)/period.toSec(); // Accelerazione
+      // Porva implementare come derivata "esatta"
       double zp1,zp2; // Previsione di ||z|| al tempo Tp e 2Tp
       zp1 = norm_Dx*m_Tp + 0.5*D_norm_Dx*std::pow(m_Tp,2);
       zp2 = norm_Dx*2*m_Tp + 0.5*D_norm_Dx*std::pow(2*m_Tp,2);
