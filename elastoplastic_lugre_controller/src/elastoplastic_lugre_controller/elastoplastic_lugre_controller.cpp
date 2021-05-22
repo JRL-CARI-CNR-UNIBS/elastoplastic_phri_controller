@@ -522,7 +522,8 @@ namespace phri
 
       //RESET Z
       double norm_Dx = m_Dx.norm();
-      double D_norm_Dx = (norm_Dx - m_old_Dx_norm)/period.toSec(); // Accelerazione
+      //double D_norm_Dx = (norm_Dx - m_old_Dx_norm)/period.toSec(); // Accelerazione
+      double D_norm_Dx = (m_DDx.dot(m_Dx))/norm_Dx; //Derivata esatta di norm_Dx
       double zp1,zp2; // Previsione di ||z|| al tempo Tp e 2Tp
       zp1 = norm_Dx*m_Tp + 0.5*D_norm_Dx*std::pow(m_Tp,2);
       zp2 = norm_Dx*2*m_Tp + 0.5*D_norm_Dx*std::pow(2*m_Tp,2);
@@ -530,27 +531,8 @@ namespace phri
         ROS_WARN("Reset of z");
         m_z.setZero();
       }
-      m_old_Dx_norm = m_Dx.norm();
+      //m_old_Dx_norm = m_Dx.norm();
 
-/*    // Reset |e| > max(|z|)
-      for (int i=0; i < 3; i++)
-      {
-        if(m_alpha(i) - m_alpha_prec(i) > 0)
-        {
-          ROS_INFO_STREAM("Direzione [" << i << "]: ALPHA(t) > ALPHA(t-1)");
-          m_max_Dz(i) = 0.0;
-        }
-
-        m_max_Dz(i) = std::max(m_max_Dz(i),m_alpha(i)*std::abs(m_Dz(i)));
-        if(std::abs(m_Dz(i)-cart_vel_of_t_in_b(i)) > m_max_Dz(i))
-        {
-           m_z(i) = 0.0;
-           m_max_Dz(i) = 0.0;
-        }
-
-        m_alpha_prec(i) = m_alpha(i);
-      }
-*/
       // Vecchio reset: Fisso
 /*    double al = std::max(m_alpha(0),std::max(m_alpha(1),m_alpha(2)));
       if (std::abs(m_Dz_norm-m_vel_norm) < 0.001)
