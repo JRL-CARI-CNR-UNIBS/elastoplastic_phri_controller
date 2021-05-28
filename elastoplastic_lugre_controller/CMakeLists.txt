@@ -11,7 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   sensor_msgs
   subscription_notifier
-  itia_basic_hardware_interface
+  cnr_hardware_interface
   name_sorting
   geometry_msgs
 )
@@ -19,8 +19,8 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS  controller_interface controller_manager hardware_interface itia_basic_hardware_interface rosdyn_core roscpp sensor_msgs
-  DEPENDS 
+  CATKIN_DEPENDS  controller_interface controller_manager hardware_interface cnr_hardware_interface rosdyn_core roscpp sensor_msgs
+  DEPENDS
 )
 
 include_directories(
@@ -35,4 +35,3 @@ add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EX
 target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
 )
-

@@ -3,7 +3,7 @@
 
 # include <ros/ros.h>
 # include <ros/callback_queue.h>
-# include <itia_basic_hardware_interface/posveleff_command_interface.h>
+# include <cnr_hardware_interface/posveleff_command_interface.h>
 # include <controller_interface/controller.h>
 # include <subscription_notifier/subscription_notifier.h>
 # include <sensor_msgs/JointState.h>
@@ -17,7 +17,7 @@ namespace phri
 {
   namespace control
   {
-    
+
     class CartImpedanceLuGreController : public controller_interface::Controller<hardware_interface::PosVelEffJointInterface>
     {
     public:
@@ -29,8 +29,8 @@ namespace phri
       void starting(const ros::Time& time);
       // stopping controller (called every time the controller is stopped)
       void stopping(const ros::Time& time);
-    
-      
+
+
     protected:
 
       hardware_interface::PosVelEffJointInterface* m_hw;
@@ -50,10 +50,10 @@ namespace phri
       rosdyn::ChainPtr m_chain_bs;
       Eigen::Vector3d grav;
 
-      
+
       Eigen::VectorXd m_target;
       Eigen::VectorXd m_Dtarget;
-      
+
       Eigen::VectorXd m_x;
       Eigen::VectorXd m_Dx;
       Eigen::VectorXd m_DDx;
@@ -93,7 +93,7 @@ namespace phri
       bool m_target_ok;
       bool m_effort_ok;
       bool m_cartesian_limits_ok;
-      
+
 
       std::shared_ptr<ros_helper::SubscriptionNotifier<sensor_msgs::JointState>> m_target_sub;
       std::shared_ptr<ros_helper::SubscriptionNotifier<geometry_msgs::WrenchStamped>> m_wrench_sub;
@@ -137,15 +137,15 @@ namespace phri
 
       Eigen::Vector3d m_alpha_prec;
       Eigen::Vector3d m_max_Dz;
-     
+
       void setTargetCallback(const sensor_msgs::JointStateConstPtr& msg);
       void setWrenchCallback(const geometry_msgs::WrenchStampedConstPtr& msg);
 
       ~CartImpedanceLuGreController();
-      
+
     };
-    
-    
+
+
   }
 }
 
