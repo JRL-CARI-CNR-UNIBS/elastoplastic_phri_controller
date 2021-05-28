@@ -98,8 +98,9 @@ namespace phri
       std::shared_ptr<ros_helper::SubscriptionNotifier<sensor_msgs::JointState>> m_target_sub;
       std::shared_ptr<ros_helper::SubscriptionNotifier<geometry_msgs::WrenchStamped>> m_wrench_sub;
 
-      ros::Publisher m_scaling_out_pub;
-      std_msgs::Float64MultiArray m_scaling_msg_pub;
+      ros::Publisher m_z_pub;
+      ros::Publisher m_Dz_pub;
+      ros::Publisher m_F_fr_pub;
 
       //LuGre parameters
       Eigen::Vector3d m_z;

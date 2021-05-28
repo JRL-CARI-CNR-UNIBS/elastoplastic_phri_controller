@@ -390,6 +390,10 @@ namespace phri
     m_wrench_sub=std::make_shared<ros_helper::SubscriptionNotifier<geometry_msgs::WrenchStamped>>(m_controller_nh,external_wrench,1);
     m_wrench_sub->setAdvancedCallback(boost::bind(&phri::control::CartImpedanceLuGreController::setWrenchCallback,this,_1));
 
+    m_z_pub = m_controller_nh.advertise<std_msgs::Float64MultiArray>("z",1);
+    m_F_fr_pub = m_controller_nh.advertise<std_msgs::Float64MultiArray>("F_fr",1);
+    m_Dz_pub =m_controller_nh.advertise<std_msgs::Float64MultiArray>("Dz",1);
+
     ROS_DEBUG("Subscribing to %s",joint_target.c_str());
     ROS_DEBUG("Subscribing to %s",external_wrench.c_str());
 
@@ -493,6 +497,7 @@ namespace phri
         }
         else if (std::abs(m_z_norm) >= m_z_ss)
         {
+          ROS_WARN_COND(m_alpha(i) < 1.0,"SET ALPHA");
           m_alpha(i) = 1.0;
         }
         else
@@ -507,6 +512,17 @@ namespace phri
       m_Dz = cart_vel_of_t_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
       m_F_frc =  m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cart_vel_of_t_in_b.head(3));
 
+      std_msgs::Float64MultiArray F_msg;
+      std_msgs::Float64MultiArray z_msg;
+      std_msgs::Float64MultiArray Dz_msg;
+
+      for(int i=0; i< 3; i++)
+        F_msg.data.push_back(m_F_frc(i));
+      m_F_fr_pub.publish(F_msg);
+
+      for (int i=0; i<3;i++)
+        Dz_msg.data.push_back(m_Dz(i));
+      m_Dz_pub.publish(Dz_msg);
 
       // accelerazione cartesiana
       cart_acc_of_t_in_b.head(3) = m_Jinv.head(3).cwiseProduct(-m_F_frc+m_wrench_of_tool_in_base_with_deadband.head(3));
@@ -514,11 +530,18 @@ namespace phri
       m_Dz_norm = m_Dz.norm();
       m_z = m_Dz*period.toSec() + m_z;
 
+
+
+
       for (int i=0;i<m_z.size();i++)
       {
         if (std::abs(m_z(i)) > m_z_ss)
           m_z(i) = m_z(i)/std::abs(m_z(i)) * m_z_ss;
-      }     
+        z_msg.data.push_back(m_z(i));
+      }
+
+      z_msg.data.push_back(m_z.norm());
+      m_z_pub.publish(z_msg);
 
       //RESET Z
       double norm_Dx = m_Dx.norm();
