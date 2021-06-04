@@ -54,6 +54,12 @@ namespace phri
       Eigen::VectorXd m_target;
       Eigen::VectorXd m_Dtarget;
 
+      // delta relative
+      Eigen::VectorXd m_q;
+      Eigen::VectorXd m_Dq;
+      Eigen::VectorXd m_DDq;
+
+      // coordinate giunti assolute
       Eigen::VectorXd m_x;
       Eigen::VectorXd m_Dx;
       Eigen::VectorXd m_DDx;
