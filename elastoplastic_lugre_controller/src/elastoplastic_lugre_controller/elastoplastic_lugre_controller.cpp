@@ -126,6 +126,9 @@ namespace phri
     m_x.resize(m_nAx);  // algorithm output position
     m_Dx.resize(m_nAx);   // algorithm output velocity
     m_DDx.resize(m_nAx);   // algorithm output acceleration
+    m_q.resize(m_nAx);
+    m_Dq.resize(m_nAx);
+    m_DDq.resize(m_nAx);
     m_velocity_limits.resize(m_nAx);
     m_effort_limits.resize(m_nAx);
     m_wrench_of_tool_in_base_with_deadband.resize(6);
@@ -411,6 +414,9 @@ namespace phri
     m_x.setZero();
     m_Dx.setZero();
     m_DDx.setZero();
+    m_q.setZero();
+    m_Dq.setZero();
+    m_DDq.setZero();
     m_alpha.setZero();
     m_wrench_of_tool_in_base_with_deadband.setZero();
 
@@ -459,8 +465,6 @@ namespace phri
     }
     m_is_configured = (m_target_ok && m_effort_ok); // true if there are messages from the subscribed topics
 
-    //ROS_INFO_STREAM_COND(iter<10,"m_Dx = " << m_Dx.transpose());
-
     // Transformation matrix  base <- target pose of the tool
     Eigen::Affine3d T_base_targetpose = m_chain_bt->getTransformation(m_target);
 
@@ -480,8 +484,6 @@ namespace phri
     // Cartesian error between tool pose and target tool pose
     Eigen::VectorXd cartesian_error_actual_target_in_b;
     rosdyn::getFrameDistance(T_base_targetpose, T_b_t , cartesian_error_actual_target_in_b);
-
-    //ROS_INFO_STREAM_COND(iter<10,"cart_vel_of_t_in_b = " << cart_vel_of_t_in_b.transpose());
 
     m_z_norm = m_z.head(3).norm();
     m_vel_norm = cart_vel_of_t_in_b.head(3).norm();
@@ -572,7 +574,6 @@ namespace phri
 
     //  m_err_norm = cart_err;
     m_cart_acc_of_t_in_b = cart_acc_of_t_in_b;
-    //ROS_INFO_STREAM_COND(iter<10,"cart_acc_of_t_in_b = " << cart_acc_of_t_in_b.transpose());
 
     // Compute svd decomposition of jacobian (to compute joint acceleration "inverting" the Jacobian)
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_of_t_in_b, Eigen::ComputeThinU | Eigen::ComputeThinV);
@@ -583,15 +584,13 @@ namespace phri
       ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
 
     // cartesian acceleration = D(J)*Dq+J*DDq -> DDq=J\(cartesian_acceleration-D(J)*Dq)
-    m_DDx = svd.solve(cart_acc_of_t_in_b-cart_acc_nl_of_t_in_b);
-
-    //ROS_INFO_STREAM_COND(iter<10,"m_DDx = " << m_DDx.transpose());
+    m_DDq = svd.solve(cart_acc_of_t_in_b-cart_acc_nl_of_t_in_b);
 
     // saturate acceleration to compute distance
-    Eigen::VectorXd saturated_acc=m_DDx;
+    Eigen::VectorXd saturated_acc=m_DDq;
     double ratio_acc=1;
     for (unsigned int idx=0; idx<m_nAx; idx++)
-      ratio_acc=std::max(ratio_acc,std::abs(m_DDx(idx))/m_acceleration_limits(idx));
+      ratio_acc=std::max(ratio_acc,std::abs(m_DDq(idx))/m_acceleration_limits(idx));
     saturated_acc/=ratio_acc;
 
     // check joint limit feasibility, break if needed
@@ -603,6 +602,8 @@ namespace phri
       double t_break=std::abs(m_Dx(idx))/m_acceleration_limits(idx); // breaking time
       double breaking_distance=0.5*m_acceleration_limits(idx)*std::pow(t_break,2.0);
 
+      //(OK)TODO: Modifica cambiando posizioni e velocità da relative a assolute
+      //TODO: Controlla se ha senso cambiare DDq in funzione della distanza di frenata
       if (m_x(idx) > (m_upper_limits(idx)-breaking_distance))
       {
         if (m_Dx(idx)>0)
@@ -620,12 +621,19 @@ namespace phri
         }
       }
     }
-    m_DDx=saturated_acc;
-    //ROS_INFO_STREAM_COND(iter<10,"sat m_DDx = " << m_DDx.transpose());    
+    m_DDq=saturated_acc;
 
+/*
     // integrate acceleration
     m_x  += m_Dx  * period.toSec() + m_DDx*std::pow(period.toSec(),2.0)*0.5;
     m_Dx += m_DDx * period.toSec();
+*/
+    m_q  += m_Dq  * period.toSec() + m_DDq*std::pow(period.toSec(),2.0)*0.5;
+    m_Dq += m_DDq * period.toSec();
+
+    //(OK)TODO: Variabili assolute, q = q_target+delta;
+    m_x = m_target + m_q;
+    m_Dx = m_Dtarget + m_Dq;
 
     // saturate position and velocity
     for (unsigned int idx=0;idx<m_nAx;idx++)
