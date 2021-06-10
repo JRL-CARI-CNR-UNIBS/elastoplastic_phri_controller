@@ -143,6 +143,8 @@ namespace phri
     m_upper_limits.resize(m_nAx);
     m_lower_limits.resize(m_nAx);
 
+    m_acc_deadband.resize(6);
+
 
     // read limits from urdf and/or moveit
     for (unsigned int iAx=0; iAx<m_nAx; iAx++)
@@ -356,6 +358,16 @@ namespace phri
         m_wrench_deadband(iAx)=wrench_deadband.at(iAx);
     }
 
+    // Acceleration deadband
+    std::vector<double> acc_deadband;
+    if (!m_controller_nh.getParam("acceleration_deadband",acc_deadband)){
+      ROS_WARN("Acceleration deadband doesn't exists, set to zero");
+      acc_deadband.resize(6,0);
+    }
+    for(unsigned int i=0; i < 6; i++){
+      m_acc_deadband(i) = acc_deadband.at(i);
+    }
+
     ROS_INFO("Controller '%s' controls the following joints:",m_controller_nh.getNamespace().c_str());
     for (unsigned int iAx=0;iAx<m_nAx;iAx++)
     {
@@ -365,11 +377,14 @@ namespace phri
       ROS_INFO("acceleration limits = [%f, %f]",-m_acceleration_limits(iAx),m_acceleration_limits(iAx));
     }
 
-
+    //Reset time constant
     if (!m_controller_nh.getParam("Tp",m_Tp)){
       ROS_INFO("Reset time constant to default value: 0.5");
-     }
-    //ROS_WARN_STREAM("Tp = " << m_Tp );
+    }
+
+    if (!m_controller_nh.getParam("kp_acceleration",m_Kp_ang_acc)){
+      ROS_INFO("Missing kp for angular acceleration, set to default = 1");
+    }
 
 
     // subscribe topics
@@ -526,8 +541,18 @@ namespace phri
         Dz_msg.data.push_back(m_Dz(i));
       m_Dz_pub.publish(Dz_msg);
 
-      // accelerazione cartesiana
+      // Cartesian acceleration
       cart_acc_of_t_in_b.head(3) = m_Jinv.head(3).cwiseProduct(-m_F_frc+m_wrench_of_tool_in_base_with_deadband.head(3));
+      cart_acc_of_t_in_b.tail(3) = m_Kp_ang_acc*cartesian_error_actual_target_in_b.tail(3);
+
+      for (int i=0; i < 6; i++) {
+        if (std::abs(cart_acc_of_t_in_b(i)) < std::abs(m_acc_deadband(i))){
+          cart_acc_of_t_in_b(i) = 0.0;
+        }
+      }
+      ROS_INFO_STREAM_THROTTLE(1,"Errore Cartesiano:\n " << cartesian_error_actual_target_in_b);
+      ROS_INFO_STREAM_THROTTLE(1,"Accelerazioni:\n " << cart_acc_of_t_in_b);
+      ROS_INFO_STREAM_THROTTLE(1,"Deadband accelerazioni:\n " << m_acc_deadband.transpose());
 
       m_Dz_norm = m_Dz.norm();
       m_z = m_Dz*period.toSec() + m_z;
@@ -545,7 +570,7 @@ namespace phri
       z_msg.data.push_back(m_z.norm());
       m_z_pub.publish(z_msg);
 
-      //RESET Z
+      //Reset z
       double norm_Dx = m_Dx.norm();
       //double D_norm_Dx = (norm_Dx - m_old_Dx_norm)/period.toSec(); // Accelerazione
       double D_norm_Dx = (m_DDx.dot(m_Dx))/norm_Dx; //Derivata esatta di norm_Dx
@@ -602,8 +627,6 @@ namespace phri
       double t_break=std::abs(m_Dx(idx))/m_acceleration_limits(idx); // breaking time
       double breaking_distance=0.5*m_acceleration_limits(idx)*std::pow(t_break,2.0);
 
-      //(OK)TODO: Modifica cambiando posizioni e velocità da relative a assolute
-      //TODO: Controlla se ha senso cambiare DDq in funzione della distanza di frenata
       if (m_x(idx) > (m_upper_limits(idx)-breaking_distance))
       {
         if (m_Dx(idx)>0)
@@ -631,7 +654,6 @@ namespace phri
     m_q  += m_Dq  * period.toSec() + m_DDq*std::pow(period.toSec(),2.0)*0.5;
     m_Dq += m_DDq * period.toSec();
 
-    //(OK)TODO: Variabili assolute, q = q_target+delta;
     m_x = m_target + m_q;
     m_Dx = m_Dtarget + m_Dq;
 

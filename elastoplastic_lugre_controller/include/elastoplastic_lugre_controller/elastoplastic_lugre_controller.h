@@ -131,10 +131,10 @@ namespace phri
       Eigen::Vector3d m_Dangle_count;
       Eigen::Vector3d m_real_F_angle;
 
-      //double m_old_vel = 0.0;
       double m_old_Dx_norm = 0.0;
-      double m_Tp = 0.5; // Costante di tempo di previsione. ros::Time o ros::Duration?
-
+      double m_Tp = 0.5;
+      Eigen::Vector6d m_acc_deadband;
+      double m_Kp_ang_acc = 1;
 
       Eigen::Vector6d m_cart_vel_of_t_in_b;
 
