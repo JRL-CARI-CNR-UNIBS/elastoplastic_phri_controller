@@ -411,7 +411,6 @@ namespace phri
     m_wrench_sub=std::make_shared<ros_helper::SubscriptionNotifier<geometry_msgs::WrenchStamped>>(m_controller_nh,external_wrench,1);
     m_wrench_sub->setAdvancedCallback(boost::bind(&phri::control::CartImpedanceLuGreController::setWrenchCallback,this,_1));
 
-    m_z_pub = m_controller_nh.advertise<std_msgs::Float64MultiArray>("z",1);
     m_F_fr_pub = m_controller_nh.advertise<std_msgs::Float64MultiArray>("F_fr",1);
     m_Dz_pub =m_controller_nh.advertise<std_msgs::Float64MultiArray>("Dz",1);
 
@@ -535,6 +534,11 @@ namespace phri
       std_msgs::Float64MultiArray F_msg;
       std_msgs::Float64MultiArray z_msg;
       std_msgs::Float64MultiArray Dz_msg;
+      std_msgs::Float64MultiArray cerr_msg;
+
+      for(int i=0; i < 6; i++)
+        cerr_msg.data.push_back(cartesian_error_actual_target_in_b(i));
+      m_pub_cerr.publish(cerr_msg);
 
       for(int i=0; i< 3; i++)
         F_msg.data.push_back(m_F_frc(i));
@@ -561,9 +565,6 @@ namespace phri
       m_Dz_norm = m_Dz.norm();
       m_z = m_Dz*period.toSec() + m_z;
 
-
-
-
       for (int i=0;i<m_z.size();i++)
       {
         if (std::abs(m_z(i)) > m_z_ss)
@@ -586,17 +587,7 @@ namespace phri
         m_z.setZero();
       }
 
-      std_msgs::Float64MultiArray z_msg;
-      std_msgs::Float64MultiArray cerr_msg;
 
-      for(int i=0; i< 3; i++)
-        z_msg.data.push_back(m_z(i));
-      z_msg.data.push_back(m_z.norm());
-      m_pub_z.publish(z_msg);
-
-      for(int i=0; i < 6; i++)
-        cerr_msg.data.push_back(cartesian_error_actual_target_in_b(i));
-      m_pub_cerr.publish(cerr_msg);
 
 
       // Vecchio reset: Fisso
