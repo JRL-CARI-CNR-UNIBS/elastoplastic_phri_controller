@@ -411,8 +411,8 @@ namespace phri
     m_wrench_sub=std::make_shared<ros_helper::SubscriptionNotifier<geometry_msgs::WrenchStamped>>(m_controller_nh,external_wrench,1);
     m_wrench_sub->setAdvancedCallback(boost::bind(&phri::control::CartImpedanceLuGreController::setWrenchCallback,this,_1));
 
-    m_F_fr_pub = m_controller_nh.advertise<std_msgs::Float64MultiArray>("F_fr",1);
-    m_Dz_pub =m_controller_nh.advertise<std_msgs::Float64MultiArray>("Dz",1);
+    m_pub_F_fr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("F_fr",1);
+    m_pub_Dx = m_controller_nh.advertise<std_msgs::Float64MultiArray>("Dx",1);
 
     ROS_DEBUG("Subscribing to %s",joint_target.c_str());
     ROS_DEBUG("Subscribing to %s",external_wrench.c_str());
@@ -542,11 +542,7 @@ namespace phri
 
       for(int i=0; i< 3; i++)
         F_msg.data.push_back(m_F_frc(i));
-      m_F_fr_pub.publish(F_msg);
-
-      for (int i=0; i<3;i++)
-        Dz_msg.data.push_back(m_Dz(i));
-      m_Dz_pub.publish(Dz_msg);
+      m_pub_F_fr.publish(F_msg);
 
       // Cartesian acceleration
       cart_acc_of_t_in_b.head(3) = m_Jinv.head(3).cwiseProduct(-m_F_frc+m_wrench_of_tool_in_base_with_deadband.head(3));
@@ -573,7 +569,7 @@ namespace phri
       }
 
       z_msg.data.push_back(m_z.norm());
-      m_z_pub.publish(z_msg);
+      m_pub_z.publish(z_msg);
 
       //Reset z
       double norm_Dx = m_Dx.norm();
@@ -618,7 +614,7 @@ namespace phri
     // cartesian acceleration = D(J)*Dq+J*DDq -> DDq=J\(cartesian_acceleration-D(J)*Dq)
     m_DDq = svd.solve(cart_acc_of_t_in_b-cart_acc_nl_of_t_in_b);
 
-    // saturate acceleration to compute distance
+    // saturate acceleration to compute disutance
     Eigen::VectorXd saturated_acc=m_DDq;
     double ratio_acc=1;
     for (unsigned int idx=0; idx<m_nAx; idx++)
@@ -670,6 +666,12 @@ namespace phri
       m_x(idx)=std::max(m_lower_limits(idx),std::min(m_upper_limits(idx),m_x(idx)));
       m_Dx(idx)=std::max(-m_velocity_limits(idx),std::min(m_velocity_limits(idx),m_Dx(idx)));
     }
+
+    std_msgs::Float64MultiArray Dx_msg, DDx_msg;
+
+    for (int i=0; i<6;i++)
+      Dx_msg.data.push_back(m_Dx(i));
+    m_pub_Dx.publish(Dx_msg);
 
     // send position and velocity command to lower level
     for (unsigned int iAx=0;iAx<m_nAx;iAx++)
