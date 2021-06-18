@@ -402,6 +402,9 @@ namespace phri
       external_wrench = "external_wrench";
     }
 
+    m_pub_z = m_controller_nh.advertise<std_msgs::Float64MultiArray>("z",1); // Publisher: z
+    m_pub_cerr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("cart_err",1); // Publisher: cartesian error
+
     m_target_sub=std::make_shared<ros_helper::SubscriptionNotifier<sensor_msgs::JointState>>(m_controller_nh,joint_target,1);
     m_target_sub->setAdvancedCallback(boost::bind(&phri::control::CartImpedanceLuGreController::setTargetCallback,this,_1));
 
@@ -534,9 +537,10 @@ namespace phri
           cart_acc_of_t_in_b(i) = 0.0;
         }
       }
-      ROS_INFO_STREAM_THROTTLE(1,"Errore Cartesiano:\n " << cartesian_error_actual_target_in_b);
-      ROS_INFO_STREAM_THROTTLE(1,"Accelerazioni:\n " << cart_acc_of_t_in_b);
-      ROS_INFO_STREAM_THROTTLE(1,"Deadband accelerazioni:\n " << m_acc_deadband.transpose());
+
+      //ROS_INFO_STREAM_THROTTLE(1,"Errore Cartesiano:\n " << cartesian_error_actual_target_in_b);
+      //ROS_INFO_STREAM_THROTTLE(1,"Accelerazioni:\n " << cart_acc_of_t_in_b);
+      //ROS_INFO_STREAM_THROTTLE(1,"Deadband accelerazioni:\n " << m_acc_deadband.transpose());
 
       m_Dz_norm = m_Dz.norm();
       m_z = m_Dz*period.toSec() + m_z;
@@ -558,7 +562,19 @@ namespace phri
         ROS_WARN("Reset of z");
         m_z.setZero();
       }
-      //m_old_Dx_norm = m_Dx.norm();
+
+      std_msgs::Float64MultiArray z_msg;
+      std_msgs::Float64MultiArray cerr_msg;
+
+      for(int i=0; i< 3; i++)
+        z_msg.data.push_back(m_z(i));
+      z_msg.data.push_back(m_z.norm());
+      m_pub_z.publish(z_msg);
+
+      for(int i=0; i < 6; i++)
+        cerr_msg.data.push_back(cartesian_error_actual_target_in_b(i));
+      m_pub_cerr.publish(cerr_msg);
+
 
       // Vecchio reset: Fisso
 /*    double al = std::max(m_alpha(0),std::max(m_alpha(1),m_alpha(2)));

@@ -140,6 +140,9 @@ namespace phri
       bool m_bool_act_reset = false;
       Eigen::Vector6d m_cart_acc_of_t_in_b;
 
+      ros::Publisher m_pub_z;
+      ros::Publisher m_pub_cerr;
+
 
       Eigen::Vector3d m_alpha_prec;
       Eigen::Vector3d m_max_Dz;
