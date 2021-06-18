@@ -667,7 +667,7 @@ namespace phri
       m_Dx(idx)=std::max(-m_velocity_limits(idx),std::min(m_velocity_limits(idx),m_Dx(idx)));
     }
 
-    std_msgs::Float64MultiArray Dx_msg, DDx_msg;
+    std_msgs::Float64MultiArray Dx_msg;
 
     for (int i=0; i<6;i++)
       Dx_msg.data.push_back(m_Dx(i));
