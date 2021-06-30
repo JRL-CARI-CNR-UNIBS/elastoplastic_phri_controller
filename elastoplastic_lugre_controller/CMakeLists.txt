@@ -14,12 +14,13 @@ find_package(catkin REQUIRED COMPONENTS
   cnr_hardware_interface
   name_sorting
   geometry_msgs
+  eigen_conversions
 )
 
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS  controller_interface controller_manager hardware_interface cnr_hardware_interface rosdyn_core roscpp sensor_msgs
+  CATKIN_DEPENDS  controller_interface controller_manager hardware_interface cnr_hardware_interface rosdyn_core roscpp sensor_msgs eigen_conversions
   DEPENDS
 )
 

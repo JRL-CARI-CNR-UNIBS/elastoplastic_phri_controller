@@ -413,6 +413,9 @@ namespace phri
 
     m_pub_F_fr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("F_fr",1);
     m_pub_Dx = m_controller_nh.advertise<std_msgs::Float64MultiArray>("Dx",1);
+    m_pub_wrench_in_base = m_controller_nh.advertise<geometry_msgs::WrenchStamped>("wrench_in_base",1);
+    m_pub_pose_of_t_in_b = m_controller_nh.advertise<geometry_msgs::PoseStamped>("pose_of_t_in_b",1);
+    m_pub_target_of_t_in_b = m_controller_nh.advertise<geometry_msgs::PoseStamped>("target_of_t_in_b",1);
 
     ROS_DEBUG("Subscribing to %s",joint_target.c_str());
     ROS_DEBUG("Subscribing to %s",external_wrench.c_str());
@@ -481,6 +484,24 @@ namespace phri
       ROS_ERROR("Something wrong in the callback: %s",e.what());
     }
     m_is_configured = (m_target_ok && m_effort_ok); // true if there are messages from the subscribed topics
+
+    // is robot following a trj?
+
+    double execution_ratio=0;
+    if ( execution_ratio<1 && (trj_status==Idle) )
+    {
+      trj_status=TransitionToTrjFollowing;
+      t_start_switch=ros::Time::now();
+    }
+    else if ((trj_status==TransitionToTrjFollowing) && (ros::Time::now()-t_start_switch).toSec()>2.0)
+    {
+      trj_status=TrjFollowing;
+    }
+
+    if (trj_status==TransitionToTrjFollowing)
+    {
+
+    }
 
     // Transformation matrix  base <- target pose of the tool
     Eigen::Affine3d T_base_targetpose = m_chain_bt->getTransformation(m_target);
@@ -673,6 +694,18 @@ namespace phri
       Dx_msg.data.push_back(m_Dx(i));
     m_pub_Dx.publish(Dx_msg);
 
+    geometry_msgs::PoseStamped pose_t_in_b;
+    tf::poseEigenToMsg(T_b_t,pose_t_in_b.pose);
+    pose_t_in_b.header.frame_id=m_base_frame;
+    pose_t_in_b.header.stamp=ros::Time::now();
+    m_pub_pose_of_t_in_b.publish(pose_t_in_b);
+
+    geometry_msgs::PoseStamped target_t_in_b;
+    tf::poseEigenToMsg(T_base_targetpose,target_t_in_b.pose);
+    target_t_in_b.header.frame_id=m_base_frame;
+    target_t_in_b.header.stamp=pose_t_in_b.header.stamp;
+    m_pub_target_of_t_in_b.publish(target_t_in_b);
+
     // send position and velocity command to lower level
     for (unsigned int iAx=0;iAx<m_nAx;iAx++)
       m_joint_handles.at(iAx).setCommand(m_x(iAx),m_Dx(iAx),0.0);
@@ -749,6 +782,21 @@ namespace phri
         else
           m_wrench_of_tool_in_base_with_deadband(idx)=0;
       }
+
+      geometry_msgs::WrenchStamped wrench_in_base_msg;
+      wrench_in_base_msg.header.stamp=msg->header.stamp;
+      wrench_in_base_msg.header.frame_id=m_base_frame;
+      // force
+      wrench_in_base_msg.wrench.force.x=m_wrench_of_tool_in_base_with_deadband(0);
+      wrench_in_base_msg.wrench.force.y=m_wrench_of_tool_in_base_with_deadband(1);
+      wrench_in_base_msg.wrench.force.z=m_wrench_of_tool_in_base_with_deadband(2);
+      // torque
+      wrench_in_base_msg.wrench.torque.x=m_wrench_of_tool_in_base_with_deadband(3);
+      wrench_in_base_msg.wrench.torque.y=m_wrench_of_tool_in_base_with_deadband(4);
+      wrench_in_base_msg.wrench.torque.z=m_wrench_of_tool_in_base_with_deadband(5);
+
+
+      m_pub_wrench_in_base.publish(wrench_in_base_msg);
 
       if (!m_effort_ok)
         ROS_INFO("First wrench message received");

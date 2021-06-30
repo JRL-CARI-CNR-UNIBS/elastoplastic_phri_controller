@@ -8,15 +8,25 @@
 # include <subscription_notifier/subscription_notifier.h>
 # include <sensor_msgs/JointState.h>
 # include <geometry_msgs/WrenchStamped.h>
+# include <geometry_msgs/PoseStamped.h>
 # include <std_msgs/Float64MultiArray.h>
 # include <rosdyn_core/primitives.h>
 # include <name_sorting/name_sorting.h>
 # include <ros/timer.h>
+#include <eigen_conversions/eigen_msg.h>
 
 namespace phri
 {
   namespace control
   {
+  enum TrjStatus
+  {
+    Idle,
+    TransitionToTrjFollowing,
+    TrjFollowing,
+    TransitionToIdle
+  };
+
 
     class CartImpedanceLuGreController : public controller_interface::Controller<hardware_interface::PosVelEffJointInterface>
     {
@@ -39,6 +49,8 @@ namespace phri
       ros::NodeHandle m_controller_nh;
       ros::CallbackQueue m_queue;
 
+      TrjStatus trj_status;
+      ros::Time t_start_switch;
 
       unsigned int m_nAx;
       std::vector< std::string > m_joint_names;
@@ -141,6 +153,10 @@ namespace phri
       ros::Publisher m_pub_cerr;
       ros::Publisher m_pub_Dx;
       ros::Publisher m_pub_F_fr;
+      ros::Publisher m_pub_wrench_in_base;
+      ros::Publisher m_pub_pose_of_t_in_b;
+      ros::Publisher m_pub_target_of_t_in_b;
+
 
 
 
