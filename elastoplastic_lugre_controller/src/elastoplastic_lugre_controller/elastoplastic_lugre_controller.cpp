@@ -133,8 +133,10 @@ namespace phri
     m_effort_limits.resize(m_nAx);
     m_wrench_of_tool_in_base_with_deadband.resize(6);
 
-    m_Jinv.resize(6);  // inverse of the desired inertia
-    m_damping.resize(6);  // (absolute) damping coefficient
+    m_idle_Jinv.resize(6);  // inverse of the desired inertia (idle)
+    m_idle_damping.resize(6);  // (absolute) damping coefficient (idle)
+    m_trj_Jinv.resize(6);  // inverse of the desired inertia (trj)
+    m_trj_damping.resize(6);  // (absolute) damping coefficient (trj)
     m_k.resize(6);  // spring
 
 
@@ -195,8 +197,9 @@ namespace phri
         m_acceleration_limits(iAx)=10*m_velocity_limits(iAx);
     }
 
-    // read impedance parameters
+    // Impedance Parameters
     std::vector<double> inertia, damping, stiffness, wrench_deadband;
+    // Inertia
     if (!m_controller_nh.getParam("inertia", inertia))
     {
       ROS_FATAL_STREAM(m_controller_nh.getNamespace()+"/inertia does not exist");
@@ -210,6 +213,8 @@ namespace phri
       return false;
     }
 
+    /*
+    // Stiffness
     if (!m_controller_nh.getParam("stiffness", stiffness))
     {
       ROS_FATAL_STREAM(m_controller_nh.getNamespace()+"/stiffness does not exist");
@@ -223,11 +228,12 @@ namespace phri
       return false;
     }
 
+    // Damping (or Damping Ratio)
     // if damping_ratio is defined, using relative damping
     if (m_controller_nh.hasParam("damping_ratio"))
     {
       std::vector<double> damping_ratio;
-      if (!m_controller_nh.getParam("damping_ratio", damping_ratio))
+      if (!m_controller_nh.getParam("damping_ratio_idle", damping_ratio))
       {
         ROS_FATAL_STREAM(m_controller_nh.getNamespace()+"/damping_ratio is not a vector of doubles");
         ROS_FATAL("ERROR DURING INITIALIZATION CONTROLLER '%s'", m_controller_nh.getNamespace().c_str());
@@ -251,20 +257,29 @@ namespace phri
         damping.at(iAx)=2*damping_ratio.at(iAx)*std::sqrt(stiffness.at(iAx)*inertia.at(iAx));
       }
     }
-    else if (!m_controller_nh.getParam("damping", damping)) // if damping_ratio is not defined, using absolute damping
+    else if (!m_controller_nh.getParam("damping_idle", damping)) // if damping_ratio is not defined, using absolute damping
     {
       ROS_FATAL_STREAM(m_controller_nh.getNamespace()+"/damping does not exist");
       ROS_FATAL("ERROR DURING INITIALIZATION CONTROLLER '%s'", m_controller_nh.getNamespace().c_str());
       return false;
     }
+    */
+
+    if (!m_controller_nh.getParam("damping", damping)) // if damping_ratio is not defined, using absolute damping
+    {
+          ROS_FATAL_STREAM(m_controller_nh.getNamespace()+"/damping does not exist");
+          ROS_FATAL("ERROR DURING INITIALIZATION CONTROLLER '%s'", m_controller_nh.getNamespace().c_str());
+          return false;
+    }
 
     if (damping.size()!=6)
     {
-      ROS_ERROR("%s/damping should be have six values", m_controller_nh.getNamespace().c_str());
+      ROS_ERROR("%s/damping should have six values", m_controller_nh.getNamespace().c_str());
       return false;
     }
 
 
+    // Wrench Deadband
     if (!m_controller_nh.getParam("wrench_deadband", wrench_deadband))
     {
       ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/wrench_deadband does not exist, set to zero");
@@ -278,37 +293,36 @@ namespace phri
     }
 
 
-    // lugre parameters
-    if (!m_controller_nh.getParam("sigma0", m_sigma0 ))
+    // LuGre Parameters
+    if (!m_controller_nh.getParam("sigma0", m_idle_sigma0 ))
     {
       ROS_ERROR("%s/sigma0 does not exist", m_controller_nh.getNamespace().c_str());
       return false;
     }
 
-    if (!m_controller_nh.getParam("sigma1", m_sigma1 ))
+    if (!m_controller_nh.getParam("sigma1", m_idle_sigma1 ))
     {
       ROS_ERROR("%s/sigma1 does not exist", m_controller_nh.getNamespace().c_str());
       return false;
     }
 
-    if (!m_controller_nh.getParam("c0", m_c0 ))
+    if (!m_controller_nh.getParam("c0", m_idle_c0 ))
     {
       ROS_ERROR("%s/c0 does not exist", m_controller_nh.getNamespace().c_str());
       return false;
     }
 
-    if (!m_controller_nh.getParam("z_ss", m_z_ss ))
+    if (!m_controller_nh.getParam("z_ss", m_idle_z_ss ))
     {
-      ROS_ERROR("%s/z_ss does not exist", m_controller_nh.getNamespace().c_str());
-      return false;
+      ROS_WARN("%s/z_ss does not exist. Using c0/sigma0", m_controller_nh.getNamespace().c_str());
+      m_idle_z_ss = m_idle_c0/m_idle_sigma0;
     }
 
-    if (!m_controller_nh.getParam("z_ba", m_z_ba ))
+    if (!m_controller_nh.getParam("z_ba", m_idle_z_ba ))
     {
-      ROS_ERROR("%s/z_ba does not exist", m_controller_nh.getNamespace().c_str());
-      return false;
+      ROS_WARN("%s/z_ba does not exist. Using 0.9*z_ss", m_controller_nh.getNamespace().c_str());
+      m_idle_z_ba = 0.9*m_idle_z_ss;
     }
-
 
     if (!m_controller_nh.getParam("mu_k", m_mu_k ))
     {
@@ -326,7 +340,7 @@ namespace phri
       }
       else
       {
-        m_Jinv(iAx)=1.0/inertia.at(iAx);
+        m_idle_Jinv(iAx)=1.0/inertia.at(iAx);
       }
 
       if (damping.at(iAx)<=0)
@@ -336,9 +350,10 @@ namespace phri
       }
       else
       {
-        m_damping(iAx)=damping.at(iAx);
+        m_idle_damping(iAx)=damping.at(iAx);
       }
 
+/*
       if (stiffness.at(iAx)<0)
       {
         ROS_ERROR("stiffness value of Joint %s is negative",m_joint_names.at(iAx).c_str());
@@ -348,6 +363,7 @@ namespace phri
       {
         m_k(iAx)=stiffness.at(iAx);
       }
+*/
 
       if (wrench_deadband.at(iAx)<0)
       {
@@ -357,11 +373,100 @@ namespace phri
       else
         m_wrench_deadband(iAx)=wrench_deadband.at(iAx);
     }
+    // End Idle Parameters
+
+    // Trajectory following parameters
+    std::vector<double> inertia_trj, damping_trj;
+    // Inertia
+    if (!m_controller_nh.getParam("inertia_trj", inertia_trj))
+    {
+      ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/inertia_trj does not exist. Using "+m_controller_nh.getNamespace()+"/intertia instead");
+      inertia_trj = inertia;
+    }
+    if (inertia_trj.size()!=6)
+    {
+      ROS_ERROR("inertia should be have six values");
+      return false;
+    }
+
+    if (!m_controller_nh.getParam("damping_trj", damping_trj)) // if damping_ratio is not defined, using absolute damping
+    {
+      ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/damping_trj does not exist. Using "+m_controller_nh.getNamespace()+"/damping instead");
+      damping_trj = damping;
+    }
+    if (damping_trj.size()!=6)
+    {
+      ROS_ERROR("%s/damping should have six values", m_controller_nh.getNamespace().c_str());
+      return false;
+    }
+
+    for (unsigned int iAx=0;iAx<6;iAx++)
+    {
+      if (inertia_trj.at(iAx)<=0)
+      {
+        ROS_ERROR("inertia value of Joint %s is not positive",m_joint_names.at(iAx).c_str());
+        return false;
+      }
+      else
+      {
+        m_trj_Jinv(iAx)=1.0/inertia_trj.at(iAx);
+      }
+
+      if (damping_trj.at(iAx)<=0)
+      {
+        ROS_ERROR("damping value of Joint %s is not positive",m_joint_names.at(iAx).c_str());
+        return false;
+      }
+      else
+      {
+        m_trj_damping(iAx)=damping_trj.at(iAx);
+      }
+    }
+
+    // LuGre Parameters
+    if (!m_controller_nh.getParam("sigma0_trj", m_trj_sigma0 ))
+    {
+      ROS_WARN("%s/sigma0_trj does not exist. Using %s/sigma0.", m_controller_nh.getNamespace().c_str(), m_controller_nh.getNamespace().c_str());
+      m_trj_sigma0 = m_idle_sigma0;
+    }
+
+    if (!m_controller_nh.getParam("sigma1_trj", m_trj_sigma1 ))
+    {
+      ROS_WARN("%s/sigma1_trj does not exist. Using %s/sigma1.", m_controller_nh.getNamespace().c_str(), m_controller_nh.getNamespace().c_str());
+      m_trj_sigma1 = m_idle_sigma1;
+    }
+
+    if (!m_controller_nh.getParam("c0_trj", m_trj_c0 ))
+    {
+      ROS_WARN("%s/c0_trj does not exist. Using %s/c0.", m_controller_nh.getNamespace().c_str(),m_controller_nh.getNamespace().c_str());
+      m_trj_c0 = m_idle_c0;
+    }
+
+    if (!m_controller_nh.getParam("z_ss_trj", m_trj_z_ss ))
+    {
+      ROS_WARN("%s/z_ss does not exist. Using c0/sigma0", m_controller_nh.getNamespace().c_str());
+      m_trj_z_ss = m_trj_c0/m_trj_sigma0;
+    }
+
+    if (!m_controller_nh.getParam("z_ba_trj", m_trj_z_ba ))
+    {
+      ROS_WARN("%s/z_ba_trj does not exist. Using 0.9*z_ss", m_controller_nh.getNamespace().c_str());
+      m_trj_z_ba = 0.9*m_trj_z_ss;
+    }
+
+    // Initial values
+    m_sigma0 = m_idle_sigma0;
+    m_sigma1 = m_idle_sigma1;
+    m_c0 = m_idle_c0;
+    m_z_ss = m_idle_z_ss;
+    m_z_ba = m_idle_z_ba;
+    m_Jinv = m_idle_Jinv;
+    m_damping = m_idle_damping;
 
     // Acceleration deadband
     std::vector<double> acc_deadband;
     if (!m_controller_nh.getParam("acceleration_deadband",acc_deadband)){
-      ROS_WARN("Acceleration deadband doesn't exists, set to zero");
+      ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/acceleration_deadband doesn't exist, set to zero");
       acc_deadband.resize(6,0);
     }
     for(unsigned int i=0; i < 6; i++){
@@ -377,13 +482,15 @@ namespace phri
       ROS_INFO("acceleration limits = [%f, %f]",-m_acceleration_limits(iAx),m_acceleration_limits(iAx));
     }
 
-    //Reset time constant
+    // Reset time constant
     if (!m_controller_nh.getParam("Tp",m_Tp)){
-      ROS_INFO("Reset time constant to default value: 0.5");
+      ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/Tp does not exist. Reset time constant set to default value: 0.5");
+      m_Tp = 0.5;
     }
-
+    // Controller for angular accelerations
     if (!m_controller_nh.getParam("kp_acceleration",m_Kp_ang_acc)){
-      ROS_INFO("Missing kp for angular acceleration, set to default = 1");
+      ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/kp_acceleration does not exist, set to default: 1");
+      m_Kp_ang_acc = 1;
     }
 
 
@@ -402,15 +509,41 @@ namespace phri
       external_wrench = "external_wrench";
     }
 
-    m_pub_z = m_controller_nh.advertise<std_msgs::Float64MultiArray>("z",1); // Publisher: z
-    m_pub_cerr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("cart_err",1); // Publisher: cartesian error
+    if (!m_controller_nh.getParam("interpolation_to_trj",T_to_trj))
+    {
+      ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/interpolation_to_trj does not exist. Set to default: 1");
+      T_to_trj = 1;
+    }
+    if(T_to_trj <= 0)
+    {
+      ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/interpolation_to_trj value is less or equal to zero. Set to 0.1");
+      T_to_trj = 0.1;
+    }
 
+    if (!m_controller_nh.getParam("interpolation_to_idle",T_to_idle))
+    {
+      ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/interpolation_to_idle does not exist. Set to default: 1");
+      T_to_idle = 1;
+    }
+    if(T_to_idle <= 0)
+    {
+      ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/interpolation_to_idle value is less or equal to zero. Set to 0.1");
+      T_to_idle = 0.1;
+    }
+
+    //Subscribers
     m_target_sub=std::make_shared<ros_helper::SubscriptionNotifier<sensor_msgs::JointState>>(m_controller_nh,joint_target,1);
     m_target_sub->setAdvancedCallback(boost::bind(&phri::control::CartImpedanceLuGreController::setTargetCallback,this,_1));
 
     m_wrench_sub=std::make_shared<ros_helper::SubscriptionNotifier<geometry_msgs::WrenchStamped>>(m_controller_nh,external_wrench,1);
     m_wrench_sub->setAdvancedCallback(boost::bind(&phri::control::CartImpedanceLuGreController::setWrenchCallback,this,_1));
 
+    m_exec_ratio_sub=std::make_shared<ros_helper::SubscriptionNotifier<std_msgs::Float64>>(m_controller_nh,"/execution_ratio",1);
+    m_exec_ratio_sub->setAdvancedCallback(boost::bind(&phri::control::CartImpedanceLuGreController::getRatioCallback,this,_1));
+
+    // Publishers
+    m_pub_z = m_controller_nh.advertise<std_msgs::Float64MultiArray>("z",1);
+    m_pub_cerr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("cart_err",1);
     m_pub_F_fr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("F_fr",1);
     m_pub_Dx = m_controller_nh.advertise<std_msgs::Float64MultiArray>("Dx",1);
     m_pub_wrench_in_base = m_controller_nh.advertise<geometry_msgs::WrenchStamped>("wrench_in_base",1);
@@ -452,9 +585,11 @@ namespace phri
     m_z.setZero();  // lugre state
     m_Dz.setZero();
 
+    trj_status = Idle;
+
     m_queue.callAvailable(); // check for new messages
 
-    m_alpha_prec.setZero();
+    //m_alpha_prec.setZero();
 
     ROS_INFO("Controller '%s' well started at time %f",m_controller_nh.getNamespace().c_str(),time.toSec());
     m_is_configured = (m_target_ok && m_effort_ok);
@@ -486,22 +621,85 @@ namespace phri
     m_is_configured = (m_target_ok && m_effort_ok); // true if there are messages from the subscribed topics
 
     // is robot following a trj?
-
-    double execution_ratio=0;
-    if ( execution_ratio<1 && (trj_status==Idle) )
+    if ((trj_status==Idle) && (m_execution_ratio < 1.0))
     {
       trj_status=TransitionToTrjFollowing;
       t_start_switch=ros::Time::now();
+      ROS_INFO("New state: Transition to Trajectory Following");
     }
-    else if ((trj_status==TransitionToTrjFollowing) && (ros::Time::now()-t_start_switch).toSec()>2.0)
+    else if ((trj_status==TransitionToTrjFollowing) && (ros::Time::now()-t_start_switch).toSec()>T_to_trj)
     {
       trj_status=TrjFollowing;
+      ROS_INFO("New state: Trajectory Following");
     }
-
-    if (trj_status==TransitionToTrjFollowing)
+    else if ((trj_status==TrjFollowing) && m_execution_ratio >= 1.0)
     {
-
+      trj_status = TransitionToIdle;
+      t_start_switch=ros::Time::now();
+      ROS_INFO("New state: Transition to Idle");
     }
+    else if ((trj_status==TransitionToIdle) && (ros::Time::now()-t_start_switch).toSec()>T_to_idle)
+    {
+      trj_status = Idle;
+      ROS_INFO("New state: Idle");
+    }
+
+    //ROS_INFO_STREAM_THROTTLE(2,"Stato : " << trj_status);
+
+    double evol_time;
+    // Parameters interpolations
+    switch(trj_status){
+      case TransitionToTrjFollowing:
+        evol_time = (ros::Time::now()-t_start_switch).toSec()/(T_to_trj);
+        m_Jinv = evol_time*(m_trj_Jinv-m_idle_Jinv)+m_idle_Jinv;
+        m_damping = evol_time*(m_trj_damping-m_idle_damping)+m_idle_damping;
+        m_sigma0 = evol_time*(m_trj_sigma0-m_idle_sigma0)+m_idle_sigma0;
+        m_sigma1 = evol_time*(m_trj_sigma1-m_idle_sigma1)+m_idle_sigma1;
+        m_c0 = evol_time*(m_trj_c0-m_idle_c0)+m_idle_c0;
+        m_z_ss = evol_time*(m_trj_z_ss-m_idle_z_ss)+m_idle_z_ss;
+        m_z_ba = evol_time*(m_trj_z_ba-m_idle_z_ba)+m_idle_z_ba;
+      break;
+      case TransitionToIdle:
+        evol_time = (ros::Time::now()-t_start_switch).toSec()/(T_to_idle);
+        m_Jinv = evol_time*(m_idle_Jinv-m_trj_Jinv)+m_trj_Jinv;
+        m_damping = evol_time*(m_idle_damping-m_trj_damping)+m_trj_damping;
+        m_sigma0 = evol_time*(m_idle_sigma0-m_trj_sigma0)+m_trj_sigma0;
+        m_sigma1 = evol_time*(m_idle_sigma1-m_trj_sigma1)+m_trj_sigma1;
+        m_c0 = evol_time*(m_idle_c0-m_trj_c0)+m_trj_c0;
+        m_z_ss = evol_time*(m_idle_z_ss-m_trj_z_ss)+m_trj_z_ss;
+        m_z_ba = evol_time*(m_idle_z_ba-m_trj_z_ba)+m_trj_z_ba;
+      break;
+      case Idle:
+        m_Jinv = m_idle_Jinv;
+        m_damping = m_idle_damping;
+        m_sigma0 = m_idle_sigma0;
+        m_sigma1 = m_idle_sigma1;
+        m_c0 = m_idle_c0;
+        m_z_ss = m_idle_z_ss;
+        m_z_ba = m_idle_z_ba;
+      break;
+      case TrjFollowing:
+        m_Jinv = m_trj_Jinv;
+        m_damping = m_trj_damping;
+        m_sigma0 = m_trj_sigma0;
+        m_sigma1 = m_trj_sigma1;
+        m_c0 = m_trj_c0;
+        m_z_ss = m_trj_z_ss;
+        m_z_ba = m_trj_z_ba;
+    }
+
+    /*
+       ROS_INFO_STREAM_THROTTLE(0.5,"\nStato : " << trj_status <<
+                  "\n\nJinv : " << m_Jinv <<
+                  "\ndamping : " << m_damping <<
+                  "\nsigma0 : " << m_sigma0 <<
+                  "\nsigma1 : " << m_sigma1 <<
+                  "\nc0 : " << m_c0 <<
+                  "\nz_ss : " << m_z_ss <<
+                  "\nz_ba : " << m_z_ba);
+    */
+
+
 
     // Transformation matrix  base <- target pose of the tool
     Eigen::Affine3d T_base_targetpose = m_chain_bt->getTransformation(m_target);
@@ -575,10 +773,6 @@ namespace phri
         }
       }
 
-      //ROS_INFO_STREAM_THROTTLE(1,"Errore Cartesiano:\n " << cartesian_error_actual_target_in_b);
-      //ROS_INFO_STREAM_THROTTLE(1,"Accelerazioni:\n " << cart_acc_of_t_in_b);
-      //ROS_INFO_STREAM_THROTTLE(1,"Deadband accelerazioni:\n " << m_acc_deadband.transpose());
-
       m_Dz_norm = m_Dz.norm();
       m_z = m_Dz*period.toSec() + m_z;
 
@@ -600,7 +794,7 @@ namespace phri
       zp1 = norm_Dx*m_Tp + 0.5*D_norm_Dx*std::pow(m_Tp,2);
       zp2 = norm_Dx*2*m_Tp + 0.5*D_norm_Dx*std::pow(2*m_Tp,2);
       if (std::abs(zp1) < m_z_ba && std::abs(zp2) < m_z_ba && m_alpha(1) > 0.999){
-        ROS_WARN("Reset of z");
+        ROS_WARN("Forced reset of z");
         m_z.setZero();
       }
 
@@ -635,7 +829,7 @@ namespace phri
     // cartesian acceleration = D(J)*Dq+J*DDq -> DDq=J\(cartesian_acceleration-D(J)*Dq)
     m_DDq = svd.solve(cart_acc_of_t_in_b-cart_acc_nl_of_t_in_b);
 
-    // saturate acceleration to compute disutance
+    // saturate acceleration to compute distance
     Eigen::VectorXd saturated_acc=m_DDq;
     double ratio_acc=1;
     for (unsigned int idx=0; idx<m_nAx; idx++)
@@ -808,6 +1002,19 @@ namespace phri
       m_effort_ok=false;
     }
 
+  }
+
+  void CartImpedanceLuGreController::getRatioCallback(const std_msgs::Float64::ConstPtr& msg){
+    m_execution_ratio = msg->data;
+    ROS_INFO_ONCE("Execution Ratio Received");
+    if (m_execution_ratio > 1){
+      ROS_WARN("Execution ratio greater than 1. Using 1");
+      m_execution_ratio = 1;
+    }
+    else if (m_execution_ratio < 0) {
+      ROS_WARN("Execution ratio is negative. Using 0");
+      m_execution_ratio = 0;
+    }
   }
 
   }  // namespace control

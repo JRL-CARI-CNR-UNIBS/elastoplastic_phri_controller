@@ -10,6 +10,7 @@
 # include <geometry_msgs/WrenchStamped.h>
 # include <geometry_msgs/PoseStamped.h>
 # include <std_msgs/Float64MultiArray.h>
+# include <std_msgs/Float64.h>
 # include <rosdyn_core/primitives.h>
 # include <name_sorting/name_sorting.h>
 # include <ros/timer.h>
@@ -19,13 +20,13 @@ namespace phri
 {
   namespace control
   {
-  enum TrjStatus
-  {
-    Idle,
-    TransitionToTrjFollowing,
-    TrjFollowing,
-    TransitionToIdle
-  };
+    enum TrjStatus
+    {
+      Idle,
+      TransitionToTrjFollowing,
+      TrjFollowing,
+      TransitionToIdle
+    };
 
 
     class CartImpedanceLuGreController : public controller_interface::Controller<hardware_interface::PosVelEffJointInterface>
@@ -49,8 +50,10 @@ namespace phri
       ros::NodeHandle m_controller_nh;
       ros::CallbackQueue m_queue;
 
+      // Parameters switching
       TrjStatus trj_status;
       ros::Time t_start_switch;
+      double T_to_trj, T_to_idle;
 
       unsigned int m_nAx;
       std::vector< std::string > m_joint_names;
@@ -66,16 +69,17 @@ namespace phri
       Eigen::VectorXd m_target;
       Eigen::VectorXd m_Dtarget;
 
-      // delta relative
+      // relative Delta
       Eigen::VectorXd m_q;
       Eigen::VectorXd m_Dq;
       Eigen::VectorXd m_DDq;
 
-      // coordinate giunti assolute
+      // Absolute joint's variables
       Eigen::VectorXd m_x;
       Eigen::VectorXd m_Dx;
       Eigen::VectorXd m_DDx;
 
+      // Joint limits
       Eigen::VectorXd m_velocity_limits;
       Eigen::VectorXd m_acceleration_limits;
       Eigen::VectorXd m_effort_limits;
@@ -85,8 +89,9 @@ namespace phri
       double m_cart_acceleration_limit;
       double m_cart_force_limit;
 
-      Eigen::Vector6d m_Jinv;
-      Eigen::Vector6d m_damping;
+      // Impedence Parameters
+      Eigen::Vector6d m_idle_Jinv, m_trj_Jinv, m_Jinv;
+      Eigen::Vector6d m_idle_damping, m_trj_damping, m_damping;
       Eigen::Vector6d m_k;
       Eigen::Vector6d m_wrench_deadband;
 
@@ -116,20 +121,26 @@ namespace phri
       std::shared_ptr<ros_helper::SubscriptionNotifier<sensor_msgs::JointState>> m_target_sub;
       std::shared_ptr<ros_helper::SubscriptionNotifier<geometry_msgs::WrenchStamped>> m_wrench_sub;
 
-      //LuGre parameters
+      //LuGre variables
       Eigen::Vector3d m_z;
       double m_z_norm;
       Eigen::Vector3d m_Dz;
-      double m_sigma0;
       Eigen::Vector3d m_scale;
-      double m_sigma1;
-      double m_c0;
-      double m_z_ba;
-      double m_z_ss;
       Eigen::Vector3d m_F_frc;
       Eigen::Vector3d m_alpha;
       Eigen::Vector3d m_c0_v;
 
+      // LuGre parameters
+      double m_idle_sigma0, m_trj_sigma0, m_sigma0;
+      double m_idle_sigma1,m_trj_sigma1, m_sigma1;
+      double m_idle_c0, m_trj_c0, m_c0;
+      double m_idle_z_ba, m_trj_z_ba, m_z_ba;
+      double m_idle_z_ss, m_trj_z_ss, m_z_ss;
+
+      double m_Tp;
+      double m_Kp_ang_acc;
+
+      /*
       Eigen::Vector6d m_acc_LuGre;
       Eigen::Vector6d m_vel_LuGre;
       Eigen::Vector6d m_pos_LuGre;
@@ -138,12 +149,9 @@ namespace phri
       Eigen::Vector3d m_old_angle_count;
       Eigen::Vector3d m_Dangle_count;
       Eigen::Vector3d m_real_F_angle;
+      */
 
-      double m_old_Dx_norm = 0.0;
-      double m_Tp = 0.5;
       Eigen::Vector6d m_acc_deadband;
-      double m_Kp_ang_acc = 1;
-
       Eigen::Vector6d m_cart_vel_of_t_in_b;
 
       bool m_bool_act_reset = false;
@@ -157,14 +165,17 @@ namespace phri
       ros::Publisher m_pub_pose_of_t_in_b;
       ros::Publisher m_pub_target_of_t_in_b;
 
+      std::shared_ptr<ros_helper::SubscriptionNotifier<std_msgs::Float64>> m_exec_ratio_sub;
+      double m_execution_ratio=1.0;
 
-
-
+      /*
       Eigen::Vector3d m_alpha_prec;
       Eigen::Vector3d m_max_Dz;
+      */
 
       void setTargetCallback(const sensor_msgs::JointStateConstPtr& msg);
       void setWrenchCallback(const geometry_msgs::WrenchStampedConstPtr& msg);
+      void getRatioCallback(const std_msgs::Float64::ConstPtr& msg);
 
       ~CartImpedanceLuGreController();
 
