@@ -492,6 +492,10 @@ namespace phri
       ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/kp_acceleration does not exist, set to default: 1");
       m_Kp_ang_acc = 1;
     }
+    if (!m_controller_nh.getParam("ks_acceleration",m_Ks_ang_acc)){
+      ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/ks_acceleration does not exist, set to default: 1");
+      m_Ks_ang_acc = 1;
+    }
 
 
     // subscribe topics
@@ -529,6 +533,16 @@ namespace phri
     {
       ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/interpolation_to_idle value is less or equal to zero. Set to 0.1");
       T_to_idle = 0.1;
+    }
+
+    if (!m_controller_nh.getParam("trj_ratio_limit",m_trj_ratio_limit))
+    {
+      ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/trj_ratio_limit does not exist. Set to default: 1");
+      m_trj_ratio_limit = 1;
+    }
+    if (m_trj_ratio_limit > 1 || m_trj_ratio_limit < 0) {
+      ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/trj_ratio_limit greater than 1 or less than 0. Set to default: 1");
+      m_trj_ratio_limit = 1;
     }
 
     //Subscribers
@@ -632,7 +646,7 @@ namespace phri
       trj_status=TrjFollowing;
       ROS_INFO("New state: Trajectory Following");
     }
-    else if ((trj_status==TrjFollowing) && m_execution_ratio >= 1.0)
+    else if ((trj_status==TrjFollowing) && m_execution_ratio >= m_trj_ratio_limit)
     {
       trj_status = TransitionToIdle;
       t_start_switch=ros::Time::now();
@@ -703,6 +717,10 @@ namespace phri
 
     // Transformation matrix  base <- target pose of the tool
     Eigen::Affine3d T_base_targetpose = m_chain_bt->getTransformation(m_target);
+    // Jacobian of the target in base reference
+    Eigen::Matrix6Xd J_base_target  = m_chain_bt->getJacobian(m_target);
+    // velocity of the target in base reference  v=J*Dq
+    Eigen::Vector6d cart_vel_base_target  = J_base_target*m_Dtarget;
 
     // Transformation matrix  base <- tool
     Eigen::Affine3d T_b_t = m_chain_bt->getTransformation(m_x);
@@ -720,6 +738,8 @@ namespace phri
     // Cartesian error between tool pose and target tool pose
     Eigen::VectorXd cartesian_error_actual_target_in_b;
     rosdyn::getFrameDistance(T_base_targetpose, T_b_t , cartesian_error_actual_target_in_b);
+    Eigen::VectorXd cartesian_error_velocity_target_in_b;
+    cartesian_error_velocity_target_in_b = cart_vel_base_target - cart_vel_of_t_in_b;
 
     m_z_norm = m_z.head(3).norm();
     m_vel_norm = cart_vel_of_t_in_b.head(3).norm();
@@ -765,7 +785,7 @@ namespace phri
 
       // Cartesian acceleration
       cart_acc_of_t_in_b.head(3) = m_Jinv.head(3).cwiseProduct(-m_F_frc+m_wrench_of_tool_in_base_with_deadband.head(3));
-      cart_acc_of_t_in_b.tail(3) = m_Kp_ang_acc*cartesian_error_actual_target_in_b.tail(3);
+      cart_acc_of_t_in_b.tail(3) = m_Kp_ang_acc*cartesian_error_actual_target_in_b.tail(3)+m_Ks_ang_acc*cartesian_error_velocity_target_in_b.tail(3);
 
       for (int i=0; i < 6; i++) {
         if (std::abs(cart_acc_of_t_in_b(i)) < std::abs(m_acc_deadband(i))){

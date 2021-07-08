@@ -139,6 +139,8 @@ namespace phri
 
       double m_Tp;
       double m_Kp_ang_acc;
+      double m_Ks_ang_acc;
+      double m_trj_ratio_limit;
 
       /*
       Eigen::Vector6d m_acc_LuGre;
