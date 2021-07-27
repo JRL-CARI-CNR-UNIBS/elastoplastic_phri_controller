@@ -720,7 +720,7 @@ namespace phri
     // Jacobian of the target in base reference
     Eigen::Matrix6Xd J_base_target  = m_chain_bt->getJacobian(m_target);
     // velocity of the target in base reference  v=J*Dq
-    Eigen::Vector6d cart_vel_base_target  = J_base_target*m_Dtarget;
+    Eigen::Vector6d cart_vel_target_in_b  = J_base_target*m_Dtarget;
 
     // Transformation matrix  base <- tool
     Eigen::Affine3d T_b_t = m_chain_bt->getTransformation(m_x);
@@ -737,16 +737,17 @@ namespace phri
 
     // Cartesian error between tool pose and target tool pose
     Eigen::VectorXd cartesian_error_actual_target_in_b;
-    rosdyn::getFrameDistance(T_base_targetpose, T_b_t , cartesian_error_actual_target_in_b);
+    //rosdyn::getFrameDistance(T_base_targetpose, T_b_t , cartesian_error_actual_target_in_b);
+    rosdyn::getFrameDistance(T_b_t, T_base_targetpose, cartesian_error_actual_target_in_b);
     Eigen::VectorXd cartesian_error_velocity_target_in_b;
-    cartesian_error_velocity_target_in_b = cart_vel_base_target - cart_vel_of_t_in_b;
+    cartesian_error_velocity_target_in_b = cart_vel_of_t_in_b - cart_vel_target_in_b;
 
     m_z_norm = m_z.head(3).norm();
-    m_vel_norm = cart_vel_of_t_in_b.head(3).norm();
+    m_vel_norm = cartesian_error_velocity_target_in_b.head(3).norm();
 
     if (m_base_is_reference)
     {
-      double lambda=std::pow(m_mu_k,2.0)*cart_vel_of_t_in_b.head(3).norm();
+      double lambda=std::pow(m_mu_k,2.0)*m_vel_norm;
       for (int i=0;i<m_z.size();i++)
       {
         if (std::abs(m_z_norm) < m_z_ba)
@@ -755,7 +756,6 @@ namespace phri
         }
         else if (std::abs(m_z_norm) >= m_z_ss)
         {
-          ROS_WARN_COND(m_alpha(i) < 1.0,"SET ALPHA");
           m_alpha(i) = 1.0;
         }
         else
@@ -767,8 +767,8 @@ namespace phri
         m_c0_v(i) = m_sigma0*lambda_1*m_alpha(i)/(m_mu_k*m_mu_k);
       }
 
-      m_Dz = cart_vel_of_t_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
-      m_F_frc =  m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cart_vel_of_t_in_b.head(3));
+      m_Dz = cartesian_error_velocity_target_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
+      m_F_frc =  m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
 
       std_msgs::Float64MultiArray F_msg;
       std_msgs::Float64MultiArray z_msg;
@@ -785,7 +785,7 @@ namespace phri
 
       // Cartesian acceleration
       cart_acc_of_t_in_b.head(3) = m_Jinv.head(3).cwiseProduct(-m_F_frc+m_wrench_of_tool_in_base_with_deadband.head(3));
-      cart_acc_of_t_in_b.tail(3) = m_Kp_ang_acc*cartesian_error_actual_target_in_b.tail(3)+m_Ks_ang_acc*cartesian_error_velocity_target_in_b.tail(3);
+      cart_acc_of_t_in_b.tail(3) = -(m_Kp_ang_acc*cartesian_error_actual_target_in_b.tail(3)+m_Ks_ang_acc*cartesian_error_velocity_target_in_b.tail(3));
 
       for (int i=0; i < 6; i++) {
         if (std::abs(cart_acc_of_t_in_b(i)) < std::abs(m_acc_deadband(i))){
