@@ -560,6 +560,7 @@ namespace phri
     m_pub_cerr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("cart_err",1);
     m_pub_F_fr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("F_fr",1);
     m_pub_Dx = m_controller_nh.advertise<std_msgs::Float64MultiArray>("Dx",1);
+    m_pub_x = m_controller_nh.advertise<std_msgs::Float64MultiArray>("x",1);
     m_pub_wrench_in_base = m_controller_nh.advertise<geometry_msgs::WrenchStamped>("wrench_in_base",1);
     m_pub_pose_of_t_in_b = m_controller_nh.advertise<geometry_msgs::PoseStamped>("pose_of_t_in_b",1);
     m_pub_target_of_t_in_b = m_controller_nh.advertise<geometry_msgs::PoseStamped>("target_of_t_in_b",1);
@@ -702,19 +703,6 @@ namespace phri
         m_z_ba = m_trj_z_ba;
     }
 
-    /*
-       ROS_INFO_STREAM_THROTTLE(0.5,"\nStato : " << trj_status <<
-                  "\n\nJinv : " << m_Jinv <<
-                  "\ndamping : " << m_damping <<
-                  "\nsigma0 : " << m_sigma0 <<
-                  "\nsigma1 : " << m_sigma1 <<
-                  "\nc0 : " << m_c0 <<
-                  "\nz_ss : " << m_z_ss <<
-                  "\nz_ba : " << m_z_ba);
-    */
-
-
-
     // Transformation matrix  base <- target pose of the tool
     Eigen::Affine3d T_base_targetpose = m_chain_bt->getTransformation(m_target);
     // Jacobian of the target in base reference
@@ -818,9 +806,6 @@ namespace phri
         m_z.setZero();
       }
 
-
-
-
       // Vecchio reset: Fisso
 /*    double al = std::max(m_alpha(0),std::max(m_alpha(1),m_alpha(2)));
       if (std::abs(m_Dz_norm-m_vel_norm) < 0.001)
@@ -902,7 +887,12 @@ namespace phri
       m_Dx(idx)=std::max(-m_velocity_limits(idx),std::min(m_velocity_limits(idx),m_Dx(idx)));
     }
 
+    std_msgs::Float64MultiArray x_msg;
     std_msgs::Float64MultiArray Dx_msg;
+
+    for (int i=0; i<6;i++)
+      x_msg.data.push_back(m_x(i));
+    m_pub_x.publish(x_msg);
 
     for (int i=0; i<6;i++)
       Dx_msg.data.push_back(m_Dx(i));
