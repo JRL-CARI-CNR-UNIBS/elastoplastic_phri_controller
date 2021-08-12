@@ -558,9 +558,8 @@ namespace phri
     // Publishers
     m_pub_z = m_controller_nh.advertise<std_msgs::Float64MultiArray>("z",1);
     m_pub_cerr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("cart_err",1);
-    m_pub_F_fr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("F_fr",1);
-    m_pub_Dx = m_controller_nh.advertise<std_msgs::Float64MultiArray>("Dx",1);
-    m_pub_x = m_controller_nh.advertise<std_msgs::Float64MultiArray>("x",1);
+    m_pub_F_fr = m_controller_nh.advertise<geometry_msgs::WrenchStamped>("Fr_in_base",1);
+    m_pub_x =  m_controller_nh.advertise<sensor_msgs::JointState>("x",1);
     m_pub_wrench_in_base = m_controller_nh.advertise<geometry_msgs::WrenchStamped>("wrench_in_base",1);
     m_pub_pose_of_t_in_b = m_controller_nh.advertise<geometry_msgs::PoseStamped>("pose_of_t_in_b",1);
     m_pub_target_of_t_in_b = m_controller_nh.advertise<geometry_msgs::PoseStamped>("target_of_t_in_b",1);
@@ -758,7 +757,7 @@ namespace phri
       m_Dz = cartesian_error_velocity_target_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
       m_F_frc =  m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
 
-      std_msgs::Float64MultiArray F_msg;
+      geometry_msgs::WrenchStamped Fr_in_base_msg;
       std_msgs::Float64MultiArray z_msg;
       std_msgs::Float64MultiArray Dz_msg;
       std_msgs::Float64MultiArray cerr_msg;
@@ -767,9 +766,13 @@ namespace phri
         cerr_msg.data.push_back(cartesian_error_actual_target_in_b(i));
       m_pub_cerr.publish(cerr_msg);
 
-      for(int i=0; i< 3; i++)
-        F_msg.data.push_back(m_F_frc(i));
-      m_pub_F_fr.publish(F_msg);
+      // Publish controller response
+      Fr_in_base_msg.header.stamp=ros::Time::now();
+      Fr_in_base_msg.header.frame_id=m_base_frame;
+      Fr_in_base_msg.wrench.force.x=m_F_frc(0);
+      Fr_in_base_msg.wrench.force.y=m_F_frc(1);
+      Fr_in_base_msg.wrench.force.z=m_F_frc(2);
+      m_pub_F_fr.publish(Fr_in_base_msg);
 
       // Cartesian acceleration
       cart_acc_of_t_in_b.head(3) = m_Jinv.head(3).cwiseProduct(-m_F_frc+m_wrench_of_tool_in_base_with_deadband.head(3));
@@ -800,7 +803,7 @@ namespace phri
       double D_norm_Dx = (m_DDx.dot(m_Dx))/norm_Dx; //Derivata esatta di norm_Dx
       double zp1,zp2; // Previsione di ||z|| al tempo Tp e 2Tp
       zp1 = norm_Dx*m_Tp + 0.5*D_norm_Dx*std::pow(m_Tp,2);
-      zp2 = norm_Dx*2*m_Tp + 0.5*D_norm_Dx*std::pow(2*m_Tp,2);
+      zp2 = norm_Dx*m_Tp/2 + 0.5*D_norm_Dx*std::pow(m_Tp/2,2);
       if (std::abs(zp1) < m_z_ba && std::abs(zp2) < m_z_ba && m_alpha(1) > 0.999){
         ROS_WARN("Forced reset of z");
         m_z.setZero();
@@ -887,16 +890,19 @@ namespace phri
       m_Dx(idx)=std::max(-m_velocity_limits(idx),std::min(m_velocity_limits(idx),m_Dx(idx)));
     }
 
-    std_msgs::Float64MultiArray x_msg;
-    std_msgs::Float64MultiArray Dx_msg;
-
-    for (int i=0; i<6;i++)
-      x_msg.data.push_back(m_x(i));
+    sensor_msgs::JointState x_msg;
+    x_msg.header.stamp=ros::Time::now();
+    x_msg.name=m_joint_names;
+    x_msg.position.resize(m_x.size());
+    x_msg.velocity.resize(m_x.size());
+    x_msg.effort.resize(m_DDq.size());
+    for (int iax=0; iax<m_x.size();iax++)
+    {
+      x_msg.position.at(iax) = m_x(iax);
+      x_msg.velocity.at(iax) = m_Dx(iax);
+      x_msg.effort.at(iax)   = m_DDq(iax);
+    }
     m_pub_x.publish(x_msg);
-
-    for (int i=0; i<6;i++)
-      Dx_msg.data.push_back(m_Dx(i));
-    m_pub_Dx.publish(Dx_msg);
 
     geometry_msgs::PoseStamped pose_t_in_b;
     tf::poseEigenToMsg(T_b_t,pose_t_in_b.pose);

@@ -162,7 +162,6 @@ namespace phri
       ros::Publisher m_pub_z;
       ros::Publisher m_pub_cerr;
       ros::Publisher m_pub_x;
-      ros::Publisher m_pub_Dx;
       ros::Publisher m_pub_F_fr;
       ros::Publisher m_pub_wrench_in_base;
       ros::Publisher m_pub_pose_of_t_in_b;
