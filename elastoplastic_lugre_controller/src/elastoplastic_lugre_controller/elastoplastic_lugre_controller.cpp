@@ -556,7 +556,8 @@ namespace phri
     m_exec_ratio_sub->setAdvancedCallback(boost::bind(&phri::control::CartImpedanceLuGreController::getRatioCallback,this,_1));
 
     // Publishers
-    m_pub_z = m_controller_nh.advertise<std_msgs::Float64MultiArray>("z",1);
+    m_pub_z = m_controller_nh.advertise<std_msgs::Float64MultiArray>("z", 1);
+    m_pub_w = m_controller_nh.advertise<std_msgs::Float64MultiArray>("w", 1);
     m_pub_cerr = m_controller_nh.advertise<std_msgs::Float64MultiArray>("cart_err",1);
     m_pub_F_fr = m_controller_nh.advertise<geometry_msgs::WrenchStamped>("Fr_in_base",1);
     m_pub_x =  m_controller_nh.advertise<sensor_msgs::JointState>("x",1);
@@ -598,6 +599,9 @@ namespace phri
 
     m_z.setZero();  // lugre state
     m_Dz.setZero();
+
+    m_w.setZero();
+    m_Dw.setZero();
 
     trj_status = Idle;
 
@@ -729,7 +733,8 @@ namespace phri
     Eigen::VectorXd cartesian_error_velocity_target_in_b;
     cartesian_error_velocity_target_in_b = cart_vel_of_t_in_b - cart_vel_target_in_b;
 
-    m_z_norm = m_z.head(3).norm();
+//    m_z_norm = m_z.head(3).norm();
+//    m_z_norm = m_z.maxCoeff();
     m_vel_norm = cartesian_error_velocity_target_in_b.head(3).norm();
 
     if (m_base_is_reference)
@@ -737,29 +742,33 @@ namespace phri
       double lambda=std::pow(m_mu_k,2.0)*m_vel_norm;
       for (int i=0;i<m_z.size();i++)
       {
-        if (std::abs(m_z_norm) < m_z_ba)
+        if (std::abs(m_z(i)) < m_z_ba)
         {
           m_alpha(i) = 0.0;
         }
-        else if (std::abs(m_z_norm) >= m_z_ss)
+        else if (std::abs(m_z(i)) >= m_z_ss)
         {
           m_alpha(i) = 1.0;
         }
         else
         {
-          m_alpha(i) = 0.5*std::sin(M_PI*((m_z_norm-(m_z_ba+m_z_ss)/2)/(m_z_ss-m_z_ba)))+0.5;
+          m_alpha(i) = 0.5*std::sin(M_PI*((m_z(i)-(m_z_ba+m_z_ss)/2)/(m_z_ss-m_z_ba)))+0.5;
         }
         m_scale(i) = (1.0-m_alpha(i));
+//        m_scale(i) = 1;
         double lambda_1 = lambda/m_c0;
         m_c0_v(i) = m_sigma0*lambda_1*m_alpha(i)/(m_mu_k*m_mu_k);
+        m_Dw(i) = m_alpha(i) * 5 * (m_z(i) - m_w(i)) - m_scale(i) * 50 * m_w(i);
       }
 
       m_Dz = cartesian_error_velocity_target_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
-      m_F_frc =  m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
+//      m_F_frc =  m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
+      m_F_frc =  m_sigma0*(m_z - m_w) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
 
       geometry_msgs::WrenchStamped Fr_in_base_msg;
       std_msgs::Float64MultiArray z_msg;
       std_msgs::Float64MultiArray Dz_msg;
+      std_msgs::Float64MultiArray w_msg;
       std_msgs::Float64MultiArray cerr_msg;
 
       for(int i=0; i < 6; i++)
@@ -786,28 +795,33 @@ namespace phri
 
       m_Dz_norm = m_Dz.norm();
       m_z = m_Dz*period.toSec() + m_z;
+      m_w = m_Dw*period.toSec() + m_w;
 
       for (int i=0;i<m_z.size();i++)
       {
         if (std::abs(m_z(i)) > m_z_ss)
           m_z(i) = m_z(i)/std::abs(m_z(i)) * m_z_ss;
         z_msg.data.push_back(m_z(i));
+        w_msg.data.push_back(m_w(i));
       }
+
+
 
       z_msg.data.push_back(m_z.norm());
       m_pub_z.publish(z_msg);
+      m_pub_w.publish(w_msg);
 
       //Reset z
-      double norm_Dx = m_Dx.norm();
-      //double D_norm_Dx = (norm_Dx - m_old_Dx_norm)/period.toSec(); // Accelerazione
-      double D_norm_Dx = (m_DDx.dot(m_Dx))/norm_Dx; //Derivata esatta di norm_Dx
-      double zp1,zp2; // Previsione di ||z|| al tempo Tp e 2Tp
-      zp1 = norm_Dx*m_Tp + 0.5*D_norm_Dx*std::pow(m_Tp,2);
-      zp2 = norm_Dx*m_Tp/2 + 0.5*D_norm_Dx*std::pow(m_Tp/2,2);
-      if (std::abs(zp1) < m_z_ba && std::abs(zp2) < m_z_ba && m_alpha(1) > 0.999){
-        ROS_WARN("Forced reset of z");
-        m_z.setZero();
-      }
+//      double norm_Dx = m_Dx.norm();
+//      //double D_norm_Dx = (norm_Dx - m_old_Dx_norm)/period.toSec(); // Accelerazione
+//      double D_norm_Dx = (m_DDx.dot(m_Dx))/norm_Dx; //Derivata esatta di norm_Dx
+//      double zp1,zp2; // Previsione di ||z|| al tempo Tp e 2Tp
+//      zp1 = norm_Dx*m_Tp + 0.5*D_norm_Dx*std::pow(m_Tp,2);
+//      zp2 = norm_Dx*m_Tp/2 + 0.5*D_norm_Dx*std::pow(m_Tp/2,2);
+//      if (std::abs(zp1) < m_z_ba && std::abs(zp2) < m_z_ba && m_alpha(1) > 0.999){
+//        ROS_WARN("Forced reset of z");
+//        m_z.setZero();
+//      }
 
       // Vecchio reset: Fisso
 /*    double al = std::max(m_alpha(0),std::max(m_alpha(1),m_alpha(2)));

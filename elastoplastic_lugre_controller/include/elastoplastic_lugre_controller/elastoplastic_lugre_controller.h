@@ -125,6 +125,8 @@ namespace phri
       Eigen::Vector3d m_z;
       double m_z_norm;
       Eigen::Vector3d m_Dz;
+      Eigen::Vector3d m_w;
+      Eigen::Vector3d m_Dw;
       Eigen::Vector3d m_scale;
       Eigen::Vector3d m_F_frc;
       Eigen::Vector3d m_alpha;
@@ -166,6 +168,8 @@ namespace phri
       ros::Publisher m_pub_wrench_in_base;
       ros::Publisher m_pub_pose_of_t_in_b;
       ros::Publisher m_pub_target_of_t_in_b;
+
+      ros::Publisher m_pub_w;
 
       std::shared_ptr<ros_helper::SubscriptionNotifier<std_msgs::Float64>> m_exec_ratio_sub;
       double m_execution_ratio=1.0;
