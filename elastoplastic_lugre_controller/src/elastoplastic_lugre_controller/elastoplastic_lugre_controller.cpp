@@ -733,36 +733,59 @@ namespace phri
     Eigen::VectorXd cartesian_error_velocity_target_in_b;
     cartesian_error_velocity_target_in_b = cart_vel_of_t_in_b - cart_vel_target_in_b;
 
-//    m_z_norm = m_z.head(3).norm();
-//    m_z_norm = m_z.maxCoeff();
+    m_z_norm = m_z.head(3).norm();
     m_vel_norm = cartesian_error_velocity_target_in_b.head(3).norm();
+
+    auto alpha = [this](const double z) -> double
+    {
+      if (std::abs(z) < m_z_ba)
+      {
+        return 0.0;
+      }
+      else if (std::abs(z) >= m_z_ss)
+      {
+        return 1.0;
+      }
+      else
+      {
+        return 0.5*std::sin(M_PI*((z-(m_z_ba+m_z_ss)/2)/(m_z_ss-m_z_ba)))+0.5;
+      }
+    };
 
     if (m_base_is_reference)
     {
-      double lambda=std::pow(m_mu_k,2.0)*m_vel_norm;
-      for (int i=0;i<m_z.size();i++)
-      {
-        if (std::abs(m_z(i)) < m_z_ba)
-        {
-          m_alpha(i) = 0.0;
-        }
-        else if (std::abs(m_z(i)) >= m_z_ss)
-        {
-          m_alpha(i) = 1.0;
-        }
-        else
-        {
-          m_alpha(i) = 0.5*std::sin(M_PI*((m_z(i)-(m_z_ba+m_z_ss)/2)/(m_z_ss-m_z_ba)))+0.5;
-        }
-        m_scale(i) = (1.0-m_alpha(i));
-//        m_scale(i) = 1;
-        double lambda_1 = lambda/m_c0;
-        m_c0_v(i) = m_sigma0*lambda_1*m_alpha(i)/(m_mu_k*m_mu_k);
-        m_Dw(i) = m_alpha(i) * 5 * (m_z(i) - m_w(i)) - m_scale(i) * 50 * m_w(i);
-      }
+//      double lambda=std::pow(m_mu_k,2.0)*m_vel_norm;
+//      double lambda = m_mu_k * m_vel_norm;
+//      for (int i=0;i<m_z.size();i++)
+//      {
+//        if (std::abs(m_z(i)) < m_z_ba)
+//        {
+//          m_alpha(i) = 0.0;
+//        }
+//        else if (std::abs(m_z(i)) >= m_z_ss)
+//        {
+//          m_alpha(i) = 1.0;
+//        }
+//        else
+//        {
+//          m_alpha(i) = 0.5*std::sin(M_PI*((m_z(i)-(m_z_ba+m_z_ss)/2)/(m_z_ss-m_z_ba)))+0.5;
+//        }
+//        m_scale(i) = (1.0-m_alpha(i));
+////        double lambda_1 = lambda/m_c0;
+////        m_c0_v(i) = m_sigma0*lambda_1*m_alpha(i)/(m_mu_k*m_mu_k);
+//        m_c0_v(i) = m_alpha(i) * m_sigma0 * m_vel_norm / m_c0;
+//        m_Dw(i) = m_alpha(i) * 20 * (m_z(i) - m_w(i)) - m_scale(i) * 50 * m_w(i);
+//      }
 
+
+//      m_alpha = Eigen::Vector3d({alpha(m_z(0)), alpha(m_z(1)), alpha(m_z(2))});
+      m_alpha = Eigen::Vector3d({alpha(m_z_norm), alpha(m_z_norm), alpha(m_z_norm)});
+      m_c0_v =  m_alpha * m_sigma0 * m_vel_norm / m_c0;
       m_Dz = cartesian_error_velocity_target_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
+      m_Dw = 20 * Eigen::Vector3d({alpha((m_z-m_w).norm()), alpha((m_z-m_w).norm()), alpha((m_z-m_w).norm())}).cwiseProduct(m_z - m_w);
+//      m_F_frc =  m_sigma0*m_z + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
 //      m_F_frc =  m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
+//      m_F_frc =  m_sigma0*(m_z - m_w) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
       m_F_frc =  m_sigma0*(m_z - m_w) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
 
       geometry_msgs::WrenchStamped Fr_in_base_msg;
@@ -799,8 +822,8 @@ namespace phri
 
       for (int i=0;i<m_z.size();i++)
       {
-        if (std::abs(m_z(i)) > m_z_ss)
-          m_z(i) = m_z(i)/std::abs(m_z(i)) * m_z_ss;
+//        if (std::abs(m_z(i)) > m_z_ss)
+//          m_z(i) = m_z(i)/std::abs(m_z(i)) * m_z_ss;
         z_msg.data.push_back(m_z(i));
         w_msg.data.push_back(m_w(i));
       }
