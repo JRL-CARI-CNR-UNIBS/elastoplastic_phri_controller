@@ -127,6 +127,8 @@ namespace phri
       Eigen::Vector3d m_Dz;
       Eigen::Vector3d m_w;
       Eigen::Vector3d m_Dw;
+      double m_r;
+      double m_Dr;
       Eigen::Vector3d m_scale;
       Eigen::Vector3d m_F_frc;
       Eigen::Vector3d m_alpha;

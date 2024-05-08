@@ -603,6 +603,9 @@ namespace phri
     m_w.setZero();
     m_Dw.setZero();
 
+    m_r = 0;
+    m_Dr = 0;
+
     trj_status = Idle;
 
     m_queue.callAvailable(); // check for new messages
@@ -733,6 +736,9 @@ namespace phri
     Eigen::VectorXd cartesian_error_velocity_target_in_b;
     cartesian_error_velocity_target_in_b = cart_vel_of_t_in_b - cart_vel_target_in_b;
 
+    Eigen::Vector4d alpha_r;
+    alpha_r << m_z, m_r;
+
     m_z_norm = m_z.head(3).norm();
     m_vel_norm = cartesian_error_velocity_target_in_b.head(3).norm();
 
@@ -749,6 +755,22 @@ namespace phri
       else
       {
         return 0.5*std::sin(M_PI*((z-(m_z_ba+m_z_ss)/2)/(m_z_ss-m_z_ba)))+0.5;
+      }
+    };
+
+    auto dalpha = [this](const double z, const double zp) -> double
+    {
+      if (std::abs(z) < m_z_ba)
+      {
+        return 0.0;
+      }
+      else if (std::abs(z) >= m_z_ss)
+      {
+        return 0.0;
+      }
+      else
+      {
+        return 0.5*std::cos(M_PI*((z-(m_z_ba+m_z_ss)/2)/(m_z_ss-m_z_ba)))*M_PI/(m_z_ss-m_z_ba)*std::abs(zp);
       }
     };
 
@@ -777,15 +799,13 @@ namespace phri
 //        m_Dw(i) = m_alpha(i) * 20 * (m_z(i) - m_w(i)) - m_scale(i) * 50 * m_w(i);
 //      }
 
-
-//      m_alpha = Eigen::Vector3d({alpha(m_z(0)), alpha(m_z(1)), alpha(m_z(2))});
-      m_alpha = Eigen::Vector3d({alpha(m_z_norm), alpha(m_z_norm), alpha(m_z_norm)});
+//      m_alpha = Eigen::Vector3d({alpha(m_z_norm), alpha(m_z_norm), alpha(m_z_norm)});
+      m_alpha = Eigen::Vector3d({alpha(alpha_r.norm()), alpha(alpha_r.norm()), alpha(alpha_r.norm())});
       m_c0_v =  m_alpha * m_sigma0 * m_vel_norm / m_c0;
+      m_Dr = dalpha(m_z.norm(), m_Dz.norm());
       m_Dz = cartesian_error_velocity_target_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
-      m_Dw = 20 * Eigen::Vector3d({alpha((m_z-m_w).norm()), alpha((m_z-m_w).norm()), alpha((m_z-m_w).norm())}).cwiseProduct(m_z - m_w);
-//      m_F_frc =  m_sigma0*m_z + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
-//      m_F_frc =  m_sigma0*m_z.cwiseProduct(m_scale) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
-//      m_F_frc =  m_sigma0*(m_z - m_w) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
+//      m_Dw = 50 * Eigen::Vector3d({alpha((m_z).norm()), alpha((m_z).norm()), alpha((m_z).norm())}).cwiseProduct(m_z - m_w);
+      m_Dw = 50 * m_alpha.cwiseProduct(m_z - m_w);
       m_F_frc =  m_sigma0*(m_z - m_w) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
 
       geometry_msgs::WrenchStamped Fr_in_base_msg;
@@ -819,6 +839,7 @@ namespace phri
       m_Dz_norm = m_Dz.norm();
       m_z = m_Dz*period.toSec() + m_z;
       m_w = m_Dw*period.toSec() + m_w;
+      m_r = m_Dr*period.toSec() + m_r;
 
       for (int i=0;i<m_z.size();i++)
       {
