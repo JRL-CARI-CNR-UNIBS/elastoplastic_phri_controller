@@ -14,7 +14,10 @@
 # include <rosdyn_core/primitives.h>
 # include <name_sorting/name_sorting.h>
 # include <ros/timer.h>
-#include <eigen_conversions/eigen_msg.h>
+# include <eigen_conversions/eigen_msg.h>
+
+# include <deque>
+# include <numeric>
 
 namespace phri
 {
@@ -129,6 +132,7 @@ namespace phri
       Eigen::Vector3d m_Dw;
       double m_r;
       double m_Dr;
+      std::deque<double> m_reset_window;
       Eigen::Vector3d m_scale;
       Eigen::Vector3d m_F_frc;
       Eigen::Vector3d m_alpha;

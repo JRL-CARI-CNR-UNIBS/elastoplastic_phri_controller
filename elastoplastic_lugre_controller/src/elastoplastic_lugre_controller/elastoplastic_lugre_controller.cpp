@@ -667,47 +667,47 @@ namespace phri
 
     //ROS_INFO_STREAM_THROTTLE(2,"Stato : " << trj_status);
 
-    double evol_time;
-    // Parameters interpolations
-    switch(trj_status){
-      case TransitionToTrjFollowing:
-        evol_time = (ros::Time::now()-t_start_switch).toSec()/(T_to_trj);
-        m_Jinv = evol_time*(m_trj_Jinv-m_idle_Jinv)+m_idle_Jinv;
-        m_damping = evol_time*(m_trj_damping-m_idle_damping)+m_idle_damping;
-        m_sigma0 = evol_time*(m_trj_sigma0-m_idle_sigma0)+m_idle_sigma0;
-        m_sigma1 = evol_time*(m_trj_sigma1-m_idle_sigma1)+m_idle_sigma1;
-        m_c0 = evol_time*(m_trj_c0-m_idle_c0)+m_idle_c0;
-        m_z_ss = evol_time*(m_trj_z_ss-m_idle_z_ss)+m_idle_z_ss;
-        m_z_ba = evol_time*(m_trj_z_ba-m_idle_z_ba)+m_idle_z_ba;
-      break;
-      case TransitionToIdle:
-        evol_time = (ros::Time::now()-t_start_switch).toSec()/(T_to_idle);
-        m_Jinv = evol_time*(m_idle_Jinv-m_trj_Jinv)+m_trj_Jinv;
-        m_damping = evol_time*(m_idle_damping-m_trj_damping)+m_trj_damping;
-        m_sigma0 = evol_time*(m_idle_sigma0-m_trj_sigma0)+m_trj_sigma0;
-        m_sigma1 = evol_time*(m_idle_sigma1-m_trj_sigma1)+m_trj_sigma1;
-        m_c0 = evol_time*(m_idle_c0-m_trj_c0)+m_trj_c0;
-        m_z_ss = evol_time*(m_idle_z_ss-m_trj_z_ss)+m_trj_z_ss;
-        m_z_ba = evol_time*(m_idle_z_ba-m_trj_z_ba)+m_trj_z_ba;
-      break;
-      case Idle:
-        m_Jinv = m_idle_Jinv;
-        m_damping = m_idle_damping;
-        m_sigma0 = m_idle_sigma0;
-        m_sigma1 = m_idle_sigma1;
-        m_c0 = m_idle_c0;
-        m_z_ss = m_idle_z_ss;
-        m_z_ba = m_idle_z_ba;
-      break;
-      case TrjFollowing:
-        m_Jinv = m_trj_Jinv;
-        m_damping = m_trj_damping;
-        m_sigma0 = m_trj_sigma0;
-        m_sigma1 = m_trj_sigma1;
-        m_c0 = m_trj_c0;
-        m_z_ss = m_trj_z_ss;
-        m_z_ba = m_trj_z_ba;
-    }
+//    double evol_time;
+//    // Parameters interpolations
+//    switch(trj_status){
+//      case TransitionToTrjFollowing:
+//        evol_time = (ros::Time::now()-t_start_switch).toSec()/(T_to_trj);
+//        m_Jinv = evol_time*(m_trj_Jinv-m_idle_Jinv)+m_idle_Jinv;
+//        m_damping = evol_time*(m_trj_damping-m_idle_damping)+m_idle_damping;
+//        m_sigma0 = evol_time*(m_trj_sigma0-m_idle_sigma0)+m_idle_sigma0;
+//        m_sigma1 = evol_time*(m_trj_sigma1-m_idle_sigma1)+m_idle_sigma1;
+//        m_c0 = evol_time*(m_trj_c0-m_idle_c0)+m_idle_c0;
+//        m_z_ss = evol_time*(m_trj_z_ss-m_idle_z_ss)+m_idle_z_ss;
+//        m_z_ba = evol_time*(m_trj_z_ba-m_idle_z_ba)+m_idle_z_ba;
+//      break;
+//      case TransitionToIdle:
+//        evol_time = (ros::Time::now()-t_start_switch).toSec()/(T_to_idle);
+//        m_Jinv = evol_time*(m_idle_Jinv-m_trj_Jinv)+m_trj_Jinv;
+//        m_damping = evol_time*(m_idle_damping-m_trj_damping)+m_trj_damping;
+//        m_sigma0 = evol_time*(m_idle_sigma0-m_trj_sigma0)+m_trj_sigma0;
+//        m_sigma1 = evol_time*(m_idle_sigma1-m_trj_sigma1)+m_trj_sigma1;
+//        m_c0 = evol_time*(m_idle_c0-m_trj_c0)+m_trj_c0;
+//        m_z_ss = evol_time*(m_idle_z_ss-m_trj_z_ss)+m_trj_z_ss;
+//        m_z_ba = evol_time*(m_idle_z_ba-m_trj_z_ba)+m_trj_z_ba;
+//      break;
+//      case Idle:
+//        m_Jinv = m_idle_Jinv;
+//        m_damping = m_idle_damping;
+//        m_sigma0 = m_idle_sigma0;
+//        m_sigma1 = m_idle_sigma1;
+//        m_c0 = m_idle_c0;
+//        m_z_ss = m_idle_z_ss;
+//        m_z_ba = m_idle_z_ba;
+//      break;
+//      case TrjFollowing:
+//        m_Jinv = m_trj_Jinv;
+//        m_damping = m_trj_damping;
+//        m_sigma0 = m_trj_sigma0;
+//        m_sigma1 = m_trj_sigma1;
+//        m_c0 = m_trj_c0;
+//        m_z_ss = m_trj_z_ss;
+//        m_z_ba = m_trj_z_ba;
+//    }
 
     // Transformation matrix  base <- target pose of the tool
     Eigen::Affine3d T_base_targetpose = m_chain_bt->getTransformation(m_target);
@@ -800,7 +800,7 @@ namespace phri
 //      }
 
 //      m_alpha = Eigen::Vector3d({alpha(m_z_norm), alpha(m_z_norm), alpha(m_z_norm)});
-      m_alpha = Eigen::Vector3d({alpha(alpha_r.norm()), alpha(alpha_r.norm()), alpha(alpha_r.norm())});
+      m_alpha = Eigen::Vector3d::Constant(alpha(alpha_r.norm()));
       m_c0_v =  m_alpha * m_sigma0 * m_vel_norm / m_c0;
       m_Dr = dalpha(m_z.norm(), m_Dz.norm());
       m_Dz = cartesian_error_velocity_target_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
@@ -856,6 +856,30 @@ namespace phri
       m_pub_w.publish(w_msg);
 
       //Reset z
+      if(m_r > m_z_ba)
+      {
+        m_reset_window.emplace_back(std::abs(m_z.norm()));
+        if(m_reset_window.size() > 1000) // Valore a caso
+        {
+          m_reset_window.pop_front();
+        }
+        double reset_value = std::accumulate(m_reset_window.begin(), m_reset_window.end(), 0.0,
+                                             [&period](const double d, const double x) -> double
+                                                      {
+                                                        return d + x*period.toSec();
+                                                      }
+                              );
+        ROS_INFO("last value inserted: %f\nreset_value: %f", m_reset_window.back(), reset_value);
+
+        if(m_reset_window.size() >= 1000 &&
+           reset_value < 0.1*m_z_ba) // Valore a caso
+        {
+          m_z = Eigen::Vector3d::Zero();
+          m_w = Eigen::Vector3d::Zero();
+          m_r = 0.0;
+        }
+      }
+
 //      double norm_Dx = m_Dx.norm();
 //      //double D_norm_Dx = (norm_Dx - m_old_Dx_norm)/period.toSec(); // Accelerazione
 //      double D_norm_Dx = (m_DDx.dot(m_Dx))/norm_Dx; //Derivata esatta di norm_Dx
