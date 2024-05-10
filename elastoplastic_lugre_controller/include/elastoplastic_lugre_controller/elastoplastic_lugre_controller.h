@@ -145,6 +145,10 @@ namespace phri
       double m_idle_z_ba, m_trj_z_ba, m_z_ba;
       double m_idle_z_ss, m_trj_z_ss, m_z_ss;
 
+      double m_kw;
+      double m_reset_window_size;
+      double m_reset_value_th;
+
       double m_Tp;
       double m_Kp_ang_acc;
       double m_Ks_ang_acc;

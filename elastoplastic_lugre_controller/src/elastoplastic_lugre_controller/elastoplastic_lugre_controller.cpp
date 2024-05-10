@@ -545,6 +545,22 @@ namespace phri
       m_trj_ratio_limit = 1;
     }
 
+    if(!n_controller_nh.getParam("kw", m_kw))
+    {
+      m_kw = 1.0;
+      ROS_WARN_STREAM(m_controller_nh.getNamespace() << "/kw not set. Using default: " << m_kw);
+    }
+    if(!n_controller_nh.getParam("reset_window_size", m_reset_window_size))
+    {
+      m_reset_window_size = 1000;
+      ROS_WARN_STREAM(m_controller_nh.getNamespace() << "/reset_window_size not set. Using default: " << m_kw);
+    }
+    if(!n_controller_nh.getParam("reset_value_th", m_reset_value_th))
+    {
+      m_reset_value_th = 0.1;
+      ROS_WARN_STREAM(m_controller_nh.getNamespace() << "/reset_value_th not set. Using default: " << m_kw);
+    }
+
     //Subscribers
     m_target_sub=std::make_shared<ros_helper::SubscriptionNotifier<sensor_msgs::JointState>>(m_controller_nh,joint_target,1);
     m_target_sub->setAdvancedCallback(boost::bind(&phri::control::CartImpedanceLuGreController::setTargetCallback,this,_1));
@@ -805,7 +821,7 @@ namespace phri
       m_Dr = dalpha(m_z.norm(), m_Dz.norm());
       m_Dz = cartesian_error_velocity_target_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
 //      m_Dw = 50 * Eigen::Vector3d({alpha((m_z).norm()), alpha((m_z).norm()), alpha((m_z).norm())}).cwiseProduct(m_z - m_w);
-      m_Dw = 50 * m_alpha.cwiseProduct(m_z - m_w);
+      m_Dw = m_kw * m_alpha.cwiseProduct(m_z - m_w);
       m_F_frc =  m_sigma0*(m_z - m_w) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
 
       geometry_msgs::WrenchStamped Fr_in_base_msg;
@@ -859,7 +875,7 @@ namespace phri
       if(m_r > m_z_ba)
       {
         m_reset_window.emplace_back(std::abs(m_z.norm()));
-        if(m_reset_window.size() > 1000) // Valore a caso
+        if(m_reset_window.size() > m_reset_window_size) // Valore a caso
         {
           m_reset_window.pop_front();
         }
@@ -871,8 +887,8 @@ namespace phri
                               );
         ROS_INFO("last value inserted: %f\nreset_value: %f", m_reset_window.back(), reset_value);
 
-        if(m_reset_window.size() >= 1000 &&
-           reset_value < 0.1*m_z_ba) // Valore a caso
+        if(m_reset_window.size() >= m_reset_window_size &&
+           reset_value < m_reset_value_th) // Valore a caso
         {
           m_z = Eigen::Vector3d::Zero();
           m_w = Eigen::Vector3d::Zero();
