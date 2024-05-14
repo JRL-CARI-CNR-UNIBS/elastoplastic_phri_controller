@@ -138,6 +138,7 @@ namespace phri
       Eigen::Vector3d m_alpha;
       Eigen::Vector3d m_c0_v;
 
+      double m_kw;
       double m_reset_window_size;
       double m_reset_threshold;
 
@@ -147,6 +148,10 @@ namespace phri
       double m_idle_c0, m_trj_c0, m_c0;
       double m_idle_z_ba, m_trj_z_ba, m_z_ba;
       double m_idle_z_ss, m_trj_z_ss, m_z_ss;
+
+      double m_kw;
+      double m_reset_window_size;
+      double m_reset_value_th;
 
       double m_Tp;
       double m_Kp_ang_acc;

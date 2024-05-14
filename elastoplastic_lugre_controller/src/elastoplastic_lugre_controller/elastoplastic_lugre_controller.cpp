@@ -545,6 +545,11 @@ namespace phri
       m_trj_ratio_limit = 1;
     }
 
+    if(!n_controller_nh.getParam("kw", m_kw))
+    {
+      m_kw = 1.0;
+      ROS_WARN_STREAM(m_controller_nh.getNamespace() << "/kw not set. Using default: " << m_kw);
+    }
     if(!m_controller_nh.getParam("reset_window_size", m_reset_window_size))
     {
       m_reset_window_size = 1000; // in milliseconds, integer
@@ -817,7 +822,7 @@ namespace phri
       m_Dr = dalpha(m_z.norm(), m_Dz.norm());
       m_Dz = cartesian_error_velocity_target_in_b.head(3) - m_c0_v.cwiseProduct(m_z);
 //      m_Dw = 50 * Eigen::Vector3d({alpha((m_z).norm()), alpha((m_z).norm()), alpha((m_z).norm())}).cwiseProduct(m_z - m_w);
-      m_Dw = 50 * m_alpha.cwiseProduct(m_z - m_w);
+      m_Dw = m_kw * m_alpha.cwiseProduct(m_z - m_w);
       m_F_frc =  m_sigma0*(m_z - m_w) + m_sigma1*m_Dz + m_damping.head(3).cwiseProduct(cartesian_error_velocity_target_in_b.head(3));
 
       geometry_msgs::WrenchStamped Fr_in_base_msg;
