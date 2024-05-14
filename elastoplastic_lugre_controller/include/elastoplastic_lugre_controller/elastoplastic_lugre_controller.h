@@ -107,7 +107,7 @@ namespace phri
       double m_vel_norm;
       double m_Dz_norm;
 
-      double m_mu_k;
+//      double m_mu_k;
       double m_wrench_norm;
       double m_vel_old;
       double m_acc_norm;
@@ -137,6 +137,9 @@ namespace phri
       Eigen::Vector3d m_F_frc;
       Eigen::Vector3d m_alpha;
       Eigen::Vector3d m_c0_v;
+
+      double m_reset_window_size;
+      double m_reset_threshold;
 
       // LuGre parameters
       double m_idle_sigma0, m_trj_sigma0, m_sigma0;

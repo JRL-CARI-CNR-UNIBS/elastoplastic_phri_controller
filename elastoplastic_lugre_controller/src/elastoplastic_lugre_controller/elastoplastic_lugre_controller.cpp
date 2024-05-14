@@ -15,7 +15,7 @@ namespace phri
   }
 
   bool CartImpedanceLuGreController::init(hardware_interface::PosVelEffJointInterface* hw, ros::NodeHandle& root_nh, ros::NodeHandle& controller_nh)
-  {
+  {    
     m_root_nh = root_nh;
     m_controller_nh = controller_nh;
     m_hw = hw;
@@ -324,11 +324,11 @@ namespace phri
       m_idle_z_ba = 0.9*m_idle_z_ss;
     }
 
-    if (!m_controller_nh.getParam("mu_k", m_mu_k ))
-    {
-      ROS_ERROR("%s/mu_k does not exist, set 0.78", m_controller_nh.getNamespace().c_str());
-      m_mu_k=0.78;
-    }
+//    if (!m_controller_nh.getParam("mu_k", m_mu_k ))
+//    {
+//      ROS_ERROR("%s/mu_k does not exist, set 0.78", m_controller_nh.getNamespace().c_str());
+//      m_mu_k=0.78;
+//    }
 
 
     for (unsigned int iAx=0;iAx<6;iAx++)
@@ -424,35 +424,35 @@ namespace phri
     }
 
     // LuGre Parameters
-    if (!m_controller_nh.getParam("sigma0_trj", m_trj_sigma0 ))
-    {
-      ROS_WARN("%s/sigma0_trj does not exist. Using %s/sigma0.", m_controller_nh.getNamespace().c_str(), m_controller_nh.getNamespace().c_str());
-      m_trj_sigma0 = m_idle_sigma0;
-    }
+//    if (!m_controller_nh.getParam("sigma0_trj", m_trj_sigma0 ))
+//    {
+//      ROS_WARN("%s/sigma0_trj does not exist. Using %s/sigma0.", m_controller_nh.getNamespace().c_str(), m_controller_nh.getNamespace().c_str());
+//      m_trj_sigma0 = m_idle_sigma0;
+//    }
 
-    if (!m_controller_nh.getParam("sigma1_trj", m_trj_sigma1 ))
-    {
-      ROS_WARN("%s/sigma1_trj does not exist. Using %s/sigma1.", m_controller_nh.getNamespace().c_str(), m_controller_nh.getNamespace().c_str());
-      m_trj_sigma1 = m_idle_sigma1;
-    }
+//    if (!m_controller_nh.getParam("sigma1_trj", m_trj_sigma1 ))
+//    {
+//      ROS_WARN("%s/sigma1_trj does not exist. Using %s/sigma1.", m_controller_nh.getNamespace().c_str(), m_controller_nh.getNamespace().c_str());
+//      m_trj_sigma1 = m_idle_sigma1;
+//    }
 
-    if (!m_controller_nh.getParam("c0_trj", m_trj_c0 ))
-    {
-      ROS_WARN("%s/c0_trj does not exist. Using %s/c0.", m_controller_nh.getNamespace().c_str(),m_controller_nh.getNamespace().c_str());
-      m_trj_c0 = m_idle_c0;
-    }
+//    if (!m_controller_nh.getParam("c0_trj", m_trj_c0 ))
+//    {
+//      ROS_WARN("%s/c0_trj does not exist. Using %s/c0.", m_controller_nh.getNamespace().c_str(),m_controller_nh.getNamespace().c_str());
+//      m_trj_c0 = m_idle_c0;
+//    }
 
-    if (!m_controller_nh.getParam("z_ss_trj", m_trj_z_ss ))
-    {
-      ROS_WARN("%s/z_ss does not exist. Using c0/sigma0", m_controller_nh.getNamespace().c_str());
-      m_trj_z_ss = m_trj_c0/m_trj_sigma0;
-    }
+//    if (!m_controller_nh.getParam("z_ss_trj", m_trj_z_ss ))
+//    {
+//      ROS_WARN("%s/z_ss does not exist. Using c0/sigma0", m_controller_nh.getNamespace().c_str());
+//      m_trj_z_ss = m_trj_c0/m_trj_sigma0;
+//    }
 
-    if (!m_controller_nh.getParam("z_ba_trj", m_trj_z_ba ))
-    {
-      ROS_WARN("%s/z_ba_trj does not exist. Using 0.9*z_ss", m_controller_nh.getNamespace().c_str());
-      m_trj_z_ba = 0.9*m_trj_z_ss;
-    }
+//    if (!m_controller_nh.getParam("z_ba_trj", m_trj_z_ba ))
+//    {
+//      ROS_WARN("%s/z_ba_trj does not exist. Using 0.9*z_ss", m_controller_nh.getNamespace().c_str());
+//      m_trj_z_ba = 0.9*m_trj_z_ss;
+//    }
 
     // Initial values
     m_sigma0 = m_idle_sigma0;
@@ -483,10 +483,10 @@ namespace phri
     }
 
     // Reset time constant
-    if (!m_controller_nh.getParam("Tp",m_Tp)){
-      ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/Tp does not exist. Reset time constant set to default value: 0.5");
-      m_Tp = 0.5;
-    }
+//    if (!m_controller_nh.getParam("Tp",m_Tp)){
+//      ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/Tp does not exist. Reset time constant set to default value: 0.5");
+//      m_Tp = 0.5;
+//    }
     // Controller for angular accelerations
     if (!m_controller_nh.getParam("kp_acceleration",m_Kp_ang_acc)){
       ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/kp_acceleration does not exist, set to default: 1");
@@ -544,6 +544,18 @@ namespace phri
       ROS_WARN_STREAM(m_controller_nh.getNamespace()+"/trj_ratio_limit greater than 1 or less than 0. Set to default: 1");
       m_trj_ratio_limit = 1;
     }
+
+    if(!m_controller_nh.getParam("reset_window_size", m_reset_window_size))
+    {
+      m_reset_window_size = 1000; // in milliseconds, integer
+      ROS_WARN_STREAM(m_controller_nh.getNamespace() << "/reset_window_size does not exists. Set to default: " << m_reset_window_size);
+    }
+    if(!m_controller_nh.getParam("reset_threshold", m_reset_threshold))
+    {
+      m_reset_threshold = 1.0;
+      ROS_WARN_STREAM(m_controller_nh.getNamespace() << "/reset_threshold does not exists. Set to default: " << m_reset_threshold);
+    }
+
 
     //Subscribers
     m_target_sub=std::make_shared<ros_helper::SubscriptionNotifier<sensor_msgs::JointState>>(m_controller_nh,joint_target,1);
@@ -856,14 +868,15 @@ namespace phri
       m_pub_w.publish(w_msg);
 
       //Reset z
-      if(m_r > m_z_ba)
+      if(m_alpha.maxCoeff() > 0)
       {
-        m_reset_window.emplace_back(std::abs(m_z.norm()));
-        if(m_reset_window.size() > 1000) // Valore a caso
+        const size_t window_reset_size = (size_t) std::ceil(m_reset_window_size/(period.toSec()*1e3));
+        m_reset_window.emplace_back(m_wrench_of_tool_in_base_with_deadband.head(3).transpose()*cartesian_error_velocity_target_in_b);
+        if(m_reset_window.size() > window_reset_size)
         {
           m_reset_window.pop_front();
         }
-        double reset_value = std::accumulate(m_reset_window.begin(), m_reset_window.end(), 0.0,
+        const double reset_value = std::accumulate(m_reset_window.begin(), m_reset_window.end(), 0.0,
                                              [&period](const double d, const double x) -> double
                                                       {
                                                         return d + x*period.toSec();
@@ -871,12 +884,20 @@ namespace phri
                               );
         ROS_INFO("last value inserted: %f\nreset_value: %f", m_reset_window.back(), reset_value);
 
-        if(m_reset_window.size() >= 1000 &&
-           reset_value < 0.1*m_z_ba) // Valore a caso
+        if(m_reset_window.size() >= window_reset_size &&
+           reset_value < m_reset_threshold) // Valore a caso
         {
           m_z = Eigen::Vector3d::Zero();
           m_w = Eigen::Vector3d::Zero();
           m_r = 0.0;
+          m_reset_window.clear();
+        }
+      }
+      else
+      {
+        if(!m_reset_window.empty())
+        {
+          m_reset_window.clear();
         }
       }
 
