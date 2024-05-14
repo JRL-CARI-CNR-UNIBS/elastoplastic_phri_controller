@@ -545,7 +545,7 @@ namespace phri
       m_trj_ratio_limit = 1;
     }
 
-    if(!n_controller_nh.getParam("kw", m_kw))
+    if(!m_controller_nh.getParam("kw", m_kw))
     {
       m_kw = 1.0;
       ROS_WARN_STREAM(m_controller_nh.getNamespace() << "/kw not set. Using default: " << m_kw);
