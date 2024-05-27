@@ -614,6 +614,10 @@ namespace phri
     m_target=m_x;
     m_Dtarget=m_Dx;
 
+    // Deformation
+    m_cart_vel_of_t_in_b.setZero();
+    m_cart_pos_of_t_in_b.setZero();
+
     m_z.setZero();  // lugre state
     m_Dz.setZero();
 
@@ -626,8 +630,6 @@ namespace phri
     trj_status = Idle;
 
     m_queue.callAvailable(); // check for new messages
-
-    //m_alpha_prec.setZero();
 
     ROS_INFO("Controller '%s' well started at time %f",m_controller_nh.getNamespace().c_str(),time.toSec());
     m_is_configured = (m_target_ok && m_effort_ok);
@@ -681,50 +683,6 @@ namespace phri
       trj_status = Idle;
       ROS_INFO("New state: Idle");
     }
-
-    //ROS_INFO_STREAM_THROTTLE(2,"Stato : " << trj_status);
-
-//    double evol_time;
-//    // Parameters interpolations
-//    switch(trj_status){
-//      case TransitionToTrjFollowing:
-//        evol_time = (ros::Time::now()-t_start_switch).toSec()/(T_to_trj);
-//        m_Jinv = evol_time*(m_trj_Jinv-m_idle_Jinv)+m_idle_Jinv;
-//        m_damping = evol_time*(m_trj_damping-m_idle_damping)+m_idle_damping;
-//        m_sigma0 = evol_time*(m_trj_sigma0-m_idle_sigma0)+m_idle_sigma0;
-//        m_sigma1 = evol_time*(m_trj_sigma1-m_idle_sigma1)+m_idle_sigma1;
-//        m_c0 = evol_time*(m_trj_c0-m_idle_c0)+m_idle_c0;
-//        m_z_ss = evol_time*(m_trj_z_ss-m_idle_z_ss)+m_idle_z_ss;
-//        m_z_ba = evol_time*(m_trj_z_ba-m_idle_z_ba)+m_idle_z_ba;
-//      break;
-//      case TransitionToIdle:
-//        evol_time = (ros::Time::now()-t_start_switch).toSec()/(T_to_idle);
-//        m_Jinv = evol_time*(m_idle_Jinv-m_trj_Jinv)+m_trj_Jinv;
-//        m_damping = evol_time*(m_idle_damping-m_trj_damping)+m_trj_damping;
-//        m_sigma0 = evol_time*(m_idle_sigma0-m_trj_sigma0)+m_trj_sigma0;
-//        m_sigma1 = evol_time*(m_idle_sigma1-m_trj_sigma1)+m_trj_sigma1;
-//        m_c0 = evol_time*(m_idle_c0-m_trj_c0)+m_trj_c0;
-//        m_z_ss = evol_time*(m_idle_z_ss-m_trj_z_ss)+m_trj_z_ss;
-//        m_z_ba = evol_time*(m_idle_z_ba-m_trj_z_ba)+m_trj_z_ba;
-//      break;
-//      case Idle:
-//        m_Jinv = m_idle_Jinv;
-//        m_damping = m_idle_damping;
-//        m_sigma0 = m_idle_sigma0;
-//        m_sigma1 = m_idle_sigma1;
-//        m_c0 = m_idle_c0;
-//        m_z_ss = m_idle_z_ss;
-//        m_z_ba = m_idle_z_ba;
-//      break;
-//      case TrjFollowing:
-//        m_Jinv = m_trj_Jinv;
-//        m_damping = m_trj_damping;
-//        m_sigma0 = m_trj_sigma0;
-//        m_sigma1 = m_trj_sigma1;
-//        m_c0 = m_trj_c0;
-//        m_z_ss = m_trj_z_ss;
-//        m_z_ba = m_trj_z_ba;
-//    }
 
     // Transformation matrix  base <- target pose of the tool
     Eigen::Affine3d T_base_targetpose = m_chain_bt->getTransformation(m_target);
@@ -843,7 +801,7 @@ namespace phri
       Fr_in_base_msg.wrench.force.z=m_F_frc(2);
       m_pub_F_fr.publish(Fr_in_base_msg);
 
-      // Cartesian acceleration
+      // (Deformation) Cartesian acceleration
       cart_acc_of_t_in_b.head(3) = m_Jinv.head(3).cwiseProduct(-m_F_frc+m_wrench_of_tool_in_base_with_deadband.head(3));
       cart_acc_of_t_in_b.tail(3) = -(m_Kp_ang_acc*cartesian_error_actual_target_in_b.tail(3)+m_Ks_ang_acc*cartesian_error_velocity_target_in_b.tail(3));
 
@@ -906,24 +864,6 @@ namespace phri
         }
       }
 
-//      double norm_Dx = m_Dx.norm();
-//      //double D_norm_Dx = (norm_Dx - m_old_Dx_norm)/period.toSec(); // Accelerazione
-//      double D_norm_Dx = (m_DDx.dot(m_Dx))/norm_Dx; //Derivata esatta di norm_Dx
-//      double zp1,zp2; // Previsione di ||z|| al tempo Tp e 2Tp
-//      zp1 = norm_Dx*m_Tp + 0.5*D_norm_Dx*std::pow(m_Tp,2);
-//      zp2 = norm_Dx*m_Tp/2 + 0.5*D_norm_Dx*std::pow(m_Tp/2,2);
-//      if (std::abs(zp1) < m_z_ba && std::abs(zp2) < m_z_ba && m_alpha(1) > 0.999){
-//        ROS_WARN("Forced reset of z");
-//        m_z.setZero();
-//      }
-
-      // Vecchio reset: Fisso
-/*    double al = std::max(m_alpha(0),std::max(m_alpha(1),m_alpha(2)));
-      if (std::abs(m_Dz_norm-m_vel_norm) < 0.001)
-        if (al == 1.0)
-          for (int i=0;i<3;i++)
-            m_z(i) = 0;//(1.0-std::exp(-std::abs(m_vel_norm)/0.001));//m_Dz(i)*period.toSec() + m_z(i)*(std::abs(m_vel_norm)/0.5);// std::exp(-std::abs(m_vel_norm)/0.1);
-*/
     }
     else  //tool is reference
     {
@@ -934,62 +874,165 @@ namespace phri
     //  m_err_norm = cart_err;
     m_cart_acc_of_t_in_b = cart_acc_of_t_in_b;
 
-    // Compute svd decomposition of jacobian (to compute joint acceleration "inverting" the Jacobian)
+//    // Compute svd decomposition of jacobian (to compute joint acceleration "inverting" the Jacobian)
+//    Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_of_t_in_b, Eigen::ComputeThinU | Eigen::ComputeThinV);
+//    //Singularities
+//    if (svd.singularValues()(svd.cols()-1)==0)
+//      ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
+//    else if (svd.singularValues()(0)/svd.singularValues()(svd.cols()-1) > 1e2)
+//      ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
+
+
+////    m_pub_acc
+//    std_msgs::Float64MultiArray acc_msg;
+//    acc_msg.data.push_back(cart_acc_of_t_in_b(0));
+//    acc_msg.data.push_back(cart_acc_of_t_in_b(1));
+//    acc_msg.data.push_back(cart_acc_of_t_in_b(2));
+//    acc_msg.data.push_back(cart_acc_nl_of_t_in_b(0));
+//    acc_msg.data.push_back(cart_acc_nl_of_t_in_b(1));
+//    acc_msg.data.push_back(cart_acc_nl_of_t_in_b(2));
+//    m_pub_acc.publish(acc_msg);
+
+
+   /*
+    *
+    * // (deformation) cartesian acceleration =  LUGRE
+    * // (global) cartesian acceleration = (target) cartesian acceleration + (deformation) cartesian acceleration
+    * // IK   (global) cartesian acceleration = DJ(x)*Dx+J(x)*DDx  ==> DDx
+    * // INT  DDx integrator -> x,Dx
+    *
+    * ==================================================================================================================================
+    * m_cart_pos_of_t_in_b  += m_cart_vel_of_t_in_b  * period.toSec() + m_cart_acc_of_t_in_b*std::pow(period.toSec(),2.0)*0.5;
+    *
+    * m_cart_vel_of_t_in_b += m_cart_acc_of_t_in_b * period.toSec();
+    *
+    * //m_global_cart_pos_of_t_in_b = m_cart_pos_of_t_in_b + target_cart_pos_of_t_in_b;
+    * T_target_t.translation()=m_cart_pos_of_t_in_b;
+    * T_b_t = T_b_target * T_target_t;
+    *
+    * //m_global_art_vel_of_t_in_b = m_cart_vel_of_t_in_b + cart_vel_target_in_b;
+    *
+    * m_chain_bt->computeLocalIk(m_x,T_b_t,m_x);
+    *
+    * J_of_t_in_b  = m_chain_bt->getJacobian(m_x);
+    * m_Dx=
+    * =============================================================================================================================
+    *
+    *
+    *  // POSSIBILITA` 2
+    *  // (deformation) cartesian acceleration =  LUGRE
+    *  // INT (deformation) cartesian acceleration ==> (deformation) velocity and position
+    *  // (global) cartesian position = (target) cartesian position + (deformation) cartesian position
+    *  // (global) cartesian velocity = (target) cartesian velocity + (deformation) cartesian velocity
+    *  // IK  global velocity and position -> x, Dx
+    *
+    *
+    *
+    *
+    *
+    *
+    *
+    *
+    *
+    *
+    *
+    *
+    *
+    *  // x=target+q
+    *  // Dx=Dtarget+Dq
+    *  // DDx=DDtarget+DDq
+    *  // (global) cartesian acceleration = (target) cartesian acceleration + ==>(deformation) cartesian acceleration<==
+    *
+    *
+    *
+    *  //  (target) cartesian acceleration = DJ(target)*Dtarget+J(target)*DDtarget
+    *  //  (deformation) cartesian acceleration = (global) cartesian acceleration-(target) cartesian acceleration
+    */
+
+    /*
+     *
+     *                                                         +-------------+
+     * T_base_targetpose                        +---+          |             |
+     * cart_vel_target_in_b  +----------------->+ + +--------->+    IK()     |
+     *                                          +-+-+          |             |
+     *                                            ^            +-------------+
+     *                         cart_vel_of_t_in_b |
+     *                         cart_pos_of_t_in_b |     +-----+
+     *                                            |     |  1  |
+     *                                            +-----+  -  +<-----+ elastoplastic acceleration
+     *                                                  |  s2 |
+     *                                                  +-----+
+     *
+     *
+     *
+     */
+
+    m_cart_pos_of_t_in_b  += m_cart_vel_of_t_in_b  * period.toSec() + m_cart_acc_of_t_in_b*std::pow(period.toSec(),2.0)*0.5; // IGNORE ROTATIONS
+    m_cart_vel_of_t_in_b  += m_cart_acc_of_t_in_b * period.toSec();
+
+    Eigen::Affine3d T_base_tool_next;
+    Eigen::Vector6d V_base_tool_next;
+    T_base_tool_next = Eigen::Translation3d(m_cart_pos_of_t_in_b.head(3)) * T_base_targetpose;
+    V_base_tool_next = m_cart_vel_of_t_in_b + cart_vel_target_in_b;
+    m_chain_bt->computeLocalIk(m_x,T_base_tool_next,m_x); // new joint position
+    J_of_t_in_b = m_chain_bt->getJacobian(m_x);
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_of_t_in_b, Eigen::ComputeThinU | Eigen::ComputeThinV);
-    //Singularities
-    if (svd.singularValues()(svd.cols()-1)==0)
-      ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
-    else if (svd.singularValues()(0)/svd.singularValues()(svd.cols()-1) > 1e2)
-      ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
+    m_Dx = svd.solve(V_base_tool_next); // new joint velocity
 
-    // cartesian acceleration = D(J)*Dq+J*DDq -> DDq=J\(cartesian_acceleration-D(J)*Dq)
-    m_DDq = svd.solve(cart_acc_of_t_in_b-cart_acc_nl_of_t_in_b);
 
-    // saturate acceleration to compute distance
-    Eigen::VectorXd saturated_acc=m_DDq;
-    double ratio_acc=1;
-    for (unsigned int idx=0; idx<m_nAx; idx++)
-      ratio_acc=std::max(ratio_acc,std::abs(m_DDq(idx))/m_acceleration_limits(idx));
-    saturated_acc/=ratio_acc;
 
-    // check joint limit feasibility, break if needed
-    for (unsigned int idx=0; idx<m_nAx; idx++)
-    {
-      //Computing breaking distance
-      // velocity(t_break)=|current_velocity|-max_acc*t_break=0 -> t_break=|current_velocity|/max_acc
-      // distance(t_break)=|current_velocity|*t_break-0.5*max_t_break^2=0.5*max_t_break^2
-      double t_break=std::abs(m_Dx(idx))/m_acceleration_limits(idx); // breaking time
-      double breaking_distance=0.5*m_acceleration_limits(idx)*std::pow(t_break,2.0);
 
-      if (m_x(idx) > (m_upper_limits(idx)-breaking_distance))
-      {
-        if (m_Dx(idx)>0)
-        {
-          ROS_WARN_THROTTLE(2,"Breaking, maximum limit approaching on joint %s",m_joint_names.at(idx).c_str());
-          saturated_acc(idx)=-m_acceleration_limits(idx);
-        }
-      }
-      if (m_x(idx) < (m_lower_limits(idx) + breaking_distance))
-      {
-        if (m_Dx(idx) < 0)
-        {
-          ROS_WARN_THROTTLE(2,"Breaking, minimum limit approaching on joint %s",m_joint_names.at(idx).c_str());
-          saturated_acc(idx)=m_acceleration_limits(idx);
-        }
-      }
-    }
-    m_DDq=saturated_acc;
+    // QUESTO SALTA!
+    // cartesian acceleration = D(J)*Dq+J*(DDq) -> DDq=J\(cartesian_acceleration-D(J)*Dq)
+    //m_DDq = svd.solve(cart_acc_of_t_in_b-cart_acc_nl_of_t_in_b);
 
-/*
-    // integrate acceleration
-    m_x  += m_Dx  * period.toSec() + m_DDx*std::pow(period.toSec(),2.0)*0.5;
-    m_Dx += m_DDx * period.toSec();
-*/
-    m_q  += m_Dq  * period.toSec() + m_DDq*std::pow(period.toSec(),2.0)*0.5;
-    m_Dq += m_DDq * period.toSec();
+//    // saturate acceleration to compute distance
+//    Eigen::VectorXd saturated_acc=m_DDq;
+//    double ratio_acc=1;
+//    for (unsigned int idx=0; idx<m_nAx; idx++)
+//      ratio_acc=std::max(ratio_acc,std::abs(m_DDq(idx))/m_acceleration_limits(idx));
+//    saturated_acc/=ratio_acc;
 
-    m_x = m_target + m_q;
-    m_Dx = m_Dtarget + m_Dq;
+//    // check joint limit feasibility, break if needed
+//    for (unsigned int idx=0; idx<m_nAx; idx++)
+//    {
+//      //Computing breaking distance
+//      // velocity(t_break)=|current_velocity|-max_acc*t_break=0 -> t_break=|current_velocity|/max_acc
+//      // distance(t_break)=|current_velocity|*t_break-0.5*max_t_break^2=0.5*max_t_break^2
+//      double t_break=std::abs(m_Dx(idx))/m_acceleration_limits(idx); // breaking time
+//      double breaking_distance=0.5*m_acceleration_limits(idx)*std::pow(t_break,2.0);
+
+//      if (m_x(idx) > (m_upper_limits(idx)-breaking_distance))
+//      {
+//        if (m_Dx(idx)>0)
+//        {
+//          ROS_WARN_THROTTLE(2,"Breaking, maximum limit approaching on joint %s",m_joint_names.at(idx).c_str());
+//          saturated_acc(idx)=-m_acceleration_limits(idx);
+//        }
+//      }
+//      if (m_x(idx) < (m_lower_limits(idx) + breaking_distance))
+//      {
+//        if (m_Dx(idx) < 0)
+//        {
+//          ROS_WARN_THROTTLE(2,"Breaking, minimum limit approaching on joint %s",m_joint_names.at(idx).c_str());
+//          saturated_acc(idx)=m_acceleration_limits(idx);
+//        }
+//      }
+//    }
+//    m_DDq=saturated_acc;
+
+///*
+//    // integrate acceleration
+//    m_x  += m_Dx  * period.toSec() + m_DDx*std::pow(period.toSec(),2.0)*0.5;
+//    m_Dx += m_DDx * period.toSec();
+//*/
+//    m_q  += m_Dq  * period.toSec() + m_DDq*std::pow(period.toSec(),2.0)*0.5;
+//    m_Dq += m_DDq * period.toSec();
+
+//    m_x = m_target + m_q;
+//    m_Dx = m_Dtarget + m_Dq;
+    // m_DDx=m_DDtarget+m_DDq
+    // cart_acc=J*m_DDx+DJ*m_Dx
 
     // saturate position and velocity
     for (unsigned int idx=0;idx<m_nAx;idx++)
@@ -1003,12 +1046,10 @@ namespace phri
     x_msg.name=m_joint_names;
     x_msg.position.resize(m_x.size());
     x_msg.velocity.resize(m_x.size());
-    x_msg.effort.resize(m_DDq.size());
     for (int iax=0; iax<m_x.size();iax++)
     {
       x_msg.position.at(iax) = m_x(iax);
       x_msg.velocity.at(iax) = m_Dx(iax);
-      x_msg.effort.at(iax)   = m_DDq(iax);
     }
     m_pub_x.publish(x_msg);
 

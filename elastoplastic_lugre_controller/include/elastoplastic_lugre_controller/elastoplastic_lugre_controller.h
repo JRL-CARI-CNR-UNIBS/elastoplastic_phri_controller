@@ -167,6 +167,7 @@ namespace phri
 
       Eigen::Vector6d m_acc_deadband;
       Eigen::Vector6d m_cart_vel_of_t_in_b;
+      Eigen::Vector6d m_cart_pos_of_t_in_b;
 
       bool m_bool_act_reset = false;
       Eigen::Vector6d m_cart_acc_of_t_in_b;
