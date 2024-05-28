@@ -977,9 +977,23 @@ namespace phri
     m_chain_bt->computeLocalIk(m_x,T_base_tool_next,m_x); // new joint position
     J_of_t_in_b = m_chain_bt->getJacobian(m_x);
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_of_t_in_b, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    //Singularities
+    if (svd.singularValues()(svd.cols()-1)==0)
+      ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
+    else if (svd.singularValues()(0)/svd.singularValues()(svd.cols()-1) > 1e2)
+      ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
     m_Dx = svd.solve(V_base_tool_next); // new joint velocity
 
-
+    // Scaling due to joint velocity limits
+    double scaling_vel = 1.0;
+    for(size_t idx = 0; idx < m_nAx; idx++)
+    {
+      scaling_vel = std::max(ratio_acc,std::abs(m_Dx(idx))/m_velocity_limits(idx));
+    }
+    if(scaling_vel > 1)
+    {
+      m_Dx = svd.solve(V_base_tool_next/scaling_vel);
+    }
 
 
     // QUESTO SALTA!
