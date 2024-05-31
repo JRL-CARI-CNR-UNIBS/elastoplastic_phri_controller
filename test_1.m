@@ -64,7 +64,7 @@ switch MODEL
         z_size = 3;
     otherwise
         disp("MODELLO NON VALIDO")
-        exit
+        return
 end
 
 input_trajectory = zeros(length(T), 2);

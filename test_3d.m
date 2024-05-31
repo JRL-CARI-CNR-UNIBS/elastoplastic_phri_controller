@@ -55,9 +55,11 @@ enable_reset = 0;
 z_size = 1;
 switch MODEL
     case models.LUGRE
-        elastoplastic_model = @(z,v) lugre(z, v, s0, s1, s2, fss);
+        disp("TODO"); return;
+%         elastoplastic_model = @(z,v) lugre(z, v, s0, s1, s2, fss);
     case models.ALPHA_LUGRE
-        elastoplastic_model = @(z,v) alpha_lugre(z, v, s0, s1, s2, fss, z_ba, z_ss);
+        disp("TODO"); return;
+%         elastoplastic_model = @(z,v) alpha_lugre(z, v, s0, s1, s2, fss, z_ba, z_ss);
     case models.ELASTOPLASTIC_NO_R
         elastoplastic_model = @(z,v) elastoplastic_no_r(z, v, s0, s1, s2, fss, z_ba, z_ss, kw);
         z_size = 2;
@@ -67,7 +69,7 @@ switch MODEL
         z_size = 3;
     otherwise
         disp("MODELLO NON VALIDO")
-        exit
+        return
 end
 
 input_trajectory = zeros(length(T), 2);

@@ -4,6 +4,10 @@
 
 close all; clear; clc;
 
+fig_properties
+
+ENABLE_SAVE = false;
+
 addpath("../data/prova_3");
 tab = readtable("prova_3.csv");
 
@@ -27,14 +31,9 @@ err(3,:) = rmmissing(tab.x_ur10e_hw_elastoplastic_controller_cart_err_data_2_);
 
 t = 0:dt:dt*length(z(1,:));
 
-LINE_STYLES = ["-";"--";":"];
-LINE_WIDTH = 3;
-TICK_FONT_SIZE = 18;
-AXIS_LABELS_FONT_SIZE = 24;
-
 ax = [];
 
-fig = figure("WindowState","fullscreen");
+fig = figure("WindowState","maximized");
 ax = [ax subplot(3,1,1)];
 hold on
 for idx=1:3
@@ -45,7 +44,7 @@ ax(1).XLim = [28,49];
 ax(1).XTickLabel = ["0","2","4","6","8","10","12","14","16","18","20"];
 ax(1).YLabel.String = ["Forces";"Applied (N)"];
 ax(1).YLabel.FontSize = AXIS_LABELS_FONT_SIZE;
-ax(1).YLabel.FontWeight = 'bold';
+ax(1).YLabel.FontWeight = LABEL_FONT_WEIGHT;
 legend("$F_{h,x}$","$F_{h,y}$","$F_{h,z}$", 'interpreter', 'latex')
 grid on
 hold off
@@ -61,7 +60,7 @@ ax(2).XTickLabel = ["0","2","4","6","8","10","12","14","16","18","20"];
 ax(2).YLim = [-0.3,0.4];
 ax(2).YLabel.String = ["State";"Variables (m)"];
 ax(2).YLabel.FontSize = AXIS_LABELS_FONT_SIZE;
-ax(2).YLabel.FontWeight = 'bold';
+ax(2).YLabel.FontWeight = LABEL_FONT_WEIGHT;
 legend("$z_{x}$","$z_{y}$","$z_{z}$", 'interpreter', 'latex')
 grid on
 hold off
@@ -77,10 +76,10 @@ ax(3).XTickLabel = ["0","2","4","6","8","10","12","14","16","18","20","22"];
 ax(3).YLim = [-0.3,0.3];
 ax(3).YLabel.String = ["Cartesian";"Trajectoty";"Error (m)"];
 ax(3).YLabel.FontSize = AXIS_LABELS_FONT_SIZE;
-ax(3).YLabel.FontWeight = 'bold';
+ax(3).YLabel.FontWeight = LABEL_FONT_WEIGHT;
 ax(3).XLabel.String = "Time (s)";
 ax(3).XLabel.FontSize = AXIS_LABELS_FONT_SIZE;
-ax(3).XLabel.FontWeight = 'bold';
+ax(3).XLabel.FontWeight = LABEL_FONT_WEIGHT;
 
 legend("$err_{x}$","$err_{y}$","$err_{z}$", 'interpreter', 'latex')
 grid on
@@ -88,5 +87,14 @@ hold off
 
 NAME_FILE = "experimental-2";
 
-savefig(fig, strcat(NAME_FILE,".fig"))
-exportgraphics(fig, strcat(NAME_FILE,".eps"))
+if ENABLE_SAVE
+    check_input = input("Save Image? ",'s');
+    if ~strcmp(check_input,'s')
+        disp("Operation cancelled")
+        return
+    end
+    fprintf("Saving %s.fig and %s.eps ...", NAME_FILE, NAME_FILE)
+    savefig(fig, strcat(NAME_FILE,".fig"))
+    exportgraphics(fig, strcat(NAME_FILE,".eps"))
+    fprintf(" Done!\n")
+end
