@@ -6,7 +6,7 @@ close all; clear; clc;
 
 fig_properties
 
-ENABLE_SAVE = false;
+ENABLE_SAVE = true;
 
 addpath("../data/prova_3");
 tab = readtable("prova_3.csv");
@@ -42,9 +42,10 @@ end
 ax(1).FontSize = TICK_FONT_SIZE;
 ax(1).XLim = [28,49];
 ax(1).XTickLabel = ["0","2","4","6","8","10","12","14","16","18","20"];
-ax(1).YLabel.String = ["Forces";"Applied (N)"];
+ax(1).YLabel.String = ["$F_h$ [N]"];
 ax(1).YLabel.FontSize = AXIS_LABELS_FONT_SIZE;
 ax(1).YLabel.FontWeight = LABEL_FONT_WEIGHT;
+ax(1).YLabel.Interpreter = 'latex';
 legend("$F_{h,x}$","$F_{h,y}$","$F_{h,z}$", 'interpreter', 'latex')
 grid on
 hold off
@@ -58,9 +59,10 @@ ax(2).FontSize = TICK_FONT_SIZE;
 ax(2).XLim = [28,49];
 ax(2).XTickLabel = ["0","2","4","6","8","10","12","14","16","18","20"];
 ax(2).YLim = [-0.3,0.4];
-ax(2).YLabel.String = ["State";"Variables (m)"];
+ax(2).YLabel.String = ["$z$ [m]"];
 ax(2).YLabel.FontSize = AXIS_LABELS_FONT_SIZE;
 ax(2).YLabel.FontWeight = LABEL_FONT_WEIGHT;
+ax(2).YLabel.Interpreter = 'latex';
 legend("$z_{x}$","$z_{y}$","$z_{z}$", 'interpreter', 'latex')
 grid on
 hold off
@@ -74,12 +76,14 @@ ax(3).FontSize = TICK_FONT_SIZE;
 ax(3).XLim = [28,49];
 ax(3).XTickLabel = ["0","2","4","6","8","10","12","14","16","18","20","22"];
 ax(3).YLim = [-0.3,0.3];
-ax(3).YLabel.String = ["Cartesian";"Trajectoty";"Error (m)"];
+ax(3).YLabel.String = ["$x_d$ [m]"];
 ax(3).YLabel.FontSize = AXIS_LABELS_FONT_SIZE;
 ax(3).YLabel.FontWeight = LABEL_FONT_WEIGHT;
-ax(3).XLabel.String = "Time (s)";
+ax(3).YLabel.Interpreter = 'latex';
+ax(3).XLabel.String = "Time [s]";
 ax(3).XLabel.FontSize = AXIS_LABELS_FONT_SIZE;
 ax(3).XLabel.FontWeight = LABEL_FONT_WEIGHT;
+ax(3).XLabel.Interpreter = 'latex';
 
 legend("$err_{x}$","$err_{y}$","$err_{z}$", 'interpreter', 'latex')
 grid on
