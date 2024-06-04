@@ -48,6 +48,7 @@ ax(1).YLabel.FontWeight = LABEL_FONT_WEIGHT;
 ax(1).YLabel.Interpreter = 'latex';
 legend("$F_{h,x}$","$F_{h,y}$","$F_{h,z}$", 'interpreter', 'latex')
 grid on
+box on
 hold off
 
 ax = [ax subplot(3,1,2)];
@@ -65,6 +66,7 @@ ax(2).YLabel.FontWeight = LABEL_FONT_WEIGHT;
 ax(2).YLabel.Interpreter = 'latex';
 legend("$z_{x}$","$z_{y}$","$z_{z}$", 'interpreter', 'latex')
 grid on
+box on
 hold off
 
 ax = [ax subplot(3,1,3)];
@@ -87,6 +89,7 @@ ax(3).XLabel.Interpreter = 'latex';
 
 legend("$err_{x}$","$err_{y}$","$err_{z}$", 'interpreter', 'latex')
 grid on
+box on
 hold off
 
 NAME_FILE = "experimental-2";
