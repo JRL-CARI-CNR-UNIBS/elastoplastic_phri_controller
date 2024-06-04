@@ -988,7 +988,7 @@ namespace phri
     double scaling_vel = 1.0;
     for(size_t idx = 0; idx < m_nAx; idx++)
     {
-      scaling_vel = std::max(ratio_acc,std::abs(m_Dx(idx))/m_velocity_limits(idx));
+      scaling_vel = std::max(scaling_vel,std::abs(m_Dx(idx))/m_velocity_limits(idx));
     }
     if(scaling_vel > 1)
     {
