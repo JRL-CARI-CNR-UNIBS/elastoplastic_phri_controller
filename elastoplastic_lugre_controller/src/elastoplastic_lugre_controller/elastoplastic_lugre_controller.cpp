@@ -213,58 +213,6 @@ namespace phri
       return false;
     }
 
-    /*
-    // Stiffness
-    if (!m_controller_nh.getParam("stiffness", stiffness))
-    {
-      ROS_FATAL_STREAM(m_controller_nh.getNamespace()+"/stiffness does not exist");
-      ROS_FATAL("ERROR DURING INITIALIZATION CONTROLLER '%s'", m_controller_nh.getNamespace().c_str());
-      return false;
-    }
-
-    if (stiffness.size()!=6)
-    {
-      ROS_ERROR("%s/stiffness should be have six values", m_controller_nh.getNamespace().c_str());
-      return false;
-    }
-
-    // Damping (or Damping Ratio)
-    // if damping_ratio is defined, using relative damping
-    if (m_controller_nh.hasParam("damping_ratio"))
-    {
-      std::vector<double> damping_ratio;
-      if (!m_controller_nh.getParam("damping_ratio_idle", damping_ratio))
-      {
-        ROS_FATAL_STREAM(m_controller_nh.getNamespace()+"/damping_ratio is not a vector of doubles");
-        ROS_FATAL("ERROR DURING INITIALIZATION CONTROLLER '%s'", m_controller_nh.getNamespace().c_str());
-        return false;
-      }
-
-      if (damping_ratio.size()!=6)
-      {
-        ROS_ERROR("damping should be have six values");
-        return false;
-      }
-
-      damping.resize(6,0);
-      for (unsigned int iAx=0;iAx<6;iAx++)
-      {
-        if (stiffness.at(iAx)<=0)
-        {
-          ROS_ERROR("damping ratio can be specified only for positive stiffness values (stiffness of Joint %s is not positive)",m_joint_names.at(iAx).c_str());
-          return false;
-        }
-        damping.at(iAx)=2*damping_ratio.at(iAx)*std::sqrt(stiffness.at(iAx)*inertia.at(iAx));
-      }
-    }
-    else if (!m_controller_nh.getParam("damping_idle", damping)) // if damping_ratio is not defined, using absolute damping
-    {
-      ROS_FATAL_STREAM(m_controller_nh.getNamespace()+"/damping does not exist");
-      ROS_FATAL("ERROR DURING INITIALIZATION CONTROLLER '%s'", m_controller_nh.getNamespace().c_str());
-      return false;
-    }
-    */
-
     if (!m_controller_nh.getParam("damping", damping)) // if damping_ratio is not defined, using absolute damping
     {
           ROS_FATAL_STREAM(m_controller_nh.getNamespace()+"/damping does not exist");
@@ -423,37 +371,6 @@ namespace phri
       }
     }
 
-    // LuGre Parameters
-//    if (!m_controller_nh.getParam("sigma0_trj", m_trj_sigma0 ))
-//    {
-//      ROS_WARN("%s/sigma0_trj does not exist. Using %s/sigma0.", m_controller_nh.getNamespace().c_str(), m_controller_nh.getNamespace().c_str());
-//      m_trj_sigma0 = m_idle_sigma0;
-//    }
-
-//    if (!m_controller_nh.getParam("sigma1_trj", m_trj_sigma1 ))
-//    {
-//      ROS_WARN("%s/sigma1_trj does not exist. Using %s/sigma1.", m_controller_nh.getNamespace().c_str(), m_controller_nh.getNamespace().c_str());
-//      m_trj_sigma1 = m_idle_sigma1;
-//    }
-
-//    if (!m_controller_nh.getParam("c0_trj", m_trj_c0 ))
-//    {
-//      ROS_WARN("%s/c0_trj does not exist. Using %s/c0.", m_controller_nh.getNamespace().c_str(),m_controller_nh.getNamespace().c_str());
-//      m_trj_c0 = m_idle_c0;
-//    }
-
-//    if (!m_controller_nh.getParam("z_ss_trj", m_trj_z_ss ))
-//    {
-//      ROS_WARN("%s/z_ss does not exist. Using c0/sigma0", m_controller_nh.getNamespace().c_str());
-//      m_trj_z_ss = m_trj_c0/m_trj_sigma0;
-//    }
-
-//    if (!m_controller_nh.getParam("z_ba_trj", m_trj_z_ba ))
-//    {
-//      ROS_WARN("%s/z_ba_trj does not exist. Using 0.9*z_ss", m_controller_nh.getNamespace().c_str());
-//      m_trj_z_ba = 0.9*m_trj_z_ss;
-//    }
-
     // Initial values
     m_sigma0 = m_idle_sigma0;
     m_sigma1 = m_idle_sigma1;
@@ -482,11 +399,6 @@ namespace phri
       ROS_INFO("acceleration limits = [%f, %f]",-m_acceleration_limits(iAx),m_acceleration_limits(iAx));
     }
 
-    // Reset time constant
-//    if (!m_controller_nh.getParam("Tp",m_Tp)){
-//      ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/Tp does not exist. Reset time constant set to default value: 0.5");
-//      m_Tp = 0.5;
-//    }
     // Controller for angular accelerations
     if (!m_controller_nh.getParam("kp_acceleration",m_Kp_ang_acc)){
       ROS_INFO_STREAM(m_controller_nh.getNamespace()+"/kp_acceleration does not exist, set to default: 1");
@@ -751,28 +663,6 @@ namespace phri
 
     if (m_base_is_reference)
     {
-//      double lambda=std::pow(m_mu_k,2.0)*m_vel_norm;
-//      double lambda = m_mu_k * m_vel_norm;
-//      for (int i=0;i<m_z.size();i++)
-//      {
-//        if (std::abs(m_z(i)) < m_z_ba)
-//        {
-//          m_alpha(i) = 0.0;
-//        }
-//        else if (std::abs(m_z(i)) >= m_z_ss)
-//        {
-//          m_alpha(i) = 1.0;
-//        }
-//        else
-//        {
-//          m_alpha(i) = 0.5*std::sin(M_PI*((m_z(i)-(m_z_ba+m_z_ss)/2)/(m_z_ss-m_z_ba)))+0.5;
-//        }
-//        m_scale(i) = (1.0-m_alpha(i));
-////        double lambda_1 = lambda/m_c0;
-////        m_c0_v(i) = m_sigma0*lambda_1*m_alpha(i)/(m_mu_k*m_mu_k);
-//        m_c0_v(i) = m_alpha(i) * m_sigma0 * m_vel_norm / m_c0;
-//        m_Dw(i) = m_alpha(i) * 20 * (m_z(i) - m_w(i)) - m_scale(i) * 50 * m_w(i);
-//      }
 
 //      m_alpha = Eigen::Vector3d({alpha(m_z_norm), alpha(m_z_norm), alpha(m_z_norm)});
       m_alpha = Eigen::Vector3d::Constant(alpha(alpha_r.norm()));
@@ -874,81 +764,6 @@ namespace phri
     //  m_err_norm = cart_err;
     m_cart_acc_of_t_in_b = cart_acc_of_t_in_b;
 
-//    // Compute svd decomposition of jacobian (to compute joint acceleration "inverting" the Jacobian)
-//    Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_of_t_in_b, Eigen::ComputeThinU | Eigen::ComputeThinV);
-//    //Singularities
-//    if (svd.singularValues()(svd.cols()-1)==0)
-//      ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
-//    else if (svd.singularValues()(0)/svd.singularValues()(svd.cols()-1) > 1e2)
-//      ROS_WARN_THROTTLE(1,"SINGULARITY POINT");
-
-
-////    m_pub_acc
-//    std_msgs::Float64MultiArray acc_msg;
-//    acc_msg.data.push_back(cart_acc_of_t_in_b(0));
-//    acc_msg.data.push_back(cart_acc_of_t_in_b(1));
-//    acc_msg.data.push_back(cart_acc_of_t_in_b(2));
-//    acc_msg.data.push_back(cart_acc_nl_of_t_in_b(0));
-//    acc_msg.data.push_back(cart_acc_nl_of_t_in_b(1));
-//    acc_msg.data.push_back(cart_acc_nl_of_t_in_b(2));
-//    m_pub_acc.publish(acc_msg);
-
-
-   /*
-    *
-    * // (deformation) cartesian acceleration =  LUGRE
-    * // (global) cartesian acceleration = (target) cartesian acceleration + (deformation) cartesian acceleration
-    * // IK   (global) cartesian acceleration = DJ(x)*Dx+J(x)*DDx  ==> DDx
-    * // INT  DDx integrator -> x,Dx
-    *
-    * ==================================================================================================================================
-    * m_cart_pos_of_t_in_b  += m_cart_vel_of_t_in_b  * period.toSec() + m_cart_acc_of_t_in_b*std::pow(period.toSec(),2.0)*0.5;
-    *
-    * m_cart_vel_of_t_in_b += m_cart_acc_of_t_in_b * period.toSec();
-    *
-    * //m_global_cart_pos_of_t_in_b = m_cart_pos_of_t_in_b + target_cart_pos_of_t_in_b;
-    * T_target_t.translation()=m_cart_pos_of_t_in_b;
-    * T_b_t = T_b_target * T_target_t;
-    *
-    * //m_global_art_vel_of_t_in_b = m_cart_vel_of_t_in_b + cart_vel_target_in_b;
-    *
-    * m_chain_bt->computeLocalIk(m_x,T_b_t,m_x);
-    *
-    * J_of_t_in_b  = m_chain_bt->getJacobian(m_x);
-    * m_Dx=
-    * =============================================================================================================================
-    *
-    *
-    *  // POSSIBILITA` 2
-    *  // (deformation) cartesian acceleration =  LUGRE
-    *  // INT (deformation) cartesian acceleration ==> (deformation) velocity and position
-    *  // (global) cartesian position = (target) cartesian position + (deformation) cartesian position
-    *  // (global) cartesian velocity = (target) cartesian velocity + (deformation) cartesian velocity
-    *  // IK  global velocity and position -> x, Dx
-    *
-    *
-    *
-    *
-    *
-    *
-    *
-    *
-    *
-    *
-    *
-    *
-    *
-    *  // x=target+q
-    *  // Dx=Dtarget+Dq
-    *  // DDx=DDtarget+DDq
-    *  // (global) cartesian acceleration = (target) cartesian acceleration + ==>(deformation) cartesian acceleration<==
-    *
-    *
-    *
-    *  //  (target) cartesian acceleration = DJ(target)*Dtarget+J(target)*DDtarget
-    *  //  (deformation) cartesian acceleration = (global) cartesian acceleration-(target) cartesian acceleration
-    */
-
     /*
      *
      *                                                         +-------------+
@@ -995,18 +810,6 @@ namespace phri
       m_Dx = svd.solve(V_base_tool_next/scaling_vel);
     }
 
-
-    // QUESTO SALTA!
-    // cartesian acceleration = D(J)*Dq+J*(DDq) -> DDq=J\(cartesian_acceleration-D(J)*Dq)
-    //m_DDq = svd.solve(cart_acc_of_t_in_b-cart_acc_nl_of_t_in_b);
-
-//    // saturate acceleration to compute distance
-//    Eigen::VectorXd saturated_acc=m_DDq;
-//    double ratio_acc=1;
-//    for (unsigned int idx=0; idx<m_nAx; idx++)
-//      ratio_acc=std::max(ratio_acc,std::abs(m_DDq(idx))/m_acceleration_limits(idx));
-//    saturated_acc/=ratio_acc;
-
 //    // check joint limit feasibility, break if needed
 //    for (unsigned int idx=0; idx<m_nAx; idx++)
 //    {
@@ -1034,19 +837,6 @@ namespace phri
 //      }
 //    }
 //    m_DDq=saturated_acc;
-
-///*
-//    // integrate acceleration
-//    m_x  += m_Dx  * period.toSec() + m_DDx*std::pow(period.toSec(),2.0)*0.5;
-//    m_Dx += m_DDx * period.toSec();
-//*/
-//    m_q  += m_Dq  * period.toSec() + m_DDq*std::pow(period.toSec(),2.0)*0.5;
-//    m_Dq += m_DDq * period.toSec();
-
-//    m_x = m_target + m_q;
-//    m_Dx = m_Dtarget + m_Dq;
-    // m_DDx=m_DDtarget+m_DDq
-    // cart_acc=J*m_DDx+DJ*m_Dx
 
     // saturate position and velocity
     for (unsigned int idx=0;idx<m_nAx;idx++)

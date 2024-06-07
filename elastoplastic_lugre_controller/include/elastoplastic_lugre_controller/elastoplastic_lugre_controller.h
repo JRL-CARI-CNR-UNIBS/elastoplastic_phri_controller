@@ -149,21 +149,11 @@ namespace phri
       double m_idle_z_ba, m_trj_z_ba, m_z_ba;
       double m_idle_z_ss, m_trj_z_ss, m_z_ss;
 
+      // Unused
       double m_Tp;
       double m_Kp_ang_acc;
       double m_Ks_ang_acc;
       double m_trj_ratio_limit;
-
-      /*
-      Eigen::Vector6d m_acc_LuGre;
-      Eigen::Vector6d m_vel_LuGre;
-      Eigen::Vector6d m_pos_LuGre;
-      Eigen::Vector3d m_old_F_angle;
-      Eigen::Vector3d m_angle_count;
-      Eigen::Vector3d m_old_angle_count;
-      Eigen::Vector3d m_Dangle_count;
-      Eigen::Vector3d m_real_F_angle;
-      */
 
       Eigen::Vector6d m_acc_deadband;
       Eigen::Vector6d m_cart_vel_of_t_in_b;
@@ -184,11 +174,6 @@ namespace phri
 
       std::shared_ptr<ros_helper::SubscriptionNotifier<std_msgs::Float64>> m_exec_ratio_sub;
       double m_execution_ratio=1.0;
-
-      /*
-      Eigen::Vector3d m_alpha_prec;
-      Eigen::Vector3d m_max_Dz;
-      */
 
       void setTargetCallback(const sensor_msgs::JointStateConstPtr& msg);
       void setWrenchCallback(const geometry_msgs::WrenchStampedConstPtr& msg);
