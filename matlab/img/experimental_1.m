@@ -6,17 +6,17 @@ close all; clear; clc;
 
 fig_properties
 
-NAME_FILE = "experimental-1";
-ENABLE_SAVE = true;
+NAME_FILE = "video-experimental-1";
+ENABLE_SAVE = false;
 
-addpath("../data/prova_5");
-tab = readtable("prova_5.csv"); 
+addpath("../data/prova_a3");
+tab = readtable("prova_a3.csv"); 
 
 t = rmmissing(tab.x__time);
 t = (t - t(1))';
 
-T_START = 41;
-T_END = 51 ; %65;
+T_START = 36;
+T_END = 48; %65;
 
 z(1,:) = tab.x_ur10e_hw_elastoplastic_controller_z_data_0_(t > T_START & t < T_END);
 z(2,:) = tab.x_ur10e_hw_elastoplastic_controller_z_data_1_(t > T_START & t < T_END);
@@ -53,7 +53,6 @@ hold on
 plot(t(~isnan(F(1,:))), F(idx,~isnan(F(1,:))), "LineStyle",LINE_STYLES(idx),"LineWidth",LINE_WIDTH);
 plot(t(~isnan(Fr(1,:))), Fr(idx,~isnan(Fr(1,:))), "LineStyle",LINE_STYLES(mod(idx+1,length(LINE_STYLES))),"LineWidth",LINE_WIDTH);
 ax(1).FontSize = TICK_FONT_SIZE;
-% ax(1).XLim = [28,49];
 ax(1).YLim = [ax(1).YLim(1)-5, ax(1).YLim(2)+5];
 ax(1).YLabel.String = ["$F_h, F_r$ [N]"];
 ax(1).YLabel.FontSize = AXIS_LABELS_FONT_SIZE;
