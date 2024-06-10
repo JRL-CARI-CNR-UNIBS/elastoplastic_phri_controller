@@ -1,0 +1,24 @@
+elastoplastic_controller:
+  ros__parameters:
+    frames:
+      base: {
+        type: string,
+        default_value: "",
+        description: "Base frame"
+      }
+      tool: {
+        type: string,
+        default_value: "",
+        description: "Tool frame"
+      }
+      sensor: {
+        type: string,
+        default_value: "",
+        description: "F/T Sensor frame",
+      }
+    gravity: {
+      type: double_array,
+      default_value: [0.0, 0.0, -9.806],
+      description: "Gravity vector"
+    }
+
