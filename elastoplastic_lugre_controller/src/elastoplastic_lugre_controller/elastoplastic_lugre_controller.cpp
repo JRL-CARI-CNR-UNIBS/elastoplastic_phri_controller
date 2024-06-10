@@ -738,7 +738,7 @@ namespace phri
         ROS_INFO("last value inserted: %f\nreset_value: %f", m_reset_window.back(), reset_value);
 
         if(m_reset_window.size() >= window_reset_size &&
-           reset_value < m_reset_threshold) // Valore a caso
+           reset_value < m_reset_threshold)
         {
           m_z = Eigen::Vector3d::Zero();
           m_w = Eigen::Vector3d::Zero();
