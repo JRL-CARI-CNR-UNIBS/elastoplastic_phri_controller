@@ -1,24 +1,124 @@
 elastoplastic_controller:
-  ros__parameters:
-    frames:
-      base: {
-        type: string,
-        default_value: "",
-        description: "Base frame"
-      }
-      tool: {
-        type: string,
-        default_value: "",
-        description: "Tool frame"
-      }
-      sensor: {
-        type: string,
-        default_value: "",
-        description: "F/T Sensor frame",
-      }
-    gravity: {
-      type: double_array,
-      default_value: [0.0, 0.0, -9.806],
-      description: "Gravity vector"
+  target_joint_trajectory_topic: {
+    type: string,
+    default_value: "/joint_trajectory",
+    validation: {
+      not_empty<>: []
     }
-
+  }
+  ft_sensor_name: {
+    type: string,
+    default_value: "ft_sensor",
+    description: "Force/Torque sensor name",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  frames:
+    base: {
+      type: string,
+      default_value: "",
+      description: "Base frame"
+    }
+    tool: {
+      type: string,
+      default_value: "",
+      description: "Tool frame"
+    }
+    sensor: {
+      type: string,
+      default_value: "",
+      description: "F/T Sensor frame",
+    }
+  gravity: {
+    type: double_array,
+    default_value: [0.0, 0.0, -9.806],
+    description: "Gravity vector"
+  }
+  joints: {
+    type: string_array,
+    default_value: [],
+    description: "Robot Joints"
+  }
+  command_interfaces: {
+    type: string_array,
+    default_value: ["position", "velocity"],
+    description: "Command interface types",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  state_interfaces: {
+    type: string_array,
+    default_value: ["position", "velocity"],
+    description: "State interface types",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  wrench_deadband: {
+    type: double_array,
+    default_value: [0.0,0.0],
+    description: "Wrench deadband. [force_deadband, torque_deadband]",
+    validation: {
+      gt<>: 0.0
+    }
+  }
+  impedance:
+    inertia: {
+      type: double_array,
+      default_value: [],
+      description: "Controller Inertia",
+      validation: {
+        lower_element_bounds<>: 0
+      }
+    }
+    lugre:
+      sigma_0: {
+        type: double,
+        description: "bristle stiffness"
+      }
+      sigma_1: {
+        type: double,
+        description: "bristle damping"
+      }
+      sigma_2: {
+        type: double,
+        description: "viscous coefficient"
+      }
+      z_ss: {
+        type: double,
+        description: "Maximum bristle bending",
+        validation: {
+          gt<>: 0
+        }
+      }
+      z_ba: {
+        type: double,
+        description: "Plastic threshold",
+        validation: {
+          gt_eq<>: 0
+        }
+      }
+    tau_w: {
+      type: double,
+      description: "Time constant of the tracking variable w",
+      validation: {
+        gt_eq<>: 0,
+      }
+    }
+    reset_condition:
+      reset_window_size: {
+        type: double,
+        description: "Reset window size in ms",
+        validation: {
+          gt<>: 0,
+        }
+      }
+      reset_threshold: {
+        type: double,
+        description: "Reset Threshold",
+        validation: {
+          gt_eq<>: 0,
+        }
+      }
