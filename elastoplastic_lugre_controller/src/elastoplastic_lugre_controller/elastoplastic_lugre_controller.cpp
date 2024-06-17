@@ -160,7 +160,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     }
     state_interface = std::next(state_interface);
   }
-  auto command_interface = m_joint_state_interfaces.begin();
+  auto command_interface = m_joint_command_interfaces.begin();
   for(const auto& interface : m_allowed_interface_types)
   {
     if(not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, interface, *command_interface))
