@@ -42,8 +42,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   std::string what;
   m_nax = m_parameters.joints.size();
-  m_chain_base_tool  ->setInputJointsName(m_parameters.joints,what);
-  m_chain_base_sensor->setInputJointsName(m_parameters.joints,what);
+  m_chain_base_tool  ->setInputJointsName(m_parameters.joints, what);
+  m_chain_base_sensor->setInputJointsName(m_parameters.joints, what);
 
   m_q.resize(m_nax);
   m_qp.resize(m_nax);
@@ -89,13 +89,13 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_pub_pose_in_base =     this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>  (fmt::format("{}/{}", this->get_node()->get_namespace(), "pose_in_base"), 10);
   m_pub_target_in_base =   this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>  (fmt::format("{}/{}", this->get_node()->get_namespace(), "target_in_base"), 10);
 
-  m_has_interfaces.state.position() = std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_POSITION) == m_parameters.state_interfaces.end();
-  m_has_interfaces.state.velocity() = std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_VELOCITY) == m_parameters.state_interfaces.end();
-  m_has_interfaces.state.effort  () = std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_EFFORT)   == m_parameters.state_interfaces.end();
+  m_has_interfaces.state.position() = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_POSITION) == m_parameters.state_interfaces.end());
+  m_has_interfaces.state.velocity() = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_VELOCITY) == m_parameters.state_interfaces.end());
+  m_has_interfaces.state.effort  () = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_EFFORT)   == m_parameters.state_interfaces.end());
 
-  m_has_interfaces.command.position() = std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_POSITION) == m_parameters.command_interfaces.end();
-  m_has_interfaces.command.velocity() = std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_VELOCITY) == m_parameters.command_interfaces.end();
-  m_has_interfaces.state.effort    () = std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_EFFORT)   == m_parameters.command_interfaces.end();
+  m_has_interfaces.command.position() = not (std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_POSITION) == m_parameters.command_interfaces.end());
+  m_has_interfaces.command.velocity() = not (std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_VELOCITY) == m_parameters.command_interfaces.end());
+  m_has_interfaces.state.effort    () = not (std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_EFFORT)   == m_parameters.command_interfaces.end());
 
   if(not m_has_interfaces.check())
   {
@@ -396,7 +396,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   for(size_t idx = 0; idx < m_nax; ++idx)
   {
     m_q(idx) =  std::max(m_limits.pos_lower(idx), std::min(m_limits.pos_upper(idx), m_q(idx)));
-    m_qp(idx) = std::max(-m_limits.vel(idx),      std::min(m_limits.vel(idx), m_qp(idx)));
+    m_qp(idx) = std::max(-m_limits.vel(idx),      std::min(m_limits.vel(idx),       m_qp(idx)));
   }
 
   // ***********
@@ -404,8 +404,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ***********
   for(size_t ax = 0; ax < m_nax; ++ax)
   {
-    if(m_has_interfaces.command.at(0)) m_joint_command_interfaces.at(0).at(ax).get().set_value(m_q(ax));
-    if(m_has_interfaces.command.at(1)) m_joint_command_interfaces.at(1).at(ax).get().set_value(m_qp(ax));
+    if(m_has_interfaces.command.position()) m_joint_command_interfaces.at(0).at(ax).get().set_value(m_q(ax));
+    if(m_has_interfaces.command.velocity()) m_joint_command_interfaces.at(1).at(ax).get().set_value(m_qp(ax));
   }
 
   return controller_interface::return_type::OK;
