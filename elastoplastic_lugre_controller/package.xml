@@ -18,6 +18,7 @@
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>tf2</depend>
+  <depend>tf2_eigen</depend>
   <depend>urdfdom</depend>
   <depend>generate_parameter_library</depend>
 

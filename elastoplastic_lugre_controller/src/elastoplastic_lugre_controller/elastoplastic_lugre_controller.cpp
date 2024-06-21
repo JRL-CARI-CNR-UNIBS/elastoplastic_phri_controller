@@ -2,7 +2,8 @@
 
 #include <urdfdom_headers/urdf_model/model.h>
 
-#include <ranges>
+#include <tf2_eigen/tf2_eigen.hpp>
+
 #include <algorithm>
 #include <fmt/core.h>
 
@@ -77,8 +78,16 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   }
   m_inertia_inv = Eigen::Map<Eigen::Vector3d>(m_parameters.impedance.inertia.data(), m_parameters.impedance.inertia.size()).cwiseInverse();
 
+
+  if(!m_aux_axis.init(m_parameters.aux_joints.names, m_parameters.aux_joints.enabled))
+  {
+    RCLCPP_FATAL(this->get_node()->get_logger(), "You should not be here due to parameters validation");
+    controller_interface::CallbackReturn::ERROR;
+  }
+
   using namespace std::placeholders;
-  m_sub_target_joint_trajectory = this->get_node()->create_subscription<sensor_msgs::msg::JointState>(m_parameters.target_joint_trajectory_topic, 10, std::bind(&ElastoplasticController::get_target_callback, this, _1));
+  m_sub_target_joint_trajectory = this->get_node()->create_subscription<sensor_msgs::msg::JointState>(m_parameters.target_joint_trajectory_topic, 1, std::bind(&ElastoplasticController::get_target_callback, this, _1));
+  m_sub_aux_target = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.aux_joints.target_topic, 1, std::bind(&ElastoplasticController::get_aux_target_callback, this, _1));
 
   m_ft_sensor = std::make_unique<semantic_components::ForceTorqueSensor>(m_parameters.ft_sensor_name);
 
@@ -111,7 +120,7 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
   controller_interface::InterfaceConfiguration state_interface_configuration;
   state_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  state_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.state, true) + 6);
+  state_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.state, true) + m_aux_axis.enabled().size() + 6);
 
   for(const auto& jnt : m_parameters.joints)
   {
@@ -119,6 +128,11 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
     if(m_has_interfaces.state.velocity()) state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
     if(m_has_interfaces.state.effort  ()) state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_EFFORT))  ;
   }
+  for(size_t idx : m_aux_axis.enabled())
+  {
+      state_interface_configuration.names.emplace_back(fmt::format("{}/{}",m_aux_axis.name(idx),m_parameters.aux_joints.interfaces.state_interface));
+  }
+
   std::vector<std::string> ft_interfaces = m_ft_sensor->get_state_interface_names();
   state_interface_configuration.names.insert(state_interface_configuration.names.end(), ft_interfaces.begin(), ft_interfaces.end());
 
@@ -130,11 +144,15 @@ controller_interface::InterfaceConfiguration ElastoplasticController::command_in
   controller_interface::InterfaceConfiguration command_interface_configuration;
   command_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  command_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.command, true) + 6);
+  command_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.command, true) + m_aux_axis.enabled().size() + 6);
   for(const auto& jnt : m_parameters.joints)
   {
     if(m_has_interfaces.command.position()) command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_POSITION));
     if(m_has_interfaces.command.velocity()) command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
+  }
+  for(size_t idx : m_aux_axis.enabled())
+  {
+    command_interface_configuration.names.emplace_back(fmt::format("{}/{}",m_aux_axis.name(idx),m_parameters.aux_joints.interfaces.command_interface));
   }
 
   return command_interface_configuration;
@@ -150,6 +168,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_reset_window.clear();
   m_cart_tool_in_base.clear();
 
+  // Init RT buffers?
+
   auto state_interface = m_joint_state_interfaces.begin();
   for(const auto& interface : m_allowed_interface_types)
   {
@@ -163,12 +183,25 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   auto command_interface = m_joint_command_interfaces.begin();
   for(const auto& interface : m_allowed_interface_types)
   {
-    if(not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, interface, *command_interface))
+    if(not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.joints, interface, *command_interface))
     {
       RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints command interfaces are required");
       return controller_interface::CallbackReturn::FAILURE;
     }
-    command_interface = std::next(state_interface);
+    command_interface = std::next(command_interface);
+  }
+
+  auto aux_state_interface = m_aux_state_interfaces.begin();
+  if(not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, m_parameters.aux_joints.interfaces.state_interface, *aux_state_interface))
+  {
+    RCLCPP_ERROR(this->get_node()->get_logger(), "Missing aux joints state interfaces are required");
+    return controller_interface::CallbackReturn::FAILURE;
+  }
+  auto aux_command_interface = m_aux_command_interfaces.begin();
+  if(not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.joints, m_parameters.aux_joints.interfaces.command_interface, *aux_command_interface))
+  {
+    RCLCPP_ERROR(this->get_node()->get_logger(), "Missing aux joints command interfaces are required");
+    return controller_interface::CallbackReturn::FAILURE;
   }
 
   m_ft_sensor->assign_loaned_state_interfaces(state_interfaces_);
@@ -217,7 +250,7 @@ std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_ex
 
 controller_interface::return_type ElastoplasticController::update_reference_from_subscribers()
 {
-  sensor_msgs::msg::JointState::SharedPtr msg = *(m_joint_trajectory_buffer.readFromRT());
+  sensor_msgs::msg::JointState* msg = m_rt_buffer_joint_trajectory.readFromRT();
   for(auto iter = reference_interfaces_.begin(); std::next(iter,m_parameters.joints.size()) != reference_interfaces_.end(); ++iter)
   {
     if(m_has_interfaces.command.position())
@@ -233,9 +266,15 @@ controller_interface::return_type ElastoplasticController::update_reference_from
   return controller_interface::return_type::OK;
 }
 
-void ElastoplasticController::get_target_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
+void ElastoplasticController::get_target_callback(const sensor_msgs::msg::JointState& msg)
 {
-  m_joint_trajectory_buffer.writeFromNonRT(msg);
+  m_rt_buffer_joint_trajectory.writeFromNonRT(msg);
+}
+
+void ElastoplasticController::get_aux_target_callback(const geometry_msgs::msg::Twist& msg)
+{
+  // Always from topic
+  m_rt_buffer_aux_target.writeFromNonRT(msg);
 }
 
 controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time & time, const rclcpp::Duration & period)
@@ -246,19 +285,29 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::VectorXd target   = Eigen::Map<Eigen::VectorXd>(reference_interfaces_.data(), m_parameters.joints.size());
   Eigen::VectorXd target_p = Eigen::Map<Eigen::VectorXd>(reference_interfaces_.data()+m_parameters.joints.size(), m_parameters.joints.size());
 
+  Eigen::Vector6d aux_target;
+  Eigen::fromMsg(*(m_rt_buffer_aux_target.readFromRT()), aux_target);
+
   std::array<double, 3> input_force_in_sensor = m_ft_sensor->get_forces();
   Eigen::Vector6d wrench_sensor_in_sensor= Eigen::Map<Eigen::Vector6d>(input_force_in_sensor.data(), input_force_in_sensor.size());
+
+  for(size_t idx = 0, jdx = 0; jdx < m_aux_axis.enabled().size(); ++idx)
+  {
+    m_aux_axis.values()(idx) = m_aux_axis.enabled(idx) ? m_aux_state_interfaces.at(0).at(jdx).get().get_value() : 0.0;
+    ++jdx;
+  }
 
   // ************
   // ** Update **
   // ************
   Eigen::Affine3d  T_base_target = m_chain_base_tool->getTransformation(target);
   Eigen::Matrix6Xd J_base_target = m_chain_base_tool->getJacobian(target);
-  Eigen::Vector6d  cart_vel_target_in_base = J_base_target * target_p;
+  Eigen::Vector6d  cart_vel_target_in_base = J_base_target * target_p + aux_target;
 
+  // FIXME: m_q or get from state interface?
   Eigen::Affine3d  T_base_tool = m_chain_base_tool->getTransformation(m_q);
   Eigen::Matrix6Xd J_base_tool = m_chain_base_tool->getJacobian(m_q);
-  Eigen::Vector6d  cart_vel_tool_in_base = J_base_tool * m_qp;
+  Eigen::Vector6d  cart_vel_tool_in_base = J_base_tool * m_qp + m_aux_axis.values();
 
   Eigen::Vector6d cart_vel_error_in_base = cart_vel_tool_in_base - cart_vel_target_in_base;
   Eigen::Vector6d cart_acc_tool_in_base = Eigen::Vector6d::Zero();
@@ -315,20 +364,21 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector4d alpha_with_r;
   alpha_with_r << m_state.z, m_state.r;
   Eigen::Vector3d alpha = Eigen::Vector3d::Constant(compute_alpha(alpha_with_r.norm()));
-  double dr = compute_dalpha(m_state.z.norm());
-  Eigen::Vector3d dz = cart_error_target_in_base.head<3>() - alpha.cwiseProduct(cart_vel_error_in_base.head<3>().cwiseProduct(m_state.z)) / impedance.lugre.z_ss;
-  Eigen::Vector3d dw = alpha.cwiseProduct(m_state.z - m_state.w) / impedance.tau_w;
+  ModelState d_dt;
+  d_dt.r = compute_dalpha(m_state.z.norm());
+  d_dt.z = cart_error_target_in_base.head<3>() - alpha.cwiseProduct(cart_vel_error_in_base.head<3>().cwiseProduct(m_state.z)) / impedance.lugre.z_ss;
+  d_dt.w = alpha.cwiseProduct(m_state.z - m_state.w) / impedance.tau_w;
 
   Eigen::Vector3d friction_force = impedance.lugre.sigma_0 * (m_state.z - m_state.w) +
-                                   impedance.lugre.sigma_1 * dz +
+                                   impedance.lugre.sigma_1 * d_dt.z +
                                    impedance.lugre.sigma_2 * cart_vel_error_in_base.head<3>();
 
   cart_acc_tool_in_base.head(3) = m_inertia_inv.head(3).cwiseProduct(wrench_tool_in_base_filtered.head(3) - friction_force);
   cart_acc_tool_in_base.tail(3) = Eigen::Vector3d::Zero();
 
-  m_state.z += dz * period.seconds();
-  m_state.w += dw * period.seconds();
-  m_state.r += dr * period.seconds();
+  m_state.z += d_dt.z * period.seconds();
+  m_state.w += d_dt.w * period.seconds();
+  m_state.r += d_dt.r * period.seconds();
 
   // Reset condition
   if(alpha.maxCoeff() > 0)
@@ -370,16 +420,41 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Affine3d T_base_tool_next     = Eigen::Translation3d(m_cart_tool_in_base.position.head<3>()) * T_base_target;
   Eigen::Vector6d twist_base_tool_next = m_cart_tool_in_base.velocity + cart_vel_target_in_base;
 
-  m_chain_base_tool->computeLocalIk(m_q, T_base_tool_next, m_q);
-  Eigen::Matrix6Xd J_base_tool_next = m_chain_base_tool->getJacobian(m_q);
-  Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_base_tool_next, Eigen::ComputeThinU | Eigen::ComputeThinV);
+  // Inverse Kinematics
+  // m_chain_base_tool->computeLocalIk(m_q, T_base_tool_next, m_q);
+  Eigen::Matrix6Xd J_base_tool_next = m_chain_base_tool->getJacobian(m_q); // FIXME: Analytic or geometric?
+  Eigen::Matrix6Xd J_extended_base_tool_next(6, J_base_tool_next.size() + m_aux_axis.enabled().size());
+  J_extended_base_tool_next << J_base_tool_next, m_aux_axis.jacobian();
+
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_extended_base_tool_next, Eigen::ComputeThinU | Eigen::ComputeThinV);
 
   if (svd.singularValues()(svd.cols()-1)==0)
     RCLCPP_ERROR(this->get_node()->get_logger(), "SINGULARITY POINT");
   else if (svd.singularValues()(0)/svd.singularValues()(svd.cols()-1) > 1e2)
     RCLCPP_ERROR(this->get_node()->get_logger(), "SINGULARITY POINT");
 
-  m_qp = svd.solve(twist_base_tool_next);
+  // m_qp = svd.solve(twist_base_tool_next);
+  // J# * ctask1 + (I-J^T*J) * ctask2 >> Alternative form: (task2 + svd.solve(task1 - J*task2))
+
+  auto gradq_Hrange = [this](const Eigen::VectorXd& p_q) -> Eigen::VectorXd {
+    Eigen::VectorXd q = p_q.head(m_nax);
+    Eigen::VectorXd result = Eigen::VectorXd::Zero(p_q.size());
+    for(size_t idx = 0; idx < q.size(); ++idx)
+    {
+      result(idx) = (q(idx) - 0.5*(this->m_limits.pos_upper(idx) + this->m_limits.pos_lower(idx))) / (this->m_limits.pos_upper(idx) - this->m_limits.pos_lower(idx));
+    }
+    return result;
+  };
+  const Eigen::VectorXd joint_range_gain = Eigen::VectorXd::Constant(m_nax + m_aux_axis.enabled().size(), 1.0); // TODO: move to parameters
+  const Eigen::VectorXd clik_gain =        Eigen::VectorXd::Constant(m_nax + m_aux_axis.enabled().size(), 1.0); // TODO: move to parameters
+  Eigen::VectorXd qp_task2(joint_range_gain.size());
+  qp_task2 << joint_range_gain.transpose() * gradq_Hrange(m_q), Eigen::VectorXd::Zero(m_aux_axis.enabled().size());
+
+  auto solve_tasks = [&, this](const double p_scaling_vel) -> Eigen::VectorXd {
+    return qp_task2 + svd.solve((twist_base_tool_next/p_scaling_vel + clik_gain.transpose() * ( T_base_tool.inverse() * T_base_tool_next)) - J_extended_base_tool_next * twist_base_tool_next);
+  };
+
+  Eigen::VectorXd qextp = solve_tasks(1.0);
 
   // Scaling due to joint velocity limits
   double scaling_vel = 1.0;
@@ -389,8 +464,12 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   }
   if(scaling_vel > 1)
   {
-    m_qp = svd.solve(twist_base_tool_next/scaling_vel);
+    qextp = solve_tasks(scaling_vel);
   }
+
+  m_qp = qextp.head(m_nax);
+  m_q += m_qp * period.seconds();
+
 
   // Saturation
   for(size_t idx = 0; idx < m_nax; ++idx)
@@ -406,6 +485,14 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   {
     if(m_has_interfaces.command.position()) m_joint_command_interfaces.at(0).at(ax).get().set_value(m_q(ax));
     if(m_has_interfaces.command.velocity()) m_joint_command_interfaces.at(1).at(ax).get().set_value(m_qp(ax));
+  }
+
+  std::ranges::for_each(m_aux_command_interfaces.at(0), [](auto ci){ci.get().set_value(0.0);});
+  int jdx = 0;
+  for(auto idx : m_aux_axis.enabled())
+  {
+    m_aux_command_interfaces.at(0).at(jdx).get().set_value(qextp.tail(m_aux_axis.enabled().size())(idx));
+    jdx++;
   }
 
   return controller_interface::return_type::OK;

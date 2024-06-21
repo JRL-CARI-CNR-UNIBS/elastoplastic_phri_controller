@@ -14,12 +14,13 @@ find_package(rclcpp_lifecycle           REQUIRED)
 find_package(sensor_msgs                REQUIRED)
 find_package(geometry_msgs              REQUIRED)
 find_package(tf2                        REQUIRED)
+find_package(tf2_eigen                  REQUIRED)
 find_package(urdfdom                    REQUIRED)
 find_package(generate_parameter_library REQUIRED)
 
 find_package(fmt                        REQUIRED)
 find_package(rdyn_core                  REQUIRED)
-find_package(Eigen3                     REQUIRED COMPONENTS Geometry Dense)
+find_package(Eigen3 3.4                 REQUIRED COMPONENTS Geometry Dense)
 
 generate_parameter_library(
   elastoplastic_parameters # cmake target name for the parameter library
@@ -41,6 +42,7 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   sensor_msgs
   geometry_msgs
   tf2
+  tf2_eigen
   urdfdom
   realtime_tools
   )
@@ -79,6 +81,7 @@ ament_export_dependencies(controller_interface
   sensor_msgs
   geometry_msgs
   tf2
+  tf2_eigen
   urdfdom
   realtime_tools
 )

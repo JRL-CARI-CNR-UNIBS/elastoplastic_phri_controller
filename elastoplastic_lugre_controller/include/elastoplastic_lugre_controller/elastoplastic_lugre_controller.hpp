@@ -19,10 +19,13 @@
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 
 #include "elastoplastic_parameters.hpp"
 
 #include <deque>
+#include <stdexcept>
+#include <ranges>
 
 namespace elastoplastic {
 
@@ -72,18 +75,29 @@ protected:
 
     controller_interface::return_type update_reference_from_subscribers() override;
 
-    void get_target_callback(const sensor_msgs::msg::JointState::SharedPtr msg);
+    void get_target_callback(const sensor_msgs::msg::JointState& msg);
+    void get_aux_target_callback(const geometry_msgs::msg::Twist& msg);
 
 protected:
     std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
     elastoplastic_controller::Params m_parameters;
 
+    template <typename T>
+    using InterfaceReference = std::vector<std::vector<std::reference_wrapper<T>>>;
+
+    InterfaceReference<hardware_interface::LoanedStateInterface  > m_joint_state_interfaces;
+    InterfaceReference<hardware_interface::LoanedCommandInterface> m_joint_command_interfaces;
+    InterfaceReference<hardware_interface::LoanedStateInterface>   m_aux_state_interfaces;
+    InterfaceReference<hardware_interface::LoanedCommandInterface> m_aux_command_interfaces;
+
     std::unique_ptr<semantic_components::ForceTorqueSensor> m_ft_sensor;
 
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr m_sub_target_joint_trajectory;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_aux_target;
 
-    realtime_tools::RealtimeBuffer<sensor_msgs::msg::JointState::SharedPtr> m_joint_trajectory_buffer;
+    realtime_tools::RealtimeBuffer<sensor_msgs::msg::JointState> m_rt_buffer_joint_trajectory;
+    realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist>    m_rt_buffer_aux_target;
 
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_z;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_w;
@@ -106,6 +120,41 @@ protected:
           hardware_interface::HW_IF_VELOCITY,
           hardware_interface::HW_IF_ACCELERATION};
 
+    struct AuxAxis : std::tuple<std::array<std::string,6>, std::vector<int>, Eigen::Vector6d>
+    {
+      std::string& name(size_t idx) {return std::get<0>(*this).at(idx);}
+      const std::string& name(size_t idx) const {return std::get<0>(*this).at(idx);}
+      const std::array<std::string, 6>& names() const {return std::get<0>(*this);}
+
+      int& enabled(size_t idx) {return std::get<1>(*this).at(idx);}
+      const int& enabled(size_t idx) const {return std::get<1>(*this).at(idx);}
+      std::vector<int>& enabled() {return std::get<1>(*this);}
+      const std::vector<int>& enabled() const {return std::get<1>(*this);}
+
+      Eigen::Vector6d& values() {return std::get<2>(*this);}
+      const Eigen::Vector6d& values() const {return std::get<2>(*this);}
+
+      bool init(std::vector<std::string> v, std::vector<bool> b){
+        enabled().clear();
+        if (v.size() != 6 || b.size() != 6)
+        {
+          return false;
+        }
+        for(size_t idx = 0; idx < 6; idx++)
+        {
+          name(idx) = v.at(idx);
+          // enabled(idx) = b.at(idx)? 1:0;
+          if(b.at(idx)) enabled().push_back(idx);
+        }
+        values().setZero();
+        return true;
+      }
+
+      Eigen::MatrixXd jacobian() {
+        auto id = Eigen::MatrixXd::Identity(6,6)(enabled(), Eigen::all);
+      }
+    } m_aux_axis;
+
     struct Interfaces{
       struct InterfaceType : std::array<bool, 3> {
         bool& position() {return (*this).at(0);}
@@ -118,12 +167,6 @@ protected:
       } state, command;
       bool check() {return state.check() && command.check();}
     } m_has_interfaces;
-
-    template <typename T>
-    using InterfaceReference = std::vector<std::vector<std::reference_wrapper<T>>>;
-
-    InterfaceReference<hardware_interface::LoanedStateInterface  > m_joint_state_interfaces;
-    InterfaceReference<hardware_interface::LoanedCommandInterface> m_joint_command_interfaces;
 
     struct Limits {
       Eigen::VectorXd pos_upper;
