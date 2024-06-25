@@ -23,6 +23,7 @@ elastoplastic_controller:
     aux_joints:
       enabled: [false, false, false, false, false, false]
       target_topic: "/cmd_vel"
+      odom: "/odom"
       interfaces:
         command_interfaces: "velocity"
         state_interfaces: "velocity"

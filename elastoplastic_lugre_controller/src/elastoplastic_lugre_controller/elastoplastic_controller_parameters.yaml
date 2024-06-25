@@ -40,6 +40,14 @@ elastoplastic_controller:
     default_value: [],
     description: "Robot Joints"
   }
+  reference_interfaces: {
+    type: string_array,
+    default_value: ["linear.x","linear.y","linear.z","angular.x","angular.y","angular.z"],
+    description: "Interfaces exposed by chained controller: (cartesian twist)",
+    validation: {
+      fixed_size<>: [6]
+    }
+  }
   aux_joints:
     names: {
       type: string_array,
@@ -62,6 +70,14 @@ elastoplastic_controller:
       type: string,
       default_value: "/cmd_vel",
       description: "auxiliary axis command",
+      validation: {
+        not_empty<>: []
+      }
+    }
+    odom: {
+      type: string,
+      default_value: "/odom",
+      description: "Odometry topic",
       validation: {
         not_empty<>: []
       }

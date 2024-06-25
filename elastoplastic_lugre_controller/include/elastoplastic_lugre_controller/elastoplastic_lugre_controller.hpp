@@ -14,6 +14,8 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 
+#include <nav_msgs/msg/odometry.hpp>
+
 #include <semantic_components/force_torque_sensor.hpp>
 #include <geometry_msgs/msg/wrench.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
@@ -75,8 +77,9 @@ protected:
 
     controller_interface::return_type update_reference_from_subscribers() override;
 
-    void get_target_callback(const sensor_msgs::msg::JointState& msg);
+    void get_target_callback(const geometry_msgs::msg::Twist& msg);
     void get_aux_target_callback(const geometry_msgs::msg::Twist& msg);
+    void get_odometry_callback(const nav_msgs::msg::Odometry& msg);
 
 protected:
     std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
@@ -93,11 +96,13 @@ protected:
     std::unique_ptr<semantic_components::ForceTorqueSensor> m_ft_sensor;
 
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
-    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr m_sub_target_joint_trajectory;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_target_twist_tool_in_base;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_aux_target;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_odom;
 
-    realtime_tools::RealtimeBuffer<sensor_msgs::msg::JointState> m_rt_buffer_joint_trajectory;
-    realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist>    m_rt_buffer_aux_target;
+    realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_twist_tool_in_base;
+    realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_aux_target;
+    realtime_tools::RealtimeBuffer<nav_msgs::msg::Odometry>   m_rt_buffer_odometry;
 
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_z;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_w;
@@ -120,7 +125,7 @@ protected:
           hardware_interface::HW_IF_VELOCITY,
           hardware_interface::HW_IF_ACCELERATION};
 
-    struct AuxAxis : std::tuple<std::array<std::string,6>, std::vector<int>, Eigen::Vector6d>
+    struct AuxAxis : std::tuple<std::array<std::string,6>, std::vector<int>, Eigen::Vector6d, std::string>
     {
       std::string& name(size_t idx) {return std::get<0>(*this).at(idx);}
       const std::string& name(size_t idx) const {return std::get<0>(*this).at(idx);}
@@ -133,6 +138,9 @@ protected:
 
       Eigen::Vector6d& values() {return std::get<2>(*this);}
       const Eigen::Vector6d& values() const {return std::get<2>(*this);}
+
+      std::string& ns() {return std::get<3>(*this);}
+      const std::string& ns() const {return std::get<3>(*this);}
 
       bool init(std::vector<std::string> v, std::vector<bool> b){
         enabled().clear();
@@ -147,11 +155,12 @@ protected:
           if(b.at(idx)) enabled().push_back(idx);
         }
         values().setZero();
+        ns() = "base"; // Move to parameters
         return true;
       }
 
       Eigen::MatrixXd jacobian() {
-        auto id = Eigen::MatrixXd::Identity(6,6)(enabled(), Eigen::all);
+        return Eigen::MatrixXd::Identity(6,6)(enabled(), Eigen::all);
       }
     } m_aux_axis;
 
@@ -193,7 +202,7 @@ protected:
       Eigen::Vector6d position;
       Eigen::Vector6d velocity;
       void clear(){position.setZero(); velocity.setZero();}
-    } m_cart_tool_in_base;
+    } m_cart_tool_in_world;
 
     std::deque<double> m_reset_window;
 };
