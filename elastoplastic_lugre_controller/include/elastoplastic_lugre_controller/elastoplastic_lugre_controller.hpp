@@ -14,7 +14,7 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 
-#include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 
 #include <semantic_components/force_torque_sensor.hpp>
 #include <geometry_msgs/msg/wrench.hpp>
@@ -79,7 +79,7 @@ protected:
 
     void get_target_callback(const geometry_msgs::msg::Twist& msg);
     void get_aux_target_callback(const geometry_msgs::msg::Twist& msg);
-    void get_odometry_callback(const nav_msgs::msg::Odometry& msg);
+    void get_pose_in_world_callback(const geometry_msgs::msg::PoseWithCovarianceStamped& msg);
 
 protected:
     std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
@@ -98,23 +98,21 @@ protected:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_target_twist_tool_in_base;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_aux_target;
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_odom;
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr m_sub_base_pose_in_world;
 
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_twist_tool_in_base;
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_aux_target;
-    realtime_tools::RealtimeBuffer<nav_msgs::msg::Odometry>   m_rt_buffer_odometry;
+    realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovarianceStamped>   m_rt_buffer_base_pose_in_world;
 
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_z;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_w;
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_friction_in_base;
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_base;
-    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>  ::SharedPtr m_pub_pose_in_base;
-    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>  ::SharedPtr m_pub_target_in_base;
 
     rdyn::ChainPtr m_chain_base_tool;
     rdyn::ChainPtr m_chain_base_sensor;
 
-    double m_nax;
+    size_t m_nax;
 
     Eigen::VectorXd m_q;
     Eigen::VectorXd m_qp;
@@ -136,7 +134,7 @@ protected:
       std::vector<int>& enabled() {return std::get<1>(*this);}
       const std::vector<int>& enabled() const {return std::get<1>(*this);}
 
-      Eigen::Vector6d& values() {return std::get<2>(*this);}
+      Eigen::Vector6d& twist() {return std::get<2>(*this);}
       const Eigen::Vector6d& values() const {return std::get<2>(*this);}
 
       std::string& ns() {return std::get<3>(*this);}
@@ -154,13 +152,14 @@ protected:
           // enabled(idx) = b.at(idx)? 1:0;
           if(b.at(idx)) enabled().push_back(idx);
         }
-        values().setZero();
+        twist().setZero();
         ns() = "base"; // Move to parameters
         return true;
       }
 
       Eigen::MatrixXd jacobian() {
-        return Eigen::MatrixXd::Identity(6,6)(enabled(), Eigen::all);
+        Eigen::Matrix<double,6,6> id = Eigen::MatrixXd::Identity(6,6);
+        return id(enabled(), Eigen::all);
       }
     } m_aux_axis;
 
@@ -172,9 +171,8 @@ protected:
         const bool& position() const {return (*this).at(0);}
         const bool& velocity() const {return (*this).at(1);}
         const bool& effort  () const {return (*this).at(2);}
-        bool check() {return position() || velocity() || effort();}
       } state, command;
-      bool check() {return state.check() && command.check();}
+      bool check() {return state.position() && state.velocity() && (command.position() || command.velocity());}
     } m_has_interfaces;
 
     struct Limits {
@@ -202,7 +200,7 @@ protected:
       Eigen::Vector6d position;
       Eigen::Vector6d velocity;
       void clear(){position.setZero(); velocity.setZero();}
-    } m_cart_tool_in_world;
+    } m_elastoplastic_target_tool_in_world;
 
     std::deque<double> m_reset_window;
 };

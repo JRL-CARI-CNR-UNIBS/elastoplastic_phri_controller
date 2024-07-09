@@ -88,7 +88,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   using namespace std::placeholders;
   m_sub_target_twist_tool_in_base = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.target_joint_trajectory_topic, 1, std::bind(&ElastoplasticController::get_target_callback, this, _1));
   m_sub_aux_target = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.aux_joints.target_topic, 1, std::bind(&ElastoplasticController::get_aux_target_callback, this, _1));
-  m_sub_odom = this->get_node()->create_subscription<nav_msgs::msg::Odometry>(m_parameters.aux_joints.odom, 1, std::bind(&ElastoplasticController::get_odometry_callback, this, _1));
+  m_sub_base_pose_in_world = this->get_node()->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(m_parameters.aux_joints.odom, 1, std::bind(&ElastoplasticController::get_pose_in_world_callback, this, _1));
 
   m_ft_sensor = std::make_unique<semantic_components::ForceTorqueSensor>(m_parameters.ft_sensor_name);
 
@@ -96,8 +96,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_pub_w =                this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray> (fmt::format("{}/{}", this->get_node()->get_namespace(), "w"), 10);
   m_pub_friction_in_base = this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>(fmt::format("{}/{}", this->get_node()->get_namespace(), "friciton_in_base"), 10);
   m_pub_wrench_in_base =   this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>(fmt::format("{}/{}", this->get_node()->get_namespace(), "wrench_in_base"), 10);
-  m_pub_pose_in_base =     this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>  (fmt::format("{}/{}", this->get_node()->get_namespace(), "pose_in_base"), 10);
-  m_pub_target_in_base =   this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>  (fmt::format("{}/{}", this->get_node()->get_namespace(), "target_in_base"), 10);
 
   m_has_interfaces.state.position() = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_POSITION) == m_parameters.state_interfaces.end());
   m_has_interfaces.state.velocity() = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_VELOCITY) == m_parameters.state_interfaces.end());
@@ -167,7 +165,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
   m_state.clear();
   m_reset_window.clear();
-  m_cart_tool_in_world.clear();
+  m_elastoplastic_target_tool_in_world.clear();
 
   // Init RT buffers?
 
@@ -218,7 +216,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
 
   m_state.clear();
   m_reset_window.clear();
-  m_cart_tool_in_world.clear();
+  m_elastoplastic_target_tool_in_world.clear();
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -261,26 +259,35 @@ void ElastoplasticController::get_aux_target_callback(const geometry_msgs::msg::
   m_rt_buffer_aux_target.writeFromNonRT(msg);
 }
 
-void ElastoplasticController::get_odometry_callback(const nav_msgs::msg::Odometry& msg)
+void ElastoplasticController::get_pose_in_world_callback(const geometry_msgs::msg::PoseWithCovarianceStamped& msg)
 {
-  m_rt_buffer_odometry.writeFromNonRT(msg);
+  m_rt_buffer_base_pose_in_world.writeFromNonRT(msg);
 }
 
 controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time & time, const rclcpp::Duration & period)
 {
+  // WARNING: Porta tutto in world
+
   // **********
   // ** Read **
   // **********
-  nav_msgs::msg::Odometry* odometry = m_rt_buffer_odometry.readFromRT();
-  Eigen::Affine3d T_map_base;
-  Eigen::fromMsg(odometry->pose.pose, T_map_base);
+  geometry_msgs::msg::PoseWithCovarianceStamped* msg_pose_base_in_world = m_rt_buffer_base_pose_in_world.readFromRT();
   Eigen::Vector6d twist_base_world_in_world;
+  Eigen::Affine3d T_world_base;
+  Eigen::fromMsg(msg_pose_base_in_world->pose.pose, T_world_base);
 
   Eigen::Vector6d target_twist_tool_base_in_base = Eigen::Map<Eigen::Vector6d>(reference_interfaces_.data(), reference_interfaces_.size());
-  Eigen::Vector6d target_twist_tool_base_in_world = rdyn::spatialRotation(target_twist_tool_base_in_base, T_map_base.linear());
 
-  Eigen::Vector6d target_twist_base_world_in_world;
-  Eigen::fromMsg(*(m_rt_buffer_aux_target.readFromRT()), target_twist_base_world_in_world);
+  auto in_world = [&T_world_base](const Eigen::Vector6d& v){
+    return rdyn::spatialRotation(v, T_world_base.linear());
+  };
+
+  Eigen::Vector6d target_twist_tool_base_in_world = in_world(target_twist_tool_base_in_base);
+
+
+  Eigen::Vector6d target_twist_base_world_in_base, target_twist_base_world_in_world;
+  Eigen::fromMsg(*(m_rt_buffer_aux_target.readFromRT()), target_twist_base_world_in_base);
+  target_twist_base_world_in_world = in_world(target_twist_base_world_in_base);
 
   std::array<double, 3> input_force_in_sensor = m_ft_sensor->get_forces();
   Eigen::Vector6d wrench_sensor_in_sensor= Eigen::Map<Eigen::Vector6d>(input_force_in_sensor.data(), input_force_in_sensor.size());
@@ -288,9 +295,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // Actual state
   for(size_t idx = 0, jdx = 0; jdx < m_aux_axis.enabled().size(); ++idx)
   {
-    m_aux_axis.values()(idx) = m_aux_axis.enabled(idx) ? m_aux_state_interfaces.at(0).at(jdx).get().get_value() : 0.0;
+    m_aux_axis.twist()(idx) = m_aux_axis.enabled(idx) ? m_aux_state_interfaces.at(0).at(jdx).get().get_value() : 0.0;
     ++jdx;
   }
+  twist_base_world_in_world = in_world(m_aux_axis.twist());
 
   Eigen::VectorXd target_twist_tool_world_in_world = target_twist_tool_base_in_world + target_twist_base_world_in_world;
 
@@ -299,27 +307,27 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ************
   // FIXME: m_q or get from state interface?
   Eigen::Affine3d  T_base_tool = m_chain_base_tool->getTransformation(m_q);
+  Eigen::Affine3d  T_world_tool = T_world_base * T_base_tool;
   Eigen::Matrix6Xd J_base_tool_in_base = m_chain_base_tool->getJacobian(m_q);
   Eigen::Vector6d  twist_tool_base_in_base = J_base_tool_in_base * m_qp;
-  Eigen::Vector6d  twist_tool_world_in_world = rdyn::spatialRotation(twist_tool_base_in_base, T_map_base.linear())  + m_aux_axis.values();
+  Eigen::Vector6d  twist_tool_world_in_base = twist_tool_base_in_base + m_aux_axis.twist();
+  Eigen::Vector6d  twist_tool_world_in_world = in_world(twist_tool_world_in_base);
 
-  Eigen::Vector6d cart_vel_error_tool_target_in_world = target_twist_tool_world_in_world - twist_tool_world_in_world;
-  Eigen::Vector6d cart_acc_tool_in_world = Eigen::Vector6d::Zero();
+  Eigen::Vector6d cart_vel_error_tool_target_in_world = twist_tool_world_in_world - target_twist_tool_world_in_world;
+  Eigen::Vector6d cart_acc_tool_target_in_world = Eigen::Vector6d::Zero();
 
-  Eigen::Affine3d T_base_target = rdyn::spatialIntegration(T_base_tool, target_twist_tool_world_in_world, period.seconds());
+  Eigen::Affine3d T_world_target = rdyn::spatialIntegration(T_world_tool, target_twist_tool_world_in_world, period.seconds());
 
-  Eigen::Vector6d cart_error_target_tool_in_base, cart_error_target_tool_in_world;
-  rdyn::getFrameDistance(T_base_tool, T_base_target, cart_error_target_tool_in_base);
-  cart_error_target_tool_in_world = rdyn::spatialRotation(cart_error_target_tool_in_base, T_map_base.linear());
+  Eigen::Vector6d cart_error_target_tool_in_world;
+  rdyn::getFrameDistance(T_world_tool, T_world_target, cart_error_target_tool_in_world);
 
   Eigen::Affine3d T_base_sensor = m_chain_base_sensor->getTransformation(m_q);
   Eigen::Affine3d T_tool_sensor = T_base_tool.inverse() * T_base_sensor;
   Eigen::Vector6d wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor, T_tool_sensor);
-  Eigen::Vector6d wrench_tool_in_base = rdyn::spatialRotation(wrench_tool_in_tool, T_base_tool.linear());
-  Eigen::Vector6d wrench_tool_in_base_filtered;
-  wrench_tool_in_base_filtered.head<3>() = wrench_tool_in_base.head<3>().unaryExpr([this](double w){return std::abs(w) > m_parameters.wrench_deadband.at(0)? w : 0.0;});
-  wrench_tool_in_base_filtered.tail<3>() = wrench_tool_in_base.tail<3>().unaryExpr([this](double w){return std::abs(w) > m_parameters.wrench_deadband.at(1)? w : 0.0;});
-  Eigen::Vector6d wrench_tool_in_world_filtered = rdyn::spatialRotation(wrench_tool_in_base_filtered, T_map_base.linear());
+  Eigen::Vector6d wrench_tool_in_world = rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear());
+  Eigen::Vector6d wrench_tool_in_world_filtered;
+  wrench_tool_in_world_filtered.head<3>() = wrench_tool_in_world.head<3>().unaryExpr([this](double w){return std::abs(w) > m_parameters.wrench_deadband.at(0)? w : 0.0;});
+  wrench_tool_in_world_filtered.tail<3>() = wrench_tool_in_world.tail<3>().unaryExpr([this](double w){return std::abs(w) > m_parameters.wrench_deadband.at(1)? w : 0.0;});
 
   auto compute_alpha = [this](const double z) -> double
   {
@@ -371,8 +379,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                                    impedance.lugre.sigma_1 * d_dt.z +
                                    impedance.lugre.sigma_2 * cart_vel_error_tool_target_in_world.head<3>();
 
-  cart_acc_tool_in_world.head(3) = m_inertia_inv.head(3).cwiseProduct(wrench_tool_in_world_filtered.head(3) - friction_force);
-  cart_acc_tool_in_world.tail(3) = Eigen::Vector3d::Zero();
+  // WARNING: Ci sono problemi di sistema non inerziale?
+  cart_acc_tool_target_in_world.head(3) = m_inertia_inv.head(3).cwiseProduct(wrench_tool_in_world_filtered.head(3) - friction_force);
+  cart_acc_tool_target_in_world.tail(3) = Eigen::Vector3d::Zero();
 
   m_state.z += d_dt.z * period.seconds();
   m_state.w += d_dt.w * period.seconds();
@@ -411,24 +420,25 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     }
   }
 
-  m_cart_tool_in_world.position += m_cart_tool_in_world.velocity * period.seconds() + 0.5 * cart_acc_tool_in_world * std::pow(period.seconds(), 2.0);
-  m_cart_tool_in_world.velocity += cart_acc_tool_in_world * period.seconds();
+  m_elastoplastic_target_tool_in_world.position += m_elastoplastic_target_tool_in_world.velocity * period.seconds() + 0.5 * cart_acc_tool_target_in_world * std::pow(period.seconds(), 2.0);
+  m_elastoplastic_target_tool_in_world.velocity += cart_acc_tool_target_in_world * period.seconds();
 
-  Eigen::Affine3d T_base_tool_next     = Eigen::Translation3d(m_cart_tool_in_world.position.head<3>()) * T_base_target;
-  Eigen::Vector6d twist_tool_base_in_world_next = m_cart_tool_in_world.velocity + target_twist_tool_world_in_world;
+  Eigen::Affine3d T_next_world_tool              = T_world_target * Eigen::Translation3d(m_elastoplastic_target_tool_in_world.position.head<3>());
+  Eigen::Vector6d twist_next_tool_world_in_world = m_elastoplastic_target_tool_in_world.velocity + target_twist_tool_world_in_world;
 
   // Inverse Kinematics
-  Eigen::Matrix6Xd J_G_base_tool_next = m_chain_base_tool->getJacobian(m_q);
+  Eigen::Matrix6Xd J_G_base_tool = m_chain_base_tool->getJacobian(m_q);
+  Eigen::Matrix6Xd J_G_world_tool; J_G_world_tool << J_G_base_tool, m_aux_axis.jacobian();
 
-  Eigen::Vector6d  distance_base_tool_now_next;
+  Eigen::Vector6d  distance_next_world_tool_now;
   Eigen::Matrix66d jacobian_quat;
-  rdyn::getFrameDistanceQuatJac(T_base_tool, T_base_tool_next, distance_base_tool_now_next, jacobian_quat);
-  Eigen::Matrix6Xd J_A_base_tool_next = jacobian_quat.inverse() * J_G_base_tool_next;
+  rdyn::getFrameDistanceQuatJac(T_world_tool, T_next_world_tool, distance_next_world_tool_now, jacobian_quat);
+  Eigen::Matrix6Xd J_A_world_tool = jacobian_quat.inverse() * J_G_world_tool;
 
-  Eigen::Matrix6Xd J_extended_base_tool_next(6, J_A_base_tool_next.size() + m_aux_axis.enabled().size());
-  J_extended_base_tool_next << J_A_base_tool_next, m_aux_axis.jacobian();
+  // Eigen::Matrix6Xd J_A_extended_base_tool(6, m_nax + m_aux_axis.enabled().size());
+  // J_A_extended_base_tool << J_A_world_tool, m_aux_axis.jacobian();
 
-  Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_extended_base_tool_next, Eigen::ComputeThinU | Eigen::ComputeThinV);
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_A_world_tool, Eigen::ComputeThinU | Eigen::ComputeThinV);
 
   if (svd.singularValues()(svd.cols()-1)==0)
     RCLCPP_ERROR(this->get_node()->get_logger(), "SINGULARITY POINT");
@@ -436,34 +446,42 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     RCLCPP_ERROR(this->get_node()->get_logger(), "SINGULARITY POINT");
 
   auto task_only_plastic = [&, this](const Eigen::VectorXd& p_q) -> Eigen::VectorXd {
+    constexpr double kp = 1.0;
     Eigen::VectorXd q = p_q.head(m_nax);
+    Eigen::VectorXd full(m_nax + m_aux_axis.enabled().size());
     Eigen::VectorXd result = Eigen::VectorXd::Zero(p_q.size());
-    for(size_t idx = 0; idx < q.size(); ++idx)
+    for(long int idx = 0; idx < q.size(); ++idx)
     {
-      result(idx) = (q(idx) - 0.5*(this->m_limits.pos_upper(idx) + this->m_limits.pos_lower(idx))) / (this->m_limits.pos_upper(idx) - this->m_limits.pos_lower(idx));
+      result(idx) = - kp/m_nax * (q(idx) - 0.5*(this->m_limits.pos_upper(idx) + this->m_limits.pos_lower(idx))) / (this->m_limits.pos_upper(idx) - this->m_limits.pos_lower(idx));
     }
-    return result;
+    full << result, Eigen::VectorXd::Zero(m_aux_axis.enabled().size());
+    return full;
   };
 
   auto task_only_elastic = [&, this](const Eigen::VectorXd& p_qp) -> Eigen::VectorXd {
     constexpr double kp = 1.0; // FIXME: Cambiare di posto
-    return - kp * (p_qp.tail(this->m_aux_axis.enabled().size()) - target_twist_base_world_in_world(this->m_aux_axis.enabled()));
+    Eigen::VectorXd full(m_nax + m_aux_axis.enabled().size());
+    Eigen::VectorXd result = - kp * (p_qp.tail(this->m_aux_axis.enabled().size()) - target_twist_base_world_in_base(this->m_aux_axis.enabled()));
+    full << Eigen::VectorXd::Zero(m_nax), result;
+    return full;
   };
 
-  auto task_selector = [&, this]() { // WARN: Il task elastico non restituisce un'accelerazione?
+  // WARNING: Esiste un modo più intelligente per fare la selezione?
+  // WARNING: come gestisco i giunti che non vengono usati dal task?
+  auto task_selector = [&, this]() -> Eigen::VectorXd { // WARNING: Il task elastico non restituisce un'accelerazione?
     return alpha.maxCoeff() > 0? task_only_plastic(m_q) : task_only_elastic(twist_base_world_in_world);
   };
 
   const Eigen::Vector6d Kd = Eigen::Vector6d::Constant(1.0); // FIXME: Cambia di posto
   const Eigen::Vector6d Kp = Eigen::Vector6d::Constant(1.0); // FIXME: Cambia di posto
   auto solve_tasks = [&, this]() -> Eigen::VectorXd {
-    Eigen::Affine3d T_map_tool = (T_map_base * T_base_tool);
     Eigen::Vector6d pose_error_tool_world_in_world;
-    rdyn::getFrameDistanceQuat(T_map_tool, rdyn::spatialIntegration(T_map_tool, target_twist_tool_world_in_world, period.seconds()), pose_error_tool_world_in_world);
-    Eigen::Vector6d acc_non_linear = m_chain_base_tool->getDTwistNonLinearPartTool(m_q, m_qp);
-    return task_selector() + svd.solve(Kd.transpose() * cart_vel_error_tool_target_in_world + Kp.transpose() * pose_error_tool_world_in_world - acc_non_linear - J_A_base_tool_next * task_selector());
+    rdyn::getFrameDistanceQuat(Eigen::Affine3d::Identity(), rdyn::spatialIntegration(Eigen::Affine3d::Identity(), target_twist_base_world_in_world, period.seconds()), pose_error_tool_world_in_world);
+    Eigen::Vector6d acc_non_linear = m_chain_base_tool->getDTwistNonLinearPartTool(m_q, m_qp); // NOTE: Sicuro non ci sia nulla della base?
+    Eigen::Vector6d x_task_2 = J_A_world_tool * task_selector();
+    return task_selector() + svd.solve(Kd.cwiseProduct(twist_next_tool_world_in_world - twist_tool_world_in_world) + Kp.cwiseProduct(pose_error_tool_world_in_world) - acc_non_linear - x_task_2);
   };
-  // qpp_task2 + JA.solve(xpp + Kd*d_err + Kp * err - DTwistNonLin - JA*qpp_task2)
+
   Eigen::VectorXd qepp = solve_tasks();
 
   // Scaling due to joint velocity limits
@@ -477,7 +495,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   //   qextp = solve_tasks(scaling_vel);
   // }
 
-  m_q += m_qp * period.seconds() + 0.5 * qepp.head(m_nax) * std::pow(period.seconds(),2);
+  m_q  += m_qp * period.seconds() + 0.5 * qepp.head(m_nax) * std::pow(period.seconds(), 2);
   m_qp += qepp.head(m_nax) * period.seconds();
 
 
@@ -500,9 +518,42 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::VectorXd qep = Eigen::VectorXd::Zero(m_aux_axis.enabled().size());
   for(size_t idx = 0; idx < m_aux_axis.enabled().size(); ++idx)
   {
-    qep(idx) = twist_base_world_in_world(m_aux_axis.enabled().at(idx)) + qepp.tail(m_aux_axis.enabled().size())(idx);
+    qep(idx) = twist_base_world_in_world(m_aux_axis.enabled().at(idx)) + qepp.tail(m_aux_axis.enabled().size())(idx) * period.seconds();
     m_aux_command_interfaces.at(0).at(idx).get().set_value(qep(idx));
   }
+
+  // *************
+  // ** PUBLISH **
+  // *************
+  std_msgs::msg::Float64MultiArray msg_z;
+  msg_z.data = std::vector<double>(m_state.z.data(), m_state.z.data() + m_state.z.size());
+  m_pub_z->publish(msg_z);
+
+  std_msgs::msg::Float64MultiArray msg_w;
+  msg_w.data = std::vector<double>(m_state.w.data(), m_state.w.data() + m_state.w.size());
+  m_pub_w->publish(msg_w);
+
+  geometry_msgs::msg::WrenchStamped msg_friction_in_world;
+  msg_friction_in_world.header.frame_id = m_parameters.frames.base;
+  msg_friction_in_world.header.stamp = this->get_node()->get_clock()->now();
+  msg_friction_in_world.wrench.force.x = friction_force[0];
+  msg_friction_in_world.wrench.force.y = friction_force[1];
+  msg_friction_in_world.wrench.force.z = friction_force[2];
+  msg_friction_in_world.wrench.torque.x = 0.0;
+  msg_friction_in_world.wrench.torque.y = 0.0;
+  msg_friction_in_world.wrench.torque.z = 0.0;
+  m_pub_friction_in_base->publish(msg_friction_in_world);
+
+  geometry_msgs::msg::WrenchStamped msg_wrench_in_world;
+  msg_wrench_in_world.header.frame_id = m_parameters.frames.base;
+  msg_wrench_in_world.header.stamp = this->get_node()->get_clock()->now();
+  msg_wrench_in_world.wrench.force.x =  wrench_tool_in_world[0];
+  msg_wrench_in_world.wrench.force.y =  wrench_tool_in_world[1];
+  msg_wrench_in_world.wrench.force.z =  wrench_tool_in_world[2];
+  msg_wrench_in_world.wrench.torque.x = wrench_tool_in_world[3];
+  msg_wrench_in_world.wrench.torque.y = wrench_tool_in_world[4];
+  msg_wrench_in_world.wrench.torque.z = wrench_tool_in_world[5];
+  m_pub_friction_in_base->publish(msg_wrench_in_world);
 
   return controller_interface::return_type::OK;
 }
