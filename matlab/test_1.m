@@ -5,7 +5,7 @@ models.ALPHA_LUGRE = 2;
 models.ELASTOPLASTIC_NO_R = 3;
 models.ELASTOPLASTIC = 4;
 
-MODEL = models.ELASTOPLASTIC;
+MODEL = models.ELASTOPLASTIC_NO_R;
 
 ENABLE_INPUT_TRAJECTORY = 0;
 
@@ -13,7 +13,7 @@ amp = 100; % Input force amplitude
 noise_amp = 0;
 
 dt = 1e-3;
-Tend = 35;
+Tend = 12;
 
 s0 = 1000;
 s1 = 100;
@@ -139,16 +139,16 @@ grid on
 function out = input_force(t)
     if t < 0
         out = 0;
-    elseif t < 5
+    elseif t < 2
                     out = 0.2;
-    elseif t < 10
+    elseif t < 4
                     out = 0;
-    elseif t < 15
+    elseif t < 6
                     out = 1;
-    elseif t < 20
-                    out = -1;
-    elseif t < 25
+    elseif t < 8
                     out = 0;
+    elseif t < 10
+                    out = 0.2;
     else
                     out = 0;
     end

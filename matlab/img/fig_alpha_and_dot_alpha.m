@@ -30,8 +30,11 @@ ax = gca;
 ax.FontSize = TICK_FONT_SIZE;
 xlim([z_ba-0.5 z_ss+0.5])
 ylim([-.2 1.8])
-legend('$\alpha(z)$','$\dot{\alpha}(z)$','interpreter','latex')
+xlabel('$z$', 'Interpreter','latex', 'FontSize',AXIS_LABELS_FONT_SIZE)
+ylabel('$\alpha(z),\,\dot{\alpha}(z)$', 'Interpreter','latex','FontSize',AXIS_LABELS_FONT_SIZE)
+legend('$\alpha(z)$','$\dot{\alpha}(z)$','interpreter','latex','FontSize',LEGEND_FONT_SIZE)
 grid on
+box on
 hold off
 
 NAME_FILE = "alpha_and_dot_alpha";
