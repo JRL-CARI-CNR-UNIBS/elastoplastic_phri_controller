@@ -79,7 +79,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_inertia_inv = Eigen::Map<Eigen::Vector3d>(m_parameters.impedance.inertia.data(), m_parameters.impedance.inertia.size()).cwiseInverse();
 
 
-  if(!m_aux_axis.init(m_parameters.aux_joints.names, m_parameters.aux_joints.enabled))
+  if(!m_float_base.init(m_parameters.floating_base_joints.names, m_parameters.floating_base_joints.enabled))
   {
     RCLCPP_FATAL(this->get_node()->get_logger(), "You should not be here due to parameters validation");
     return controller_interface::CallbackReturn::ERROR;
@@ -87,8 +87,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   using namespace std::placeholders;
   m_sub_target_twist_tool_in_base = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.target_joint_trajectory_topic, 1, std::bind(&ElastoplasticController::get_target_callback, this, _1));
-  m_sub_aux_target = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.aux_joints.target_topic, 1, std::bind(&ElastoplasticController::get_aux_target_callback, this, _1));
-  m_sub_base_pose_in_world = this->get_node()->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(m_parameters.aux_joints.odom, 1, std::bind(&ElastoplasticController::get_pose_in_world_callback, this, _1));
+  m_sub_fb_target = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.floating_base_joints.target_topic, 1, std::bind(&ElastoplasticController::get_fb_target_callback, this, _1));
+  m_sub_base_pose_in_world = this->get_node()->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(m_parameters.floating_base_joints.odom, 1, std::bind(&ElastoplasticController::get_pose_in_world_callback, this, _1));
 
   m_ft_sensor = std::make_unique<semantic_components::ForceTorqueSensor>(m_parameters.ft_sensor_name);
 
@@ -119,7 +119,7 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
   controller_interface::InterfaceConfiguration state_interface_configuration;
   state_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  state_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.state, true) + m_aux_axis.enabled().size() + 6);
+  state_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.state, true) + m_float_base.enabled().size() + 6);
 
   for(const auto& jnt : m_parameters.joints)
   {
@@ -127,9 +127,9 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
     if(m_has_interfaces.state.velocity()) state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
     if(m_has_interfaces.state.effort  ()) state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_EFFORT))  ;
   }
-  for(size_t idx : m_aux_axis.enabled())
+  for(size_t idx : m_float_base.enabled())
   {
-      state_interface_configuration.names.emplace_back(fmt::format("{}/{}/{}", m_aux_axis.ns(), m_aux_axis.name(idx),m_parameters.aux_joints.interfaces.state_interface));
+    state_interface_configuration.names.emplace_back(fmt::format("{}/{}/{}", m_float_base.ns(), m_float_base.name(idx),m_parameters.floating_base_joints.interfaces.state_interface));
   }
 
   std::vector<std::string> ft_interfaces = m_ft_sensor->get_state_interface_names();
@@ -143,15 +143,15 @@ controller_interface::InterfaceConfiguration ElastoplasticController::command_in
   controller_interface::InterfaceConfiguration command_interface_configuration;
   command_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  command_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.command, true) + m_aux_axis.enabled().size() + 6);
+  command_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.command, true) + m_float_base.enabled().size());
   for(const auto& jnt : m_parameters.joints)
   {
     if(m_has_interfaces.command.position()) command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_POSITION));
     if(m_has_interfaces.command.velocity()) command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
   }
-  for(size_t idx : m_aux_axis.enabled())
+  for(size_t idx : m_float_base.enabled())
   {
-    command_interface_configuration.names.emplace_back(fmt::format("{}/{}/{}", m_aux_axis.ns(), m_aux_axis.name(idx), m_parameters.aux_joints.interfaces.command_interface));
+    command_interface_configuration.names.emplace_back(fmt::format("{}/{}/{}", m_float_base.ns(), m_float_base.name(idx), m_parameters.floating_base_joints.interfaces.command_interface));
   }
 
   return command_interface_configuration;
@@ -190,16 +190,16 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     command_interface = std::next(command_interface);
   }
 
-  auto aux_state_interface = m_aux_state_interfaces.begin();
-  if(not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, m_parameters.aux_joints.interfaces.state_interface, *aux_state_interface))
+  auto fb_state_interface = m_fb_state_interfaces.begin();
+  if(not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, m_parameters.floating_base_joints.interfaces.state_interface, *fb_state_interface))
   {
-    RCLCPP_ERROR(this->get_node()->get_logger(), "Missing aux joints state interfaces are required");
+    RCLCPP_ERROR(this->get_node()->get_logger(), "Missing floating base joints state interfaces are required");
     return controller_interface::CallbackReturn::FAILURE;
   }
-  auto aux_command_interface = m_aux_command_interfaces.begin();
-  if(not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.joints, m_parameters.aux_joints.interfaces.command_interface, *aux_command_interface))
+  auto fb_command_interface = m_fb_command_interfaces.begin();
+  if(not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.joints, m_parameters.floating_base_joints.interfaces.command_interface, *fb_command_interface))
   {
-    RCLCPP_ERROR(this->get_node()->get_logger(), "Missing aux joints command interfaces are required");
+    RCLCPP_ERROR(this->get_node()->get_logger(), "Missing floating base joints command interfaces are required");
     return controller_interface::CallbackReturn::FAILURE;
   }
 
@@ -253,10 +253,10 @@ void ElastoplasticController::get_target_callback(const geometry_msgs::msg::Twis
   m_rt_buffer_twist_tool_in_base.writeFromNonRT(msg);
 }
 
-void ElastoplasticController::get_aux_target_callback(const geometry_msgs::msg::Twist& msg)
+void ElastoplasticController::get_fb_target_callback(const geometry_msgs::msg::Twist& msg)
 {
   // Always from topic
-  m_rt_buffer_aux_target.writeFromNonRT(msg);
+  m_rt_buffer_fb_target.writeFromNonRT(msg);
 }
 
 void ElastoplasticController::get_pose_in_world_callback(const geometry_msgs::msg::PoseWithCovarianceStamped& msg)
@@ -278,27 +278,27 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   Eigen::Vector6d target_twist_tool_base_in_base = Eigen::Map<Eigen::Vector6d>(reference_interfaces_.data(), reference_interfaces_.size());
 
-  auto in_world = [&T_world_base](const Eigen::Vector6d& v){
+  auto from_base_to_world = [&T_world_base](const Eigen::Vector6d& v){
     return rdyn::spatialRotation(v, T_world_base.linear());
   };
 
-  Eigen::Vector6d target_twist_tool_base_in_world = in_world(target_twist_tool_base_in_base);
+  Eigen::Vector6d target_twist_tool_base_in_world = from_base_to_world(target_twist_tool_base_in_base);
 
 
   Eigen::Vector6d target_twist_base_world_in_base, target_twist_base_world_in_world;
-  Eigen::fromMsg(*(m_rt_buffer_aux_target.readFromRT()), target_twist_base_world_in_base);
-  target_twist_base_world_in_world = in_world(target_twist_base_world_in_base);
+  Eigen::fromMsg(*(m_rt_buffer_fb_target.readFromRT()), target_twist_base_world_in_base);
+  target_twist_base_world_in_world = from_base_to_world(target_twist_base_world_in_base);
 
   std::array<double, 3> input_force_in_sensor = m_ft_sensor->get_forces();
   Eigen::Vector6d wrench_sensor_in_sensor= Eigen::Map<Eigen::Vector6d>(input_force_in_sensor.data(), input_force_in_sensor.size());
 
   // Actual state
-  for(size_t idx = 0, jdx = 0; jdx < m_aux_axis.enabled().size(); ++idx)
+  for(size_t idx = 0, jdx = 0; jdx < m_float_base.enabled().size(); ++idx)
   {
-    m_aux_axis.twist()(idx) = m_aux_axis.enabled(idx) ? m_aux_state_interfaces.at(0).at(jdx).get().get_value() : 0.0;
+    m_float_base.twist()(idx) = m_float_base.enabled(idx) ? m_fb_state_interfaces.at(0).at(jdx).get().get_value() : 0.0;
     ++jdx;
   }
-  twist_base_world_in_world = in_world(m_aux_axis.twist());
+  twist_base_world_in_world = from_base_to_world(m_float_base.twist());
 
   Eigen::VectorXd target_twist_tool_world_in_world = target_twist_tool_base_in_world + target_twist_base_world_in_world;
 
@@ -310,8 +310,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Affine3d  T_world_tool = T_world_base * T_base_tool;
   Eigen::Matrix6Xd J_base_tool_in_base = m_chain_base_tool->getJacobian(m_q);
   Eigen::Vector6d  twist_tool_base_in_base = J_base_tool_in_base * m_qp;
-  Eigen::Vector6d  twist_tool_world_in_base = twist_tool_base_in_base + m_aux_axis.twist();
-  Eigen::Vector6d  twist_tool_world_in_world = in_world(twist_tool_world_in_base);
+  Eigen::Vector6d  twist_tool_world_in_base = twist_tool_base_in_base + m_float_base.twist();
+  Eigen::Vector6d  twist_tool_world_in_world = from_base_to_world(twist_tool_world_in_base);
 
   Eigen::Vector6d cart_vel_error_tool_target_in_world = twist_tool_world_in_world - target_twist_tool_world_in_world;
   Eigen::Vector6d cart_acc_tool_target_in_world = Eigen::Vector6d::Zero();
@@ -379,7 +379,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                                    impedance.lugre.sigma_1 * d_dt.z +
                                    impedance.lugre.sigma_2 * cart_vel_error_tool_target_in_world.head<3>();
 
-  // WARNING: Ci sono problemi di sistema non inerziale?
   cart_acc_tool_target_in_world.head(3) = m_inertia_inv.head(3).cwiseProduct(wrench_tool_in_world_filtered.head(3) - friction_force);
   cart_acc_tool_target_in_world.tail(3) = Eigen::Vector3d::Zero();
 
@@ -428,15 +427,15 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   // Inverse Kinematics
   Eigen::Matrix6Xd J_G_base_tool = m_chain_base_tool->getJacobian(m_q);
-  Eigen::Matrix6Xd J_G_world_tool; J_G_world_tool << J_G_base_tool, m_aux_axis.jacobian();
+  Eigen::Matrix6Xd J_G_world_tool; J_G_world_tool << J_G_base_tool, m_float_base.jacobian();
 
   Eigen::Vector6d  distance_next_world_tool_now;
   Eigen::Matrix66d jacobian_quat;
   rdyn::getFrameDistanceQuatJac(T_world_tool, T_next_world_tool, distance_next_world_tool_now, jacobian_quat);
   Eigen::Matrix6Xd J_A_world_tool = jacobian_quat.inverse() * J_G_world_tool;
 
-  // Eigen::Matrix6Xd J_A_extended_base_tool(6, m_nax + m_aux_axis.enabled().size());
-  // J_A_extended_base_tool << J_A_world_tool, m_aux_axis.jacobian();
+  // Eigen::Matrix6Xd J_A_extended_base_tool(6, m_nax + m_float_base.enabled().size());
+  // J_A_extended_base_tool << J_A_world_tool, m_float_base.jacobian();
 
   Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_A_world_tool, Eigen::ComputeThinU | Eigen::ComputeThinV);
 
@@ -448,20 +447,20 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   auto task_only_plastic = [&, this](const Eigen::VectorXd& p_q) -> Eigen::VectorXd {
     constexpr double kp = 1.0;
     Eigen::VectorXd q = p_q.head(m_nax);
-    Eigen::VectorXd full(m_nax + m_aux_axis.enabled().size());
+    Eigen::VectorXd full(m_nax + m_float_base.enabled().size());
     Eigen::VectorXd result = Eigen::VectorXd::Zero(p_q.size());
     for(long int idx = 0; idx < q.size(); ++idx)
     {
       result(idx) = - kp/m_nax * (q(idx) - 0.5*(this->m_limits.pos_upper(idx) + this->m_limits.pos_lower(idx))) / (this->m_limits.pos_upper(idx) - this->m_limits.pos_lower(idx));
     }
-    full << result, Eigen::VectorXd::Zero(m_aux_axis.enabled().size());
+    full << result, Eigen::VectorXd::Zero(m_float_base.enabled().size());
     return full;
   };
 
   auto task_only_elastic = [&, this](const Eigen::VectorXd& p_qp) -> Eigen::VectorXd {
     constexpr double kp = 1.0; // FIXME: Cambiare di posto
-    Eigen::VectorXd full(m_nax + m_aux_axis.enabled().size());
-    Eigen::VectorXd result = - kp * (p_qp.tail(this->m_aux_axis.enabled().size()) - target_twist_base_world_in_base(this->m_aux_axis.enabled()));
+    Eigen::VectorXd full(m_nax + m_float_base.enabled().size());
+    Eigen::VectorXd result = - kp * (p_qp.tail(this->m_float_base.enabled().size()) - target_twist_base_world_in_base(this->m_float_base.enabled()));
     full << Eigen::VectorXd::Zero(m_nax), result;
     return full;
   };
@@ -515,11 +514,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     if(m_has_interfaces.command.velocity()) m_joint_command_interfaces.at(1).at(ax).get().set_value(m_qp(ax));
   }
 
-  Eigen::VectorXd qep = Eigen::VectorXd::Zero(m_aux_axis.enabled().size());
-  for(size_t idx = 0; idx < m_aux_axis.enabled().size(); ++idx)
+  Eigen::VectorXd qep = Eigen::VectorXd::Zero(m_float_base.enabled().size());
+  for(size_t idx = 0; idx < m_float_base.enabled().size(); ++idx)
   {
-    qep(idx) = twist_base_world_in_world(m_aux_axis.enabled().at(idx)) + qepp.tail(m_aux_axis.enabled().size())(idx) * period.seconds();
-    m_aux_command_interfaces.at(0).at(idx).get().set_value(qep(idx));
+    qep(idx) = twist_base_world_in_world(m_float_base.enabled().at(idx)) + qepp.tail(m_float_base.enabled().size())(idx) * period.seconds();
+    m_fb_command_interfaces.at(0).at(idx).get().set_value(qep(idx));
   }
 
   // *************

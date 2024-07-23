@@ -3,6 +3,8 @@
 
 #include "rdyn_core/primitives.h"
 
+#include <Eigen/Core>
+
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 
@@ -78,7 +80,7 @@ protected:
     controller_interface::return_type update_reference_from_subscribers() override;
 
     void get_target_callback(const geometry_msgs::msg::Twist& msg);
-    void get_aux_target_callback(const geometry_msgs::msg::Twist& msg);
+    void get_fb_target_callback(const geometry_msgs::msg::Twist& msg);
     void get_pose_in_world_callback(const geometry_msgs::msg::PoseWithCovarianceStamped& msg);
 
 protected:
@@ -90,18 +92,18 @@ protected:
 
     InterfaceReference<hardware_interface::LoanedStateInterface  > m_joint_state_interfaces;
     InterfaceReference<hardware_interface::LoanedCommandInterface> m_joint_command_interfaces;
-    InterfaceReference<hardware_interface::LoanedStateInterface>   m_aux_state_interfaces;
-    InterfaceReference<hardware_interface::LoanedCommandInterface> m_aux_command_interfaces;
+    InterfaceReference<hardware_interface::LoanedStateInterface>   m_fb_state_interfaces;
+    InterfaceReference<hardware_interface::LoanedCommandInterface> m_fb_command_interfaces;
 
     std::unique_ptr<semantic_components::ForceTorqueSensor> m_ft_sensor;
 
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_target_twist_tool_in_base;
-    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_aux_target;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_fb_target;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr m_sub_base_pose_in_world;
 
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_twist_tool_in_base;
-    realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_aux_target;
+    realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_fb_target;
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovarianceStamped>   m_rt_buffer_base_pose_in_world;
 
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_z;
@@ -123,7 +125,7 @@ protected:
           hardware_interface::HW_IF_VELOCITY,
           hardware_interface::HW_IF_ACCELERATION};
 
-    struct AuxAxis : std::tuple<std::array<std::string,6>, std::vector<int>, Eigen::Vector6d, std::string>
+    struct FloatBase : std::tuple<std::array<std::string,6>, std::vector<int>, Eigen::Vector6d, std::string>
     {
       std::string& name(size_t idx) {return std::get<0>(*this).at(idx);}
       const std::string& name(size_t idx) const {return std::get<0>(*this).at(idx);}
@@ -161,7 +163,7 @@ protected:
         Eigen::Matrix<double,6,6> id = Eigen::MatrixXd::Identity(6,6);
         return id(enabled(), Eigen::all);
       }
-    } m_aux_axis;
+    } m_float_base;
 
     struct Interfaces{
       struct InterfaceType : std::array<bool, 3> {

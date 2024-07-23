@@ -20,7 +20,7 @@ elastoplastic_controller:
       - "position"
       - "velocity"
       - "effort"
-    aux_joints:
+    floating_base_joints:
       enabled: [false, false, false, false, false, false]
       target_topic: "/cmd_vel"
       odom: "/odom"

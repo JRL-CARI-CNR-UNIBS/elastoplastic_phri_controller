@@ -48,7 +48,7 @@ elastoplastic_controller:
       fixed_size<>: [6]
     }
   }
-  aux_joints:
+  floating_base_joints:
     names: {
       type: string_array,
       read_only: true,
