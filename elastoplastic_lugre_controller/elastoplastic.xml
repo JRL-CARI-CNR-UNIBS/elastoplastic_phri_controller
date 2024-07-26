@@ -1,0 +1,8 @@
+<library path="elastoplastic_controller">
+  <class name="elastoplastic/ElastoplasticController" type="elastoplastic::ElastoplasticController" base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      Lugre Impedance Controller
+    </description>
+  </class>
+</library>
+

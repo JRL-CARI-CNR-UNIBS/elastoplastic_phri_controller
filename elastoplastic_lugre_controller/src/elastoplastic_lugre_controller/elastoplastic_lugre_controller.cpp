@@ -1,5 +1,7 @@
 #include "elastoplastic_lugre_controller/elastoplastic_lugre_controller.hpp"
 
+#include "pluginlib/class_list_macros.hpp"
+
 #include <urdfdom_headers/urdf_model/model.h>
 
 #include <tf2_eigen/tf2_eigen.hpp>
@@ -19,21 +21,23 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 {
   m_parameters = m_param_listener->get_params();
 
-  m_sub_robot_description = this->get_node()->create_subscription<std_msgs::msg::String>("robot_description", 10, [](const std_msgs::msg::String::SharedPtr){});
-  // Ultra-complicazione
-  rclcpp::WaitSet wait_sub;
-  wait_sub.add_subscription(m_sub_robot_description);
-  auto wait_result = wait_sub.wait(std::chrono::seconds(10));
-  if(wait_result.kind() != rclcpp::WaitResultKind::Ready)
+  std::string robot_description = this->get_node()->get_parameter("robot_description").as_string();
+  if(robot_description == "")
   {
-    RCLCPP_ERROR(this->get_node()->get_logger(), "No robot description received! Interrupting configuration");
+    RCLCPP_ERROR(this->get_node()->get_logger(), "Missing robot_description by controller_manager");
     return controller_interface::CallbackReturn::FAILURE;
   }
-  std_msgs::msg::String robot_description_msg;
-  rclcpp::MessageInfo msg_info;
-  m_sub_robot_description->take(robot_description_msg,msg_info);
+  else
+  {
+      RCLCPP_INFO(this->get_node()->get_logger(), "%s", robot_description.c_str());
+  }
 
-  urdf::ModelInterfaceSharedPtr urdf_model = urdf::parseURDF(robot_description_msg.data);
+  urdf::ModelInterfaceSharedPtr urdf_model = urdf::parseURDF(robot_description);
+  if(not urdf_model)
+  {
+    RCLCPP_ERROR(this->get_node()->get_logger(), "Cannot create URDF model from robot_description provided by controller_manager");
+    return controller_interface::CallbackReturn::FAILURE;
+  }
 
   Eigen::Vector3d gravity({m_parameters.gravity.at(0), m_parameters.gravity.at(1), m_parameters.gravity.at(2)});
   m_chain_base_tool   = rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.tool, gravity);
@@ -558,3 +562,5 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 }
 
 } // namespace elastoplastic
+
+PLUGINLIB_EXPORT_CLASS(elastoplastic::ElastoplasticController, controller_interface::ChainableControllerInterface);

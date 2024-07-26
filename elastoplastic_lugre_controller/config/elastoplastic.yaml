@@ -1,42 +1,43 @@
-elastoplastic_controller:
-  ros__parameters:
-    target_joint_trajectory_topic: "/joints_target"
-    ft_sensor_name: "ft_sensor"
-    frames:
-      base: "base_link"
-      tool: "tool0"
-      sensor: "sensor"
-    joints:
-      - "joint_1"
-      - "joint_2"
-      - "joint_3"
-      - "joint_4"
-      - "joint_5"
-      - "joint_6"
-    command_interfaces:
-      - "position"
-      - "velocity"
-    state_interfaces:
-      - "position"
-      - "velocity"
-      - "effort"
-    floating_base_joints:
-      enabled: [false, false, false, false, false, false]
-      target_topic: "/cmd_vel"
-      odom: "/odom"
-      interfaces:
-        command_interfaces: "velocity"
-        state_interfaces: "velocity"
-    wrench_deadband: [1.0,0.0]
-    impedance:
-      inertia: 10
-      lugre:
-        sigma_0: 1000
-        sigma_1: 10
-        sigma_2: 10
-        z_ss: 0.5
-        z_ba: 0.1
-      tau_w: 0.02
-      reset_condition:
-        reset_window_size: 1000
-        reset_threshold: 0.1
+/**:
+  elastoplastic_controller:
+    ros__parameters:
+      target_joint_trajectory_topic: "/joints_target"
+      ft_sensor_name: "ft_sensor"
+      frames:
+        base: "base_link"
+        tool: "tool0"
+        sensor: "sensor"
+      joints:
+        - "joint_1"
+        - "joint_2"
+        - "joint_3"
+        - "joint_4"
+        - "joint_5"
+        - "joint_6"
+      command_interfaces:
+        - "position"
+        - "velocity"
+      state_interfaces:
+        - "position"
+        - "velocity"
+        - "effort"
+      floating_base_joints:
+        enabled: [false, false, false, false, false, false]
+        target_topic: "/cmd_vel"
+        odom: "/odom"
+        interfaces:
+          command_interfaces: "velocity"
+          state_interfaces: "velocity"
+      wrench_deadband: [1.0,0.0]
+      impedance:
+        inertia: [10.0, 10.0, 10.0]
+        lugre:
+          sigma_0: 1000.0
+          sigma_1: 10.0
+          sigma_2: 10.0
+          z_ss: 0.5
+          z_ba: 0.1
+        tau_w: 0.02
+        reset_condition:
+          reset_window_size: 1000
+          reset_threshold: 0.1

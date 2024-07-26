@@ -21,7 +21,7 @@ find_package(generate_parameter_library REQUIRED)
 
 find_package(fmt                        REQUIRED)
 find_package(rdyn_core                  REQUIRED)
-find_package(Eigen3 3.4                 REQUIRED COMPONENTS Geometry Dense)
+find_package(Eigen3 3.4                 REQUIRED COMPONENTS Core)
 
 generate_parameter_library(
   elastoplastic_parameters # cmake target name for the parameter library
@@ -32,8 +32,9 @@ generate_parameter_library(
 add_library(elastoplastic_controller SHARED
   src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
-  launch/load_controller.launch.py
 )
+
+pluginlib_export_plugin_description_file(controller_interface elastoplastic.xml)
 
 ament_target_dependencies(elastoplastic_controller PUBLIC
   controller_interface

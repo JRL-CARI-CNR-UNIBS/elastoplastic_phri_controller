@@ -114,7 +114,8 @@ elastoplastic_controller:
     default_value: [0.0,0.0],
     description: "Wrench deadband. [force_deadband, torque_deadband]",
     validation: {
-      gt<>: 0.0
+      fixed_size<>: 2,
+      lower_element_bounds<>: 0.0
     }
   }
   impedance:
@@ -123,7 +124,8 @@ elastoplastic_controller:
       default_value: [],
       description: "Controller Inertia",
       validation: {
-        lower_element_bounds<>: 0
+        lower_element_bounds<>: 0,
+        fixed_size<>: 3
       }
     }
     lugre:
@@ -162,7 +164,7 @@ elastoplastic_controller:
     }
     reset_condition:
       reset_window_size: {
-        type: double,
+        type: int,
         description: "Reset window size in ms",
         validation: {
           gt<>: 0,

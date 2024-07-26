@@ -3,6 +3,9 @@ data
 slprj
 old
 
+# VSCode
+.vscode
+
 # Matlab files
 *.asv
 

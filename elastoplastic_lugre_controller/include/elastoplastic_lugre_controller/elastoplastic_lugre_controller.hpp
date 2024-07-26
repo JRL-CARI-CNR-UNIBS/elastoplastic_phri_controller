@@ -36,7 +36,7 @@ namespace elastoplastic {
 class ElastoplasticController : public controller_interface::ChainableControllerInterface
 {
 public:
-    ElastoplasticController();
+    ElastoplasticController() {};
 
 
     controller_interface::InterfaceConfiguration command_interface_configuration() const override;
@@ -64,16 +64,16 @@ public:
         const rclcpp_lifecycle::State & previous_state) override;
 
 
-    controller_interface::CallbackReturn on_cleanup(
-        const rclcpp_lifecycle::State & previous_state) override;
+    // controller_interface::CallbackReturn on_cleanup(
+    //     const rclcpp_lifecycle::State & previous_state) override;
 
 
-    controller_interface::CallbackReturn on_error(
-        const rclcpp_lifecycle::State & previous_state) override;
+    // controller_interface::CallbackReturn on_error(
+    //     const rclcpp_lifecycle::State & previous_state) override;
 
 
-    controller_interface::CallbackReturn on_shutdown(
-        const rclcpp_lifecycle::State & previous_state) override;
+    // controller_interface::CallbackReturn on_shutdown(
+    //     const rclcpp_lifecycle::State & previous_state) override;
 protected:
     std::vector<hardware_interface::CommandInterface> on_export_reference_interfaces() override;
 
