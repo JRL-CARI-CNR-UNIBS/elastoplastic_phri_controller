@@ -32,6 +32,7 @@ generate_parameter_library(
 add_library(elastoplastic_controller SHARED
   src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
+  launch/load_controller.launch.py
 )
 
 ament_target_dependencies(elastoplastic_controller PUBLIC
@@ -70,7 +71,7 @@ install(DIRECTORY include
         DESTINATION include/${PROJECT_NAME}
 )
 
-install(DIRECTORY config
+install(DIRECTORY config launch
         DESTINATION share/${PROJECT_NAME}
 )
 

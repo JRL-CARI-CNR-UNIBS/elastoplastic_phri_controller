@@ -1,5 +1,5 @@
 elastoplastic_controller:
-  ros_parameters:
+  ros__parameters:
     target_joint_trajectory_topic: "/joints_target"
     ft_sensor_name: "ft_sensor"
     frames:
