@@ -7,6 +7,7 @@ from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
+DEFAULT_CONFIG_FILE = "elastoplastic_omron.yaml" #"elastoplastic.yaml"
 
 def generate_launch_description():
   launch_args = [
@@ -22,7 +23,7 @@ def launch_setup(context):
   config_arg = LaunchConfiguration("config")
   controller_config = None
   if config_arg.perform(context) == "__default__":
-    controller_config = PathJoinSubstitution([FindPackageShare("elastoplastic_lugre_controller"), "config", "elastoplastic.yaml"])
+    controller_config = PathJoinSubstitution([FindPackageShare("elastoplastic_lugre_controller"), "config", DEFAULT_CONFIG_FILE])
   else:
     controller_config = config_arg.perform(context)
   # cm_new_controller = {f"{ns}/controller_manager/elastoplastic_controller/type" : "phri/control/CartImpedanceLuGreController"}

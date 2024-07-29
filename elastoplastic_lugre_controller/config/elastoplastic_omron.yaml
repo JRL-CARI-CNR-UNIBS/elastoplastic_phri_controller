@@ -1,0 +1,43 @@
+/**:
+  elastoplastic_controller:
+    ros__parameters:
+      target_joint_trajectory_topic: "/joints_target"
+      ft_sensor_name: "omron/robotiq_ft_sensor"
+      frames:
+        base: "omron/base_link"
+        tool: "omron/tip"
+        sensor: "omron/robotiq_ft_frame_id"
+      joints:
+        - "omron/joint_1"
+        - "omron/joint_2"
+        - "omron/joint_3"
+        - "omron/joint_4"
+        - "omron/joint_5"
+        - "omron/joint_6"
+      command_interfaces:
+        - "position"
+        - "velocity"
+      state_interfaces:
+        - "position"
+        - "velocity"
+        - "effort"
+      floating_base_joints:
+        enabled: [false, false, false, false, false, false]
+        target_topic: "/omron/cmd_vel"
+        odom: "/omron/odom"
+        interfaces:
+          command_interfaces: "velocity"
+          state_interfaces: "velocity"
+      wrench_deadband: [1.0,0.0]
+      impedance:
+        inertia: [10.0, 10.0, 10.0]
+        lugre:
+          sigma_0: 1000.0
+          sigma_1: 10.0
+          sigma_2: 10.0
+          z_ss: 0.5
+          z_ba: 0.1
+        tau_w: 0.02
+        reset_condition:
+          reset_window_size: 1000
+          reset_threshold: 0.1

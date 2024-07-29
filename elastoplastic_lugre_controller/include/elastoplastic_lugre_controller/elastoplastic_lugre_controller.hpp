@@ -24,6 +24,7 @@
 #include <geometry_msgs/msg/pose.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 
 #include "elastoplastic_parameters.hpp"
 
@@ -81,7 +82,7 @@ protected:
 
     void get_target_callback(const geometry_msgs::msg::Twist& msg);
     void get_fb_target_callback(const geometry_msgs::msg::Twist& msg);
-    void get_pose_in_world_callback(const geometry_msgs::msg::PoseWithCovarianceStamped& msg);
+    void get_pose_in_world_callback(const nav_msgs::msg::Odometry& msg);
 
 protected:
     std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
@@ -100,7 +101,7 @@ protected:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_target_twist_tool_in_base;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_fb_target;
-    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr m_sub_base_pose_in_world;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_base_pose_in_world;
 
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_twist_tool_in_base;
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_fb_target;

@@ -29,7 +29,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   }
   else
   {
-      RCLCPP_INFO(this->get_node()->get_logger(), "%s", robot_description.c_str());
+    RCLCPP_INFO(this->get_node()->get_logger(), "%s", "robot_description obtained correctly");
   }
 
   urdf::ModelInterfaceSharedPtr urdf_model = urdf::parseURDF(robot_description);
@@ -42,6 +42,16 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   Eigen::Vector3d gravity({m_parameters.gravity.at(0), m_parameters.gravity.at(1), m_parameters.gravity.at(2)});
   m_chain_base_tool   = rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.tool, gravity);
   m_chain_base_sensor = rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.sensor, gravity);
+  if(not m_chain_base_tool)
+  {
+      RCLCPP_ERROR(this->get_node()->get_logger(), "Cannot create rdyn chain from base (%s) to tool (%s)",m_parameters.frames.base.c_str(), m_parameters.frames.tool.c_str());
+      return controller_interface::CallbackReturn::FAILURE;
+  }
+  if(not m_chain_base_sensor)
+  {
+      RCLCPP_ERROR(this->get_node()->get_logger(), "Cannot create rdyn chain from base (%s) to sensor (%s)",m_parameters.frames.base.c_str(), m_parameters.frames.sensor.c_str());
+      return controller_interface::CallbackReturn::FAILURE;
+  }
 
   // TODO: Limits velocity, acceleration, force
 
@@ -92,7 +102,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   using namespace std::placeholders;
   m_sub_target_twist_tool_in_base = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.target_joint_trajectory_topic, 1, std::bind(&ElastoplasticController::get_target_callback, this, _1));
   m_sub_fb_target = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.floating_base_joints.target_topic, 1, std::bind(&ElastoplasticController::get_fb_target_callback, this, _1));
-  m_sub_base_pose_in_world = this->get_node()->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(m_parameters.floating_base_joints.odom, 1, std::bind(&ElastoplasticController::get_pose_in_world_callback, this, _1));
+  m_sub_base_pose_in_world = this->get_node()->create_subscription<nav_msgs::msg::Odometry>(m_parameters.floating_base_joints.odom, 1, std::bind(&ElastoplasticController::get_pose_in_world_callback, this, _1));
 
   m_ft_sensor = std::make_unique<semantic_components::ForceTorqueSensor>(m_parameters.ft_sensor_name);
 
@@ -230,6 +240,7 @@ std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_ex
   std::vector<hardware_interface::CommandInterface> reference_interfaces;
 
   reference_interfaces.reserve(6);
+  reference_interfaces_.resize(6);
   for(size_t idx = 0; idx < 6; idx++)
   {
     reference_interfaces.push_back(hardware_interface::CommandInterface(get_node()->get_name(), fmt::format("{}/{}", m_parameters.reference_interfaces.at(idx), hardware_interface::HW_IF_VELOCITY), &reference_interfaces_[idx]));
@@ -263,9 +274,12 @@ void ElastoplasticController::get_fb_target_callback(const geometry_msgs::msg::T
   m_rt_buffer_fb_target.writeFromNonRT(msg);
 }
 
-void ElastoplasticController::get_pose_in_world_callback(const geometry_msgs::msg::PoseWithCovarianceStamped& msg)
+void ElastoplasticController::get_pose_in_world_callback(const nav_msgs::msg::Odometry& msg)
 {
-  m_rt_buffer_base_pose_in_world.writeFromNonRT(msg);
+  geometry_msgs::msg::PoseWithCovarianceStamped msg2;
+  msg2.header = msg.header;
+  msg2.pose = msg.pose;
+  m_rt_buffer_base_pose_in_world.writeFromNonRT(msg2);
 }
 
 controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time & time, const rclcpp::Duration & period)

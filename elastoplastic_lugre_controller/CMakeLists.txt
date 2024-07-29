@@ -34,7 +34,7 @@ add_library(elastoplastic_controller SHARED
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
 )
 
-pluginlib_export_plugin_description_file(controller_interface elastoplastic.xml)
+pluginlib_export_plugin_description_file(controller_interface elastoplastic.plugin.xml)
 
 ament_target_dependencies(elastoplastic_controller PUBLIC
   controller_interface
