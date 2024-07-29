@@ -95,14 +95,13 @@ protected:
     InterfaceReference<hardware_interface::LoanedStateInterface>   m_fb_state_interfaces;
     InterfaceReference<hardware_interface::LoanedCommandInterface> m_fb_command_interfaces;
 
+    size_t m_joint_reference_interfaces;
+
     std::unique_ptr<semantic_components::ForceTorqueSensor> m_ft_sensor;
 
-    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
-    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_target_twist_tool_in_base;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_fb_target;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr m_sub_base_pose_in_world;
 
-    realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_twist_tool_in_base;
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_fb_target;
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovarianceStamped>   m_rt_buffer_base_pose_in_world;
 
@@ -166,15 +165,15 @@ protected:
     } m_float_base;
 
     struct Interfaces{
-      struct InterfaceType : std::array<bool, 3> {
+      struct InterfaceType : std::array<bool, 2> {
         bool& position() {return (*this).at(0);}
         bool& velocity() {return (*this).at(1);}
-        bool& effort  () {return (*this).at(2);}
         const bool& position() const {return (*this).at(0);}
         const bool& velocity() const {return (*this).at(1);}
-        const bool& effort  () const {return (*this).at(2);}
       } state, command;
-      bool check() {return state.position() && state.velocity() && (command.position() || command.velocity());}
+      std::array<std::string, 2> hwi = {hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY};
+      bool check() {return state.position() && state.velocity() && (command.position() && command.velocity());}
+      const std::array<std::string, 2>& names(){return hwi;}
     } m_has_interfaces;
 
     struct Limits {
