@@ -11,6 +11,8 @@
 
 namespace elastoplastic {
 
+namespace views = std::ranges::views;
+
 controller_interface::CallbackReturn ElastoplasticController::on_init()
 {
   m_param_listener = std::make_shared<elastoplastic_controller::ParamListener>(this->get_node());
@@ -100,7 +102,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   }
 
   using namespace std::placeholders;
-  m_sub_target_twist_tool_in_base = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.target_joint_trajectory_topic, 1, std::bind(&ElastoplasticController::get_target_callback, this, _1));
   m_sub_fb_target = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.floating_base_joints.target_topic, 1, std::bind(&ElastoplasticController::get_fb_target_callback, this, _1));
   m_sub_base_pose_in_world = this->get_node()->create_subscription<nav_msgs::msg::Odometry>(m_parameters.floating_base_joints.odom, 1, std::bind(&ElastoplasticController::get_pose_in_world_callback, this, _1));
 
@@ -113,11 +114,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   m_has_interfaces.state.position() = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_POSITION) == m_parameters.state_interfaces.end());
   m_has_interfaces.state.velocity() = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_VELOCITY) == m_parameters.state_interfaces.end());
-  m_has_interfaces.state.effort  () = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_EFFORT)   == m_parameters.state_interfaces.end());
 
   m_has_interfaces.command.position() = not (std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_POSITION) == m_parameters.command_interfaces.end());
   m_has_interfaces.command.velocity() = not (std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_VELOCITY) == m_parameters.command_interfaces.end());
-  m_has_interfaces.state.effort    () = not (std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_EFFORT)   == m_parameters.command_interfaces.end());
 
   if(not m_has_interfaces.check())
   {
@@ -139,7 +138,6 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
   {
     if(m_has_interfaces.state.position()) state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_POSITION));
     if(m_has_interfaces.state.velocity()) state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
-    if(m_has_interfaces.state.effort  ()) state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_EFFORT))  ;
   }
   for(size_t idx : m_float_base.enabled())
   {
@@ -239,11 +237,29 @@ std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_ex
 {
   std::vector<hardware_interface::CommandInterface> reference_interfaces;
 
-  reference_interfaces.reserve(6);
-  reference_interfaces_.resize(6);
-  for(size_t idx = 0; idx < 6; idx++)
+  m_joint_reference_interfaces = m_parameters.joints.size() * m_has_interfaces.hwi.size(); // There must be both position and velocity reference interfaces!
+
+  reference_interfaces.reserve (m_joint_reference_interfaces + m_float_base.enabled().size());
+  reference_interfaces_.reserve(m_joint_reference_interfaces + m_float_base.enabled().size());
+  for(size_t idx = 0; idx < m_has_interfaces.hwi.size(); idx++)
   {
-    reference_interfaces.push_back(hardware_interface::CommandInterface(get_node()->get_name(), fmt::format("{}/{}", m_parameters.reference_interfaces.at(idx), hardware_interface::HW_IF_VELOCITY), &reference_interfaces_[idx]));
+    for(size_t jdx = 0; jdx < m_parameters.joints.size(); ++jdx)
+    {
+      reference_interfaces.push_back(hardware_interface::CommandInterface(get_node()->get_name(), fmt::format("{}/{}",
+                                                                                                              m_parameters.joints.at(jdx),
+                                                                                                              m_parameters.command_interfaces.at(idx)),
+                                                                          &reference_interfaces_[m_parameters.joints.size()*idx + jdx]));
+    }
+  }
+
+  for(size_t idx = 0; idx < m_float_base.enabled().size(); ++idx)
+  {
+    // I take for granted that the floating base has velocity interfaces
+    reference_interfaces.push_back(hardware_interface::CommandInterface(get_node()->get_name(),
+                                                                        fmt::format("{}/{}",
+                                                                                    m_parameters.reference_interfaces.at(idx),
+                                                                                    hardware_interface::HW_IF_VELOCITY),
+                                                                        &reference_interfaces_[m_joint_reference_interfaces + idx]));
   }
 
   return reference_interfaces;
@@ -251,21 +267,18 @@ std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_ex
 
 controller_interface::return_type ElastoplasticController::update_reference_from_subscribers()
 {
-  geometry_msgs::msg::Twist* msg = m_rt_buffer_twist_tool_in_base.readFromRT();
-  reference_interfaces_.at(0) = msg->linear.x;
-  reference_interfaces_.at(1) = msg->linear.y;
-  reference_interfaces_.at(2) = msg->linear.z;
-  reference_interfaces_.at(3) = msg->angular.x;
-  reference_interfaces_.at(4) = msg->angular.y;
-  reference_interfaces_.at(5) = msg->angular.z;
+  // geometry_msgs::msg::Twist* msg = m_rt_buffer_twist_tool_in_base.readFromRT();
+  // reference_interfaces_.at(0) = msg->linear.x;
+  // reference_interfaces_.at(1) = msg->linear.y;
+  // reference_interfaces_.at(2) = msg->linear.z;
+  // reference_interfaces_.at(3) = msg->angular.x;
+  // reference_interfaces_.at(4) = msg->angular.y;
+  // reference_interfaces_.at(5) = msg->angular.z;
+  RCLCPP_WARN(get_node()->get_logger(), "Joint trajectory available only in chainable mode with joint_trajectory_controller");
 
+  std::fill(reference_interfaces_.begin(), std::next(reference_interfaces_.begin(), 2*m_joint_reference_interfaces), 0.0);
 
   return controller_interface::return_type::OK;
-}
-
-void ElastoplasticController::get_target_callback(const geometry_msgs::msg::Twist& msg)
-{
-  m_rt_buffer_twist_tool_in_base.writeFromNonRT(msg);
 }
 
 void ElastoplasticController::get_fb_target_callback(const geometry_msgs::msg::Twist& msg)
@@ -294,8 +307,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Affine3d T_world_base;
   Eigen::fromMsg(msg_pose_base_in_world->pose.pose, T_world_base);
 
-  Eigen::Vector6d target_twist_tool_base_in_base = Eigen::Map<Eigen::Vector6d>(reference_interfaces_.data(), reference_interfaces_.size());
-
+  // Eigen::Vector6d target_twist_tool_base_in_base = Eigen::Map<Eigen::Vector6d>(reference_interfaces_.data(), reference_interfaces_.size());
+  Eigen::VectorXd joint_position_references = Eigen::Map<Eigen::VectorXd>(reference_interfaces_.data(), m_parameters.joints.size());
+  Eigen::VectorXd joint_velocity_references = Eigen::Map<Eigen::VectorXd>(reference_interfaces_.data()+m_parameters.joints.size(), 2*m_parameters.joints.size());
+  Eigen::Vector6d target_twist_tool_base_in_base = m_chain_base_tool->getTwistTool(joint_position_references, joint_velocity_references);
   auto from_base_to_world = [&T_world_base](const Eigen::Vector6d& v){
     return rdyn::spatialRotation(v, T_world_base.linear());
   };
