@@ -173,7 +173,7 @@ protected:
         const bool& velocity() const {return (*this).at(1);}
       } state, command;
       std::array<std::string, 2> hwi = {hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY};
-      bool check() {return state.position() && state.velocity() && (command.position() && command.velocity());}
+      bool check() {return state.position() && state.velocity() && (command.position() || command.velocity());}
       const std::array<std::string, 2>& names(){return hwi;}
     } m_has_interfaces;
 

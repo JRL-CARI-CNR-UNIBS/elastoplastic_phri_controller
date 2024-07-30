@@ -16,7 +16,6 @@
         - "omron/joint_6"
       command_interfaces:
         - "position"
-        - "velocity"
       state_interfaces:
         - "position"
         - "velocity"
