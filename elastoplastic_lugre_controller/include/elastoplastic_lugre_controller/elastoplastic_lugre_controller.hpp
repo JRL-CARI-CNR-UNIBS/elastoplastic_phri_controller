@@ -128,44 +128,24 @@ protected:
           hardware_interface::HW_IF_POSITION,
           hardware_interface::HW_IF_VELOCITY};
 
-    struct FloatBase : std::tuple<std::array<std::string,6>, std::vector<int>, Eigen::Vector6d, std::string>
+    struct FloatBaseData
     {
-      std::string& name(size_t idx) {return std::get<0>(*this).at(idx);}
-      const std::string& name(size_t idx) const {return std::get<0>(*this).at(idx);}
-      const std::array<std::string, 6>& names() const {return std::get<0>(*this);}
+      Eigen::Vector6d twist;
+      bool enabled {true};
 
-      int& enabled(size_t idx) {return std::get<1>(*this).at(idx);}
-      const int& enabled(size_t idx) const {return std::get<1>(*this).at(idx);}
-      std::vector<int>& enabled() {return std::get<1>(*this);}
-      const std::vector<int>& enabled() const {return std::get<1>(*this);}
+      std::string ns;
+      const size_t& nax() const {return nax_;}
+      const std::array<size_t, 3>& idxs() const {return idxs_;}
 
-      Eigen::Vector6d& twist() {return std::get<2>(*this);}
-      const Eigen::Vector6d& values() const {return std::get<2>(*this);}
-
-      std::string& ns() {return std::get<3>(*this);}
-      const std::string& ns() const {return std::get<3>(*this);}
-
-      bool init(std::vector<std::string> v, std::vector<bool> b){
-        enabled().clear();
-        if (v.size() != 6 || b.size() != 6)
-        {
-          return false;
-        }
-        for(size_t idx = 0; idx < 6; idx++)
-        {
-          name(idx) = v.at(idx);
-          // enabled(idx) = b.at(idx)? 1:0;
-          if(b.at(idx)) enabled().push_back(idx);
-        }
-        twist().setZero();
-        ns() = "base"; // Move to parameters
-        return true;
-      }
-
-      Eigen::MatrixXd jacobian() {
+      Eigen::MatrixXd jacobian()
+      {
         Eigen::Matrix<double,6,6> id = Eigen::MatrixXd::Identity(6,6);
-        return id(enabled(), Eigen::all);
-      }
+        return id(idxs(), Eigen::all);
+      };
+
+    private:
+      constexpr static size_t nax_ {3};
+      constexpr static std::array<size_t, 3> idxs_ {1,2,6};
 
     } m_float_base;
 

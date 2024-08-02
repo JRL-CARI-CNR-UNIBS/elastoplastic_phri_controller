@@ -48,27 +48,16 @@ elastoplastic_controller:
       fixed_size<>: [6]
     }
   }
-  floating_base_joints:
-    names: {
-      type: string_array,
-      read_only: true,
-      default_value: ["linear.x","linear.y","linear.z","angular.x","angular.y","angular.z"],
-      validation: {
-        fixed_size<>: [6],
-        unique<>: []
-      }
-    }
+  floating_base:
     enabled: {
-      type: bool_array,
-      default_value: [false, false, false, false, false, false],
-      description: "Auxiliary/Dummy joints. Used for mobile bases. [x,y,z,rx,ry,rz]. 1 - used, 0 - unused",
-      validation: {
-        fixed_size<>: [6],
-      }
+      type: bool,
+      default_value: true,
+      description: "Use mobile base",
+      read_only: true
     }
-    target_topic: {
+    input_target_topic: {
       type: string,
-      default_value: "/cmd_vel",
+      default_value: "/input_cmd_vel",
       description: "auxiliary axis command",
       validation: {
         not_empty<>: []
@@ -82,17 +71,6 @@ elastoplastic_controller:
         not_empty<>: []
       }
     }
-    interfaces:
-      command_interface: {
-        type: string,
-        default_value: "velocity",
-        description: "Aux command interface",
-      }
-      state_interface: {
-        type: string,
-        default_value: "velocity",
-        description: "Aux state interface",
-      }
   command_interfaces: {
     type: string_array,
     default_value: ["position", "velocity"],

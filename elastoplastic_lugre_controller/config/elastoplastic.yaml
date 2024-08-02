@@ -21,13 +21,10 @@
         - "position"
         - "velocity"
         - "effort"
-      floating_base_joints:
-        enabled: [false, false, false, false, false, false]
-        target_topic: "/cmd_vel"
+      floating_base:
+        enabled: false
+        input_target_topic: "/input_cmd_vel"
         odom: "/odom"
-        interfaces:
-          command_interfaces: "velocity"
-          state_interfaces: "velocity"
       wrench_deadband: [1.0,0.0]
       impedance:
         inertia: [10.0, 10.0, 10.0]
