@@ -1,0 +1,42 @@
+/**:
+  elastoplastic_controller:
+    ros__parameters:
+      target_joint_trajectory_topic: "/joints_target"
+      ft_sensor_name: "az_robotiq_ft_sensor"
+      frames:
+        base: "az_base_link"
+        tool: "az_tip"
+        sensor: "az_robotiq_ft_frame_id"
+      joints:
+        - "az_shoulder_pan_joint"
+        - "az_shoulder_lift_joint"
+        - "az_elbow_joint"
+        - "az_wrist_1_joint"
+        - "az_wrist_2_joint"
+        - "az_wrist_3_joint"
+      command_interfaces:
+        - "position"
+      state_interfaces:
+        - "position"
+        - "velocity"
+        - "effort"
+      floating_base_joints:
+        enabled: [false, false, false, false, false, false]
+        target_topic: "/azrael/cmd_vel"
+        odom: "/azrael/odom"
+        interfaces:
+          command_interfaces: "velocity"
+          state_interfaces: "velocity"
+      wrench_deadband: [1.0,0.0]
+      impedance:
+        inertia: [10.0, 10.0, 10.0]
+        lugre:
+          sigma_0: 1000.0
+          sigma_1: 10.0
+          sigma_2: 10.0
+          z_ss: 0.5
+          z_ba: 0.1
+        tau_w: 0.02
+        reset_condition:
+          reset_window_size: 1000
+          reset_threshold: 0.1

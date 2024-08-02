@@ -16,7 +16,8 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 
-#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <geometry_msgs/msg/pose_with_covariance.hpp>
+#include <geometry_msgs/msg/twist_with_covariance.hpp>
 
 #include <semantic_components/force_torque_sensor.hpp>
 #include <geometry_msgs/msg/wrench.hpp>
@@ -82,7 +83,7 @@ protected:
 
     void get_target_callback(const geometry_msgs::msg::Twist& msg);
     void get_fb_target_callback(const geometry_msgs::msg::Twist& msg);
-    void get_pose_in_world_callback(const nav_msgs::msg::Odometry& msg);
+    void get_odometry_callback(const nav_msgs::msg::Odometry& msg);
 
 protected:
     std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
@@ -101,10 +102,13 @@ protected:
     std::unique_ptr<semantic_components::ForceTorqueSensor> m_ft_sensor;
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_fb_target;
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_base_pose_in_world;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_base_odometry;
 
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_fb_target;
-    realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovarianceStamped>   m_rt_buffer_base_pose_in_world;
+    realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovariance>   m_rt_buffer_base_pose_in_world;
+    realtime_tools::RealtimeBuffer<geometry_msgs::msg::TwistWithCovariance>   m_rt_buffer_base_twist_in_base;
+
+    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
 
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_z;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_w;
@@ -122,8 +126,7 @@ protected:
 
     const std::vector<std::string> m_allowed_interface_types {
           hardware_interface::HW_IF_POSITION,
-          hardware_interface::HW_IF_VELOCITY,
-          hardware_interface::HW_IF_ACCELERATION};
+          hardware_interface::HW_IF_VELOCITY};
 
     struct FloatBase : std::tuple<std::array<std::string,6>, std::vector<int>, Eigen::Vector6d, std::string>
     {
@@ -163,6 +166,7 @@ protected:
         Eigen::Matrix<double,6,6> id = Eigen::MatrixXd::Identity(6,6);
         return id(enabled(), Eigen::all);
       }
+
     } m_float_base;
 
     struct Interfaces{
