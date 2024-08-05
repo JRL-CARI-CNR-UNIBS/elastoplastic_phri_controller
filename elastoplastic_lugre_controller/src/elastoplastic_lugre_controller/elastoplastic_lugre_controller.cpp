@@ -132,8 +132,8 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
 
   for(const auto& jnt : m_parameters.joints)
   {
-    if(m_has_interfaces.state.position()) state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_POSITION));
-    if(m_has_interfaces.state.velocity()) state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
+    state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_POSITION));
+    state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
   }
 
   std::vector<std::string> ft_interfaces = m_ft_sensor->get_state_interface_names();
@@ -230,16 +230,6 @@ std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_ex
                                                                                                               hwi),
                                                                           &reference_interfaces_[m_parameters.joints.size()*2 + jdx]));
     }
-  }
-
-  for(size_t idx = 0; idx < m_float_base.nax(); ++idx)
-  {
-    // I take for granted that the floating base has velocity interfaces
-    reference_interfaces.push_back(hardware_interface::CommandInterface(get_node()->get_name(),
-                                                                        fmt::format("{}/{}",
-                                                                                    m_parameters.reference_interfaces.at(idx),
-                                                                                    hardware_interface::HW_IF_VELOCITY),
-                                                                        &reference_interfaces_[m_joint_reference_interfaces + idx]));
   }
 
   return reference_interfaces;
@@ -466,7 +456,15 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   auto task_only_elastic = [&, this](const Eigen::VectorXd& p_qp) -> Eigen::VectorXd {
     constexpr double kp = 1.0; // FIXME: Cambiare di posto
     Eigen::VectorXd full(m_nax + m_float_base.nax());
-    Eigen::VectorXd result = - kp * (p_qp.tail(this->m_float_base.nax()) - target_twist_base_world_in_base(this->m_float_base.idxs()));
+    Eigen::VectorXd result(m_nax + m_float_base.nax());
+    if(this->m_float_base.enabled)
+    {
+      result = - kp * (p_qp.tail(this->m_float_base.nax()) - target_twist_base_world_in_base(this->m_float_base.idxs()));
+    }
+    else
+    {
+      result.setZero();
+    }
     full << Eigen::VectorXd::Zero(m_nax), result;
     return full;
   };

@@ -134,7 +134,7 @@ protected:
       bool enabled {true};
 
       std::string ns;
-      const size_t& nax() const {return nax_;}
+      const size_t nax() const {return enabled? nax_: 0;}
       const std::array<size_t, 3>& idxs() const {return idxs_;}
 
       Eigen::MatrixXd jacobian()

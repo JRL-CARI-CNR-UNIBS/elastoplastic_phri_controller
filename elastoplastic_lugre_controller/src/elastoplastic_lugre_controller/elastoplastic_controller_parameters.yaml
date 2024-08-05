@@ -40,14 +40,6 @@ elastoplastic_controller:
     default_value: [],
     description: "Robot Joints"
   }
-  reference_interfaces: {
-    type: string_array,
-    default_value: ["linear.x","linear.y","linear.z","angular.x","angular.y","angular.z"],
-    description: "Interfaces exposed by chained controller: (cartesian twist)",
-    validation: {
-      fixed_size<>: [6]
-    }
-  }
   floating_base:
     enabled: {
       type: bool,
