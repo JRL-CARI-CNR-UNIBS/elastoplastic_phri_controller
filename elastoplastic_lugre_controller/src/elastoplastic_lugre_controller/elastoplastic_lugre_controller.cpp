@@ -13,11 +13,13 @@ namespace elastoplastic {
 
 namespace views = std::ranges::views;
 
+
 controller_interface::CallbackReturn ElastoplasticController::on_init()
 {
   m_param_listener = std::make_shared<elastoplastic_controller::ParamListener>(this->get_node());
   return controller_interface::CallbackReturn::SUCCESS;
 }
+
 
 controller_interface::CallbackReturn ElastoplasticController::on_configure(const rclcpp_lifecycle::State & previous_state)
 {
@@ -103,36 +105,57 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_pub_cmd_vel = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
   m_float_base.enabled = m_parameters.floating_base.enabled;
 
-  m_pub_z =                this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray> (fmt::format("{}/{}", this->get_node()->get_namespace(), "z"), 10);
-  m_pub_w =                this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray> (fmt::format("{}/{}", this->get_node()->get_namespace(), "w"), 10);
-  m_pub_friction_in_base = this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>(fmt::format("{}/{}", this->get_node()->get_namespace(), "friciton_in_base"), 10);
-  m_pub_wrench_in_base =   this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>(fmt::format("{}/{}", this->get_node()->get_namespace(), "wrench_in_base"), 10);
+  m_pub_z =                this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray> ("z", 10);
+  m_pub_w =                this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray> ("w", 10);
+  m_pub_friction_in_base = this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("friciton_in_base", 10);
+  m_pub_wrench_in_base =   this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("wrench_in_base", 10);
 
-  m_has_interfaces.state.position() = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_POSITION) == m_parameters.state_interfaces.end());
-  m_has_interfaces.state.velocity() = not (std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_VELOCITY) == m_parameters.state_interfaces.end());
+  m_state_interfaces_names.reserve(m_allowed_interface_types.size());
+  m_command_interfaces_names.reserve(m_allowed_interface_types.size());
 
-  m_has_interfaces.command.position() = not (std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_POSITION) == m_parameters.command_interfaces.end());
-  m_has_interfaces.command.velocity() = not (std::ranges::find(m_parameters.command_interfaces, hardware_interface::HW_IF_VELOCITY) == m_parameters.command_interfaces.end());
-
-  if(not m_has_interfaces.check())
+  for(const auto& interface : m_allowed_interface_types)
   {
-    RCLCPP_ERROR(this->get_node()->get_logger(), "No State or Command interfaces required from parameters");
+    auto it = std::ranges::find(m_parameters.state_interfaces, interface);
+    if(it == m_parameters.state_interfaces.end())
+    {
+      RCLCPP_ERROR(this->get_node()->get_logger(), "Missing State interfaces from parameters");
+      return controller_interface::CallbackReturn::FAILURE;
+    }
+    else
+    {
+      m_state_interfaces_names.push_back(*it);
+    }
+
+    it = std::ranges::find(m_parameters.command_interfaces, interface);
+    if(it != m_command_interfaces_names.end())
+    {
+      m_command_interfaces_names.push_back(*it);
+      RCLCPP_INFO(get_node()->get_logger(), "Command interface name: %s", (*it).c_str());
+    }
+  }
+  if(m_command_interfaces_names.empty())
+  {
+    RCLCPP_ERROR(this->get_node()->get_logger(), "Missing Command interfaces from parameters");
     return controller_interface::CallbackReturn::FAILURE;
   }
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
+
 controller_interface::InterfaceConfiguration ElastoplasticController::state_interface_configuration() const
 {
   controller_interface::InterfaceConfiguration state_interface_configuration;
   state_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  state_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.state, true) + 6);
+  state_interface_configuration.names.reserve(m_parameters.joints.size() * m_allowed_interface_types.size() + 6);
 
   for(const auto& jnt : m_parameters.joints)
   {
     state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_POSITION));
+  }
+  for(const auto& jnt : m_parameters.joints)
+  {
     state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
   }
 
@@ -142,20 +165,31 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
   return state_interface_configuration;
 }
 
+
 controller_interface::InterfaceConfiguration ElastoplasticController::command_interface_configuration() const
 {
   controller_interface::InterfaceConfiguration command_interface_configuration;
   command_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  command_interface_configuration.names.reserve(m_parameters.joints.size() * std::ranges::count(m_has_interfaces.command, true));
-  for(const auto& jnt : m_parameters.joints)
+  command_interface_configuration.names.reserve(m_parameters.joints.size() * m_command_interfaces_names.size());
+  if(std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[0]) != m_command_interfaces_names.end())
   {
-    if(m_has_interfaces.command.position()) command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_POSITION));
-    if(m_has_interfaces.command.velocity()) command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
+    for(const auto& jnt : m_parameters.joints)
+    {
+      command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, m_allowed_interface_types[0]));
+    }
+  }
+  if(std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[1]) != m_command_interfaces_names.end())
+  {
+    for(const auto& jnt : m_parameters.joints)
+    {
+      command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, m_allowed_interface_types[1]));
+    }
   }
 
   return command_interface_configuration;
 }
+
 
 controller_interface::CallbackReturn ElastoplasticController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/)
 {
@@ -167,30 +201,34 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_reset_window.clear();
   m_elastoplastic_target_tool_in_world.clear();
 
-  // Init RT buffers?
+  m_joint_state_interfaces.resize(m_state_interfaces_names.size());
+  m_joint_command_interfaces.resize(m_command_interfaces_names.size());
 
-  m_joint_state_interfaces.resize(m_allowed_interface_types.size() * m_parameters.joints.size());
-  m_joint_command_interfaces.resize(m_allowed_interface_types.size() * m_parameters.joints.size());
-
-  auto state_interface = m_joint_state_interfaces.begin();
   for(const auto& interface : m_allowed_interface_types)
   {
-    if(not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, interface, *state_interface))
+    auto it = std::ranges::find(m_allowed_interface_types, interface);
+    auto idx = std::distance(m_allowed_interface_types.begin(), it);
+    //RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "state_interfaces_: " << state_interfaces_.size());
+    if(not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, interface, m_joint_state_interfaces.at(idx)))
     {
-      RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints state interfaces are required");
+      RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints state interfaces");
       return controller_interface::CallbackReturn::FAILURE;
     }
-    state_interface = std::next(state_interface);
   }
-  auto command_interface = m_joint_command_interfaces.begin();
+
   for(const auto& interface : m_allowed_interface_types)
   {
-    if(not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.joints, interface, *command_interface))
+    auto it = std::ranges::find(m_allowed_interface_types, interface);
+    auto idx = std::distance(m_allowed_interface_types.begin(), it);
+    // for(const auto& v : command_interfaces_)
+    // {
+    //   RCLCPP_INFO(get_node()->get_logger(), "command_interface_ (value): %s", v.get_name().c_str() );
+    // }
+    if(not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.joints, interface, m_joint_command_interfaces.at(idx)))
     {
-      RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints command interfaces are required");
+      RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints command interfaces");
       return controller_interface::CallbackReturn::FAILURE;
     }
-    command_interface = std::next(command_interface);
   }
 
   m_ft_sensor->assign_loaned_state_interfaces(state_interfaces_);
@@ -198,6 +236,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
+
 
 controller_interface::CallbackReturn ElastoplasticController::on_deactivate(const rclcpp_lifecycle::State & /*previous_state*/)
 {
@@ -212,28 +251,31 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
+
 std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_export_reference_interfaces()
 {
   std::vector<hardware_interface::CommandInterface> reference_interfaces;
 
-  m_joint_reference_interfaces = m_parameters.joints.size() * m_has_interfaces.hwi.size(); // There must be both position and velocity reference interfaces!
+  m_joint_reference_interfaces_size = m_parameters.joints.size() * m_allowed_interface_types.size(); // There must be both position and velocity reference interfaces!
 
-  reference_interfaces_.resize(m_joint_reference_interfaces + m_float_base.nax());
-  reference_interfaces.reserve(m_joint_reference_interfaces + m_float_base.nax());
+  reference_interfaces_.resize(m_joint_reference_interfaces_size);
+  reference_interfaces.reserve(m_joint_reference_interfaces_size);
 
-  for(const std::string& hwi : m_has_interfaces.hwi)
+  size_t idx = 0;
+  for(const auto& hwi : m_allowed_interface_types)
   {
-    for(size_t jdx = 0; jdx < m_parameters.joints.size(); ++jdx)
+    for(const auto& jnt : m_parameters.joints)
     {
-      reference_interfaces.push_back(hardware_interface::CommandInterface(get_node()->get_name(), fmt::format("{}/{}",
-                                                                                                              m_parameters.joints.at(jdx),
-                                                                                                              hwi),
-                                                                          &reference_interfaces_[m_parameters.joints.size()*2 + jdx]));
+
+      reference_interfaces.emplace_back(hardware_interface::CommandInterface(std::string(get_node()->get_name()), fmt::format("{}/{}", jnt, hwi),
+                                                                          &reference_interfaces_[idx]));
+      ++idx;
     }
   }
 
   return reference_interfaces;
 }
+
 
 controller_interface::return_type ElastoplasticController::update_reference_from_subscribers()
 {
@@ -246,10 +288,11 @@ controller_interface::return_type ElastoplasticController::update_reference_from
   // reference_interfaces_.at(5) = msg->angular.z;
   RCLCPP_WARN(get_node()->get_logger(), "Joint trajectory available only in chainable mode with joint_trajectory_controller");
 
-  std::fill(reference_interfaces_.begin(), std::next(reference_interfaces_.begin(), 2*m_joint_reference_interfaces), 0.0);
+  std::fill(reference_interfaces_.begin(), std::next(reference_interfaces_.begin(), 2*m_joint_reference_interfaces_size), 0.0);
 
   return controller_interface::return_type::OK;
 }
+
 
 void ElastoplasticController::get_fb_target_callback(const geometry_msgs::msg::Twist& msg)
 {
@@ -257,11 +300,13 @@ void ElastoplasticController::get_fb_target_callback(const geometry_msgs::msg::T
   m_rt_buffer_fb_target.writeFromNonRT(msg);
 }
 
+
 void ElastoplasticController::get_odometry_callback(const nav_msgs::msg::Odometry& msg)
 {
   m_rt_buffer_base_pose_in_world.writeFromNonRT(msg.pose);
-  m_rt_buffer_base_twist_in_base.writeFromNonRT(msg.twist);
+  m_rt_buffer_base_twist_in_base.writeFromNonRT(msg.twist); // ??
 }
+
 
 controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time & time, const rclcpp::Duration & period)
 {
@@ -514,8 +559,17 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ***********
   for(size_t ax = 0; ax < m_nax; ++ax)
   {
-    if(m_has_interfaces.command.position()) m_joint_command_interfaces.at(0).at(ax).get().set_value(m_q(ax));
-    if(m_has_interfaces.command.velocity()) m_joint_command_interfaces.at(1).at(ax).get().set_value(m_qp(ax));
+    if(m_command_interfaces_names.size() > 1)
+    {
+      m_joint_command_interfaces.at(0).at(ax).get().set_value(m_q(ax));
+      m_joint_command_interfaces.at(1).at(ax).get().set_value(m_qp(ax));
+    }
+    else
+    {
+      m_joint_command_interfaces.at(0).at(ax).get().set_value(
+        std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[0]) != m_command_interfaces_names.end() ? m_q(ax) : m_qp(ax)
+      );
+    }
   }
 
   Eigen::Vector6d qep = Eigen::Vector6d::Zero();

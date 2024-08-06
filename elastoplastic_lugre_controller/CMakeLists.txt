@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(elastoplastic_lugre_controller)
 add_compile_options(-funroll-loops -Wall -Ofast)
-set(CMAKE_BUILD_TYPE RelWithDebInfo)
+# set(CMAKE_BUILD_TYPE RelWithDebInfo)
+set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_STANDARD 20)
+
+set(BUILD_TESTING ON)
 
 find_package(ament_cmake                REQUIRED)
 find_package(controller_interface       REQUIRED)
@@ -32,7 +35,9 @@ generate_parameter_library(
 add_library(elastoplastic_controller SHARED
   src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
+  test/test_params.yaml
 )
+add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
 
 pluginlib_export_plugin_description_file(controller_interface elastoplastic.plugin.xml)
 
@@ -90,5 +95,38 @@ ament_export_dependencies(controller_interface
   urdfdom
   realtime_tools
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(controller_manager REQUIRED)
+
+  ament_add_gtest(test_elastoplastic_controller
+      test/test_elastoplastic_controller.cpp
+    )
+  target_include_directories(test_elastoplastic_controller PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+  target_link_libraries(test_elastoplastic_controller
+    elastoplastic_controller::elastoplastic_controller
+  )
+  ament_target_dependencies(test_elastoplastic_controller
+    rclcpp
+    rclcpp_lifecycle
+  )
+
+
+#   add_rostest_with_parameters_gmock(test_controller
+#     test/test_controller.cpp
+#     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_params.yaml
+#   )
+#   target_link_libraries(test_controller elastoplastic_controller)
+#   ament_target_dependencies(test_controller
+#     control_msgs
+#     controller_interface
+#     hardware_interface
+#     ros2_control_test_assets
+#   )
+endif()
 
 ament_package()

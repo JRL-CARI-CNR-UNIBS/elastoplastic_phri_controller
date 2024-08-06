@@ -97,7 +97,7 @@ protected:
     InterfaceReference<hardware_interface::LoanedStateInterface>   m_fb_state_interfaces;
     InterfaceReference<hardware_interface::LoanedCommandInterface> m_fb_command_interfaces;
 
-    size_t m_joint_reference_interfaces;
+    size_t m_joint_reference_interfaces_size;
 
     std::unique_ptr<semantic_components::ForceTorqueSensor> m_ft_sensor;
 
@@ -124,6 +124,7 @@ protected:
     Eigen::VectorXd m_qp;
     Eigen::VectorXd m_qpp;
 
+    // Required both for states and at least one for command
     const std::vector<std::string> m_allowed_interface_types {
           hardware_interface::HW_IF_POSITION,
           hardware_interface::HW_IF_VELOCITY};
@@ -149,17 +150,9 @@ protected:
 
     } m_float_base;
 
-    struct Interfaces{
-      struct InterfaceType : std::array<bool, 2> {
-        bool& position() {return (*this).at(0);}
-        bool& velocity() {return (*this).at(1);}
-        const bool& position() const {return (*this).at(0);}
-        const bool& velocity() const {return (*this).at(1);}
-      } state, command;
-      std::array<std::string, 2> hwi = {hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY};
-      bool check() {return state.position() && state.velocity() && (command.position() || command.velocity());}
-      const std::array<std::string, 2>& names(){return hwi;}
-    } m_has_interfaces;
+    std::vector<std::string> m_state_interfaces_names;
+    std::vector<std::string> m_command_interfaces_names;
+
 
     struct Limits {
       Eigen::VectorXd pos_upper;
