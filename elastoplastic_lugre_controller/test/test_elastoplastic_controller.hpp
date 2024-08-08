@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <rclcpp/logger.hpp>
 
 class ElastoplasticControllerTest : public ::testing::Test
 {
@@ -61,6 +62,8 @@ protected:
     // EXPECT_NE(controller_->export_reference_interfaces().size(), 0);
     assign_interfaces();
 
+    controller_->get_node()->get_logger().set_level(rclcpp::Logger::Level::Warn);
+
     return res;
   }
 
@@ -71,6 +74,7 @@ protected:
 
   controller_interface::CallbackReturn activateController()
   {
+    rclcpp::spin_some(controller_->get_node()->get_node_base_interface());
     return controller_->on_activate(rclcpp_lifecycle::State());
   }
 

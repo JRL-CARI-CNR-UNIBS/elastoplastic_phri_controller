@@ -81,6 +81,8 @@ protected:
 
     controller_interface::return_type update_reference_from_subscribers() override;
 
+    void configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
+
     void get_target_callback(const geometry_msgs::msg::Twist& msg);
     void get_fb_target_callback(const geometry_msgs::msg::Twist& msg);
     void get_odometry_callback(const nav_msgs::msg::Odometry& msg);
@@ -112,8 +114,15 @@ protected:
 
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_z;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_w;
-    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_friction_in_base;
-    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_base;
+    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_friction_in_world;
+    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_world;
+
+    enum class RBStatus {
+      OK,
+      ERROR,
+      EMPTY
+    } m_robot_description_configuration {ElastoplasticController::RBStatus::EMPTY};
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
 
     rdyn::ChainPtr m_chain_base_tool;
     rdyn::ChainPtr m_chain_base_sensor;

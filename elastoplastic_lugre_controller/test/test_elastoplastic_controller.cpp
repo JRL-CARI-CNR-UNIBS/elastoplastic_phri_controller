@@ -8,7 +8,7 @@
 
 #include "fmt/format.h"
 
-#include <geometry_msgs/msg/wrench.hpp>
+#include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
 
@@ -24,8 +24,38 @@ TEST_F(ElastoplasticControllerTest, configure_controller)
   SetUpController();
 
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
-  ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
+  EXPECT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
 }
+
+TEST_F(ElastoplasticControllerTest, robot_description_from_topic)
+{
+  SetUpController();
+
+  ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
+
+  auto dummy_node = rclcpp::Node("dummy_node");
+  auto pub_rb = dummy_node.create_publisher<std_msgs::msg::String>("/test_elastoplastic_controller/robot_description", 1);
+  std_msgs::msg::String rb;
+  rb.data = test_urdf;
+  pub_rb->publish(rb);
+
+  EXPECT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
+  EXPECT_TRUE(controller_->get_node()->has_parameter("robot_description"));
+}
+
+// TEST_F(ElastoplasticControllerTest, multiple_robot_description_from_topic)
+// {
+//   SetUpController();
+
+//   auto dummy_node = rclcpp::Node("dummy_node");
+//   auto pub_rb = dummy_node.create_publisher<std_msgs::msg::String>("/elastoplastic_controller/robot_description", 1);
+//   std_msgs::msg::String rb;
+//   rb.data = test_urdf;
+//   pub_rb->publish(rb);
+
+//   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
+//   EXPECT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
+// }
 
 
 TEST_F(ElastoplasticControllerTest, check_interfaces)
@@ -206,7 +236,7 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_use_force_debug_pu
   ASSERT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
 
   auto dummy_node = std::make_shared<rclcpp::Node>("dummy_node");
-  auto sub_z = dummy_node->create_subscription<std_msgs::msg::Float64MultiArray>("/z", 1, [](const std_msgs::msg::Float64MultiArray::SharedPtr msg){RCLCPP_INFO(rclcpp::get_logger("test"), "Got message!");});
+  auto sub_friction_in_world = dummy_node->create_subscription<geometry_msgs::msg::WrenchStamped>("/friciton_in_world", 1, [](const geometry_msgs::msg::WrenchStamped::SharedPtr msg){RCLCPP_INFO(rclcpp::get_logger("test"), "Got message!");});
 
   auto result = controller_->update(rclcpp::Clock().now(), std::chrono::milliseconds(10));
   ASSERT_EQ(result, controller_interface::return_type::OK);
@@ -215,17 +245,19 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_use_force_debug_pu
       std::next(joint_command_values_.begin(), joints_.size()),
       [](const double val){EXPECT_NE(val, INITIAL_POS);});
 
-  std_msgs::msg::Float64MultiArray msg_out; rclcpp::MessageInfo info;
+  geometry_msgs::msg::WrenchStamped msg_out; rclcpp::MessageInfo info;
   bool message_received {false};
   // rclcpp::spin_some(dummy_node);
   auto start = std::chrono::steady_clock::now();
   do
   {
-    message_received = sub_z->take(msg_out, info);
+    message_received = sub_friction_in_world->take(msg_out, info);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   } while(!message_received && std::chrono::steady_clock::now() - start < std::chrono::seconds(10));
   EXPECT_TRUE(message_received);
-  EXPECT_NE(msg_out.data.at(0), INITIAL_POS);
+  EXPECT_NE(msg_out.wrench.force.x, 0.0);
+  EXPECT_NE(msg_out.wrench.force.y, 0.0);
+  EXPECT_NE(msg_out.wrench.force.z, 0.0);
 }
 
 int main(int argc, char ** argv)

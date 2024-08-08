@@ -21,26 +21,37 @@ controller_interface::CallbackReturn ElastoplasticController::on_init()
 }
 
 
-controller_interface::CallbackReturn ElastoplasticController::on_configure(const rclcpp_lifecycle::State & previous_state)
+void ElastoplasticController::configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg)
 {
-  m_parameters = m_param_listener->get_params();
+  if(m_robot_description_configuration == RBStatus::OK)
+  {
+    RCLCPP_DEBUG(get_node()->get_logger(), "New robot_description ignored");
+    return;
+  }
 
-  std::string robot_description = this->get_node()->get_parameter("robot_description").as_string();
-  if(robot_description == "")
+  std::string robot_description = msg->data;
+  if(robot_description.empty())
   {
     RCLCPP_ERROR(this->get_node()->get_logger(), "Missing robot_description by controller_manager");
-    return controller_interface::CallbackReturn::FAILURE;
+    m_robot_description_configuration = RBStatus::ERROR;
+    return;
   }
   else
   {
     RCLCPP_INFO(this->get_node()->get_logger(), "%s", "robot_description obtained correctly");
   }
 
+  if(not get_node()->has_parameter("robot_description"))
+  {
+    get_node()->declare_parameter("robot_description", robot_description);
+  }
+
   urdf::ModelInterfaceSharedPtr urdf_model = urdf::parseURDF(robot_description);
   if(not urdf_model)
   {
     RCLCPP_ERROR(this->get_node()->get_logger(), "Cannot create URDF model from robot_description provided by controller_manager");
-    return controller_interface::CallbackReturn::FAILURE;
+    m_robot_description_configuration = RBStatus::ERROR;
+    return;
   }
 
   Eigen::Vector3d gravity({m_parameters.gravity.at(0), m_parameters.gravity.at(1), m_parameters.gravity.at(2)});
@@ -49,24 +60,15 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   if(not m_chain_base_tool)
   {
       RCLCPP_ERROR(this->get_node()->get_logger(), "Cannot create rdyn chain from base (%s) to tool (%s)",m_parameters.frames.base.c_str(), m_parameters.frames.tool.c_str());
-      return controller_interface::CallbackReturn::FAILURE;
+      m_robot_description_configuration = RBStatus::ERROR;
+      return;
   }
   if(not m_chain_base_sensor)
   {
       RCLCPP_ERROR(this->get_node()->get_logger(), "Cannot create rdyn chain from base (%s) to sensor (%s)",m_parameters.frames.base.c_str(), m_parameters.frames.sensor.c_str());
-      return controller_interface::CallbackReturn::FAILURE;
+      m_robot_description_configuration = RBStatus::ERROR;
+      return;
   }
-
-  // TODO: Limits velocity, acceleration, force
-
-  std::string what;
-  m_nax = m_parameters.joints.size();
-  m_chain_base_tool  ->setInputJointsName(m_parameters.joints, what);
-  m_chain_base_sensor->setInputJointsName(m_parameters.joints, what);
-
-  m_q.resize(m_nax);
-  m_qp.resize(m_nax);
-  m_qpp.resize(m_nax);
 
   m_limits.pos_upper.resize(m_nax);
   m_limits.pos_lower.resize(m_nax);
@@ -89,6 +91,23 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_limits.acc(ax) = 10 * m_limits.vel(ax);
   }
 
+  std::string what;
+  m_chain_base_tool  ->setInputJointsName(m_parameters.joints, what);
+  m_chain_base_sensor->setInputJointsName(m_parameters.joints, what);
+
+  m_robot_description_configuration = RBStatus::OK;
+}
+
+controller_interface::CallbackReturn ElastoplasticController::on_configure(const rclcpp_lifecycle::State & previous_state)
+{
+  m_parameters = m_param_listener->get_params();
+
+  m_nax = m_parameters.joints.size();
+
+  m_q.resize(m_nax);
+  m_qp.resize(m_nax);
+  m_qpp.resize(m_nax);
+
   if(std::ranges::min(m_parameters.impedance.inertia) < 0)
   {
     RCLCPP_ERROR(this->get_node()->get_logger(), "Inertia has negative values!");
@@ -107,8 +126,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   m_pub_z =                this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray> ("z", 10);
   m_pub_w =                this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray> ("w", 10);
-  m_pub_friction_in_base = this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("friciton_in_base", 10);
-  m_pub_wrench_in_base =   this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("wrench_in_base", 10);
+  m_pub_friction_in_world = this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("friciton_in_world", 10);
+  m_pub_wrench_in_world =   this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("wrench_in_world", 10);
 
   m_state_interfaces_names.reserve(m_allowed_interface_types.size());
   m_command_interfaces_names.reserve(m_allowed_interface_types.size());
@@ -137,6 +156,19 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   {
     RCLCPP_ERROR(this->get_node()->get_logger(), "Missing Command interfaces from parameters");
     return controller_interface::CallbackReturn::FAILURE;
+  }
+
+  // Robot description-related operations
+  if(get_node()->has_parameter("robot_description"))
+  {
+    std_msgs::msg::String::SharedPtr rd = std::make_shared<std_msgs::msg::String>();
+    rd->data = get_node()->get_parameter("robot_description").as_string();
+    configure_after_robot_description_callback(rd);
+  }
+  else
+  {
+    m_sub_robot_description = get_node()->create_subscription<std_msgs::msg::String>("~/robot_description", 1, std::bind(&ElastoplasticController::configure_after_robot_description_callback, this, std::placeholders::_1));
+    m_robot_description_configuration = RBStatus::EMPTY;
   }
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -193,6 +225,17 @@ controller_interface::InterfaceConfiguration ElastoplasticController::command_in
 
 controller_interface::CallbackReturn ElastoplasticController::on_activate(const rclcpp_lifecycle::State & /*previous_state*/)
 {
+  auto t_start = get_node()->get_clock()->now();
+  do{
+    get_node()->get_clock()->sleep_for(std::chrono::milliseconds(10));
+  } while(m_robot_description_configuration != RBStatus::OK &&
+           get_node()->get_clock()->now() - t_start < std::chrono::seconds(5));
+  if(m_robot_description_configuration != RBStatus::OK)
+  {
+    RCLCPP_ERROR(get_node()->get_logger(), "No robot description found");
+    return controller_interface::CallbackReturn::FAILURE;
+  }
+
   m_state.clear();
   m_reset_window.clear();
   m_elastoplastic_target_tool_in_world.clear();
@@ -251,8 +294,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   if (m_parameters.debug)
   {
     RCLCPP_WARN(this->get_node()->get_logger(), "Debug publishers: ON");
-    m_pub_friction_in_base->on_activate();
-    m_pub_wrench_in_base->on_activate();
+    m_pub_friction_in_world->on_activate();
+    m_pub_wrench_in_world->on_activate();
     m_pub_w->on_activate();
     m_pub_z->on_activate();
   }
@@ -519,10 +562,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   Eigen::JacobiSVD<Eigen::Matrix<double, 6, -1>> svd(J_A_world_tool, Eigen::ComputeThinU | Eigen::ComputeThinV);
   // if (svd.singularValues()(svd.cols()-1)==0)
-  if(svd.nonzeroSingularValues() != svd.size())
-    RCLCPP_ERROR(this->get_node()->get_logger(), "SINGULARITY POINT");
-  else if (svd.singularValues()(0)/svd.singularValues()(std::min(6l, svd.size())) > 1e2)
-    RCLCPP_ERROR(this->get_node()->get_logger(), "SINGULARITY POINT");
+  if(svd.nonzeroSingularValues() != std::min(svd.rows(), svd.cols()))
+    RCLCPP_ERROR(this->get_node()->get_logger(), "SINGULARITY POINT (null singular values)");
+  else if (svd.singularValues()(0)/svd.singularValues()(std::min(svd.rows(), svd.cols())-1) > 1e2)
+    RCLCPP_ERROR(this->get_node()->get_logger(), "SINGULARITY POINT (high conditioning number)");
 
   auto task_only_elastic = [&, this](const Eigen::VectorXd& p_q) -> Eigen::VectorXd {
     constexpr double kp = 1.0;
@@ -648,7 +691,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     msg_friction_in_world.wrench.torque.x = 0.0;
     msg_friction_in_world.wrench.torque.y = 0.0;
     msg_friction_in_world.wrench.torque.z = 0.0;
-    m_pub_friction_in_base->publish(msg_friction_in_world);
+    m_pub_friction_in_world->publish(msg_friction_in_world);
 
     geometry_msgs::msg::WrenchStamped msg_wrench_in_world;
     msg_wrench_in_world.header.frame_id = m_parameters.frames.base;
@@ -659,7 +702,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     msg_wrench_in_world.wrench.torque.x = wrench_tool_in_world[3];
     msg_wrench_in_world.wrench.torque.y = wrench_tool_in_world[4];
     msg_wrench_in_world.wrench.torque.z = wrench_tool_in_world[5];
-    m_pub_friction_in_base->publish(msg_wrench_in_world);
+    m_pub_friction_in_world->publish(msg_wrench_in_world);
   }
 
   return controller_interface::return_type::OK;
