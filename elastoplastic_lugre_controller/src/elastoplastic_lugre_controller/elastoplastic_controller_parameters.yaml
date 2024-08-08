@@ -38,7 +38,8 @@ elastoplastic_controller:
   joints: {
     type: string_array,
     default_value: [],
-    description: "Robot Joints"
+    description: "Robot Joints",
+    # read_only: true
   }
   floating_base:
     enabled: {
@@ -147,3 +148,8 @@ elastoplastic_controller:
           gt_eq<>: 0,
         }
       }
+  debug: {
+    type: bool,
+    description: "Enable debug publishers",
+    default_value: false
+  }

@@ -20,7 +20,7 @@ protected:
   std::vector<rclcpp::Parameter> getOverrideParameters(){
       return {
         {"target_joint_trajectory_topic", "/joints_target"},
-        {"ft_sensor_name", "ft_sensor"},
+        {"ft_sensor_name", ft_sensor_name_},
         {"frames.base", "az_base_footprint"},
         {"frames.tool", "az_robotiq_ft_frame_id"},
         {"frames.sensor", "az_ft300s_sensor"},
@@ -78,6 +78,7 @@ protected:
   {
     joint_command_values_.resize(command_interfaces_names_.size() * joints_.size());
     joint_state_values_.resize(command_interfaces_names_.size() * joints_.size());
+    fts_state_values_.resize(ft_sensor_interfaces_.size());
 
     std::vector<hardware_interface::LoanedCommandInterface> loaned_command_interfaces;
     loaned_command_interfaces.reserve(command_interfaces_names_.size() * joints_.size());
@@ -103,12 +104,9 @@ protected:
     }
 
 
-    semantic_components::ForceTorqueSensor ft_sensor(ft_sensor_name_);
-    std::vector<std::string> fts_state_names = ft_sensor.get_state_interface_names();
-
     std::vector<hardware_interface::LoanedStateInterface> loaned_state_interfaces;
-    loaned_state_interfaces.reserve(state_interfaces_names_.size() * joints_.size() + fts_state_names.size());
-    state_interfaces_.reserve(state_interfaces_names_.size() * joints_.size() + fts_state_names.size());
+    loaned_state_interfaces.reserve(state_interfaces_names_.size() * joints_.size() + ft_sensor_interfaces_.size());
+    state_interfaces_.reserve(state_interfaces_names_.size() * joints_.size() + ft_sensor_interfaces_.size());
 
     for(const auto& interface : state_interfaces_names_)
     {
@@ -125,11 +123,11 @@ protected:
       }
     }
 
-    for (size_t idx = 0; idx < fts_state_names.size(); ++idx)
+    for (size_t idx = 0; idx < ft_sensor_interfaces_.size(); ++idx)
     {
       state_interfaces_.emplace_back(
           hardware_interface::StateInterface(
-              ft_sensor_name_, fts_state_names[idx], &fts_state_values_[state_interfaces_names_.size() * joints_.size() + idx]
+              ft_sensor_name_, ft_sensor_interfaces_[idx], &fts_state_values_[idx]
           )
       );
       loaned_state_interfaces.emplace_back(state_interfaces_.back());
@@ -144,6 +142,15 @@ protected:
   {
     return controller_->export_reference_interfaces();
   }
+
+  void set_initial_position()
+  {
+    std::fill(joint_state_values_.begin(),
+        std::next(joint_state_values_.begin(), joints_.size()),
+        INITIAL_POS);
+  }
+
+
 
 protected:
   std::vector<std::string> joints_ = {"az_shoulder_pan_joint",
@@ -161,14 +168,14 @@ protected:
   std::vector<hardware_interface::CommandInterface> command_interfaces_;
   std::vector<hardware_interface::StateInterface> state_interfaces_;
 
-
-
   std::vector<double> joint_command_values_;
   std::vector<double> joint_state_values_;
   std::vector<double> fts_state_values_;
   std::unique_ptr<elastoplastic::ElastoplasticController> controller_;
 
   const std::string ft_sensor_name_ {"tcp_fts_sensor"};
+
+  constexpr static double INITIAL_POS = M_PI_2;
 };
 
 #endif // TEST_ELASTOPLASTIC_CONTROLLER_HPP

@@ -138,15 +138,19 @@ protected:
       const size_t nax() const {return enabled? nax_: 0;}
       const std::array<size_t, 3>& idxs() const {return idxs_;}
 
-      Eigen::MatrixXd jacobian()
+      Eigen::Matrix6Xd jacobian()
       {
-        Eigen::Matrix<double,6,6> id = Eigen::MatrixXd::Identity(6,6);
-        return id(idxs(), Eigen::all);
+        if(!enabled)
+        {
+          return Eigen::Matrix<double, 6, -1>(6, 0);
+        }
+        Eigen::Matrix<double,6,-1> id = Eigen::MatrixXd::Identity(6,6);
+        return id(Eigen::all, idxs());
       };
 
     private:
       constexpr static size_t nax_ {3};
-      constexpr static std::array<size_t, 3> idxs_ {1,2,6};
+      constexpr static std::array<size_t, 3> idxs_ {0,1,5};
 
     } m_float_base;
 
