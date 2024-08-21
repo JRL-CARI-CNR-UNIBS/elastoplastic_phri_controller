@@ -167,7 +167,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   }
   else
   {
-    m_sub_robot_description = get_node()->create_subscription<std_msgs::msg::String>("/robot_description", 1, std::bind(&ElastoplasticController::configure_after_robot_description_callback, this, std::placeholders::_1));
+    rclcpp::QoS qos(5);
+    qos.transient_local();
+    m_sub_robot_description = get_node()->create_subscription<std_msgs::msg::String>("/robot_description", qos, std::bind(&ElastoplasticController::configure_after_robot_description_callback, this, std::placeholders::_1));
     m_robot_description_configuration = RBStatus::EMPTY;
   }
 
