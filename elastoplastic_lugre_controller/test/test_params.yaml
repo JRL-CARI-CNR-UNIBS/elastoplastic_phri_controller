@@ -1,7 +1,7 @@
 test_controller_manager:
   ros__parameters:
     elastoplastic_controller:
-      params_file: test_params.yaml
+      type: elastoplastic_controller/ElastoplasticController
 
 elastoplastic_controller:
   ros__parameters:

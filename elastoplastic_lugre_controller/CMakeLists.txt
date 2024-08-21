@@ -116,17 +116,17 @@ if(BUILD_TESTING)
   )
 
 
-#   add_rostest_with_parameters_gmock(test_controller
-#     test/test_controller.cpp
-#     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_params.yaml
-#   )
-#   target_link_libraries(test_controller elastoplastic_controller)
-#   ament_target_dependencies(test_controller
-#     control_msgs
-#     controller_interface
-#     hardware_interface
-#     ros2_control_test_assets
-#   )
+  add_rostest_with_parameters_gtest(test_with_cm
+    test/test_with_cm.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_params.yaml
+  )
+  target_link_libraries(test_with_cm elastoplastic_controller::elastoplastic_controller)
+  ament_target_dependencies(test_with_cm
+    control_msgs
+    controller_interface
+    hardware_interface
+    controller_manager
+  )
 endif()
 
 ament_package()
