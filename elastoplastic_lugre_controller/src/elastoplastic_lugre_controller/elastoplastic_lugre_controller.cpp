@@ -23,7 +23,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_init()
 
 void ElastoplasticController::configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg)
 {
-  if(m_robot_description_configuration == RBStatus::OK)
+  if(m_robot_description_configuration == RDStatus::OK)
   {
     RCLCPP_DEBUG(get_node()->get_logger(), "New robot_description ignored");
     return;
@@ -33,7 +33,7 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
   if(robot_description.empty())
   {
     RCLCPP_ERROR(this->get_node()->get_logger(), "Missing robot_description by controller_manager");
-    m_robot_description_configuration = RBStatus::ERROR;
+    m_robot_description_configuration = RDStatus::ERROR;
     return;
   }
   else
@@ -50,9 +50,10 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
   if(not urdf_model)
   {
     RCLCPP_ERROR(this->get_node()->get_logger(), "Cannot create URDF model from robot_description provided by controller_manager");
-    m_robot_description_configuration = RBStatus::ERROR;
+    m_robot_description_configuration = RDStatus::ERROR;
     return;
   }
+  RCLCPP_DEBUG(get_node()->get_logger(), "URDF model created");
 
   Eigen::Vector3d gravity({m_parameters.gravity.at(0), m_parameters.gravity.at(1), m_parameters.gravity.at(2)});
   m_chain_base_tool   = rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.tool, gravity);
@@ -60,15 +61,16 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
   if(not m_chain_base_tool)
   {
       RCLCPP_ERROR(this->get_node()->get_logger(), "Cannot create rdyn chain from base (%s) to tool (%s)",m_parameters.frames.base.c_str(), m_parameters.frames.tool.c_str());
-      m_robot_description_configuration = RBStatus::ERROR;
+    m_robot_description_configuration = RDStatus::ERROR;
       return;
   }
   if(not m_chain_base_sensor)
   {
       RCLCPP_ERROR(this->get_node()->get_logger(), "Cannot create rdyn chain from base (%s) to sensor (%s)",m_parameters.frames.base.c_str(), m_parameters.frames.sensor.c_str());
-      m_robot_description_configuration = RBStatus::ERROR;
+    m_robot_description_configuration = RDStatus::ERROR;
       return;
   }
+  RCLCPP_DEBUG(get_node()->get_logger(), "RDyn chains created");
 
   m_limits.pos_upper.resize(m_nax);
   m_limits.pos_lower.resize(m_nax);
@@ -90,12 +92,13 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
     m_limits.vel(ax) = urdf_model->getJoint(m_parameters.joints.at(ax))->limits->velocity;
     m_limits.acc(ax) = 10 * m_limits.vel(ax);
   }
+  RCLCPP_DEBUG(get_node()->get_logger(), "Kinematics limits: OK");
 
   std::string what;
   m_chain_base_tool  ->setInputJointsName(m_parameters.joints, what);
   m_chain_base_sensor->setInputJointsName(m_parameters.joints, what);
 
-  m_robot_description_configuration = RBStatus::OK;
+  m_robot_description_configuration = RDStatus::OK;
 }
 
 controller_interface::CallbackReturn ElastoplasticController::on_configure(const rclcpp_lifecycle::State & previous_state)
@@ -170,7 +173,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     rclcpp::QoS qos(5);
     qos.transient_local();
     m_sub_robot_description = get_node()->create_subscription<std_msgs::msg::String>("/robot_description", qos, std::bind(&ElastoplasticController::configure_after_robot_description_callback, this, std::placeholders::_1));
-    m_robot_description_configuration = RBStatus::EMPTY;
+    m_robot_description_configuration = RDStatus::EMPTY;
   }
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -230,9 +233,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   auto t_start = get_node()->get_clock()->now();
   do{
     get_node()->get_clock()->sleep_for(std::chrono::milliseconds(10));
-  } while(m_robot_description_configuration != RBStatus::OK &&
+  } while(m_robot_description_configuration != RDStatus::OK &&
            get_node()->get_clock()->now() - t_start < std::chrono::seconds(5));
-  if(m_robot_description_configuration != RBStatus::OK)
+  if(m_robot_description_configuration != RDStatus::OK)
   {
     RCLCPP_ERROR(get_node()->get_logger(), "No robot description found");
     return controller_interface::CallbackReturn::FAILURE;

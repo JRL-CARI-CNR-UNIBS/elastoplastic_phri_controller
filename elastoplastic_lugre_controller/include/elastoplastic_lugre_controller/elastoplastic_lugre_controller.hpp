@@ -117,11 +117,11 @@ protected:
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_friction_in_world;
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_world;
 
-    enum class RBStatus {
+    enum class RDStatus {
       OK,
       ERROR,
       EMPTY
-    } m_robot_description_configuration {ElastoplasticController::RBStatus::EMPTY};
+    } m_robot_description_configuration {ElastoplasticController::RDStatus::EMPTY};
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
 
     rdyn::ChainPtr m_chain_base_tool;

@@ -33,7 +33,10 @@ elastoplastic_controller:
   gravity: {
     type: double_array,
     default_value: [0.0, 0.0, -9.806],
-    description: "Gravity vector"
+    description: "Gravity vector",
+    validation: {
+      fixed_size<>: [3]
+    }
   }
   joints: {
     type: string_array,
