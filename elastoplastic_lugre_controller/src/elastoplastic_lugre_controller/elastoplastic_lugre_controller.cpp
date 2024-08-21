@@ -146,7 +146,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     }
 
     it = std::ranges::find(m_parameters.command_interfaces, interface);
-    if(it != m_command_interfaces_names.end())
+    if(it != m_parameters.command_interfaces.end())
     {
       m_command_interfaces_names.push_back(*it);
       RCLCPP_INFO(get_node()->get_logger(), "Command interface name: %s", (*it).c_str());
