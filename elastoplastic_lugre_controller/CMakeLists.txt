@@ -127,6 +127,9 @@ if(BUILD_TESTING)
     hardware_interface
     controller_manager
   )
+
+  install(DIRECTORY test
+          DESTINATION share/${PROJECT_NAME})
 endif()
 
 ament_package()

@@ -76,6 +76,12 @@ public:
 
     // controller_interface::CallbackReturn on_shutdown(
     //     const rclcpp_lifecycle::State & previous_state) override;
+
+    bool ready_for_activation()
+    {
+      return m_robot_description_configuration == RDStatus::OK;
+    }
+
 protected:
     std::vector<hardware_interface::CommandInterface> on_export_reference_interfaces() override;
 
@@ -137,6 +143,8 @@ protected:
     const std::vector<std::string> m_allowed_interface_types {
           hardware_interface::HW_IF_POSITION,
           hardware_interface::HW_IF_VELOCITY};
+    std::array<bool, 2> m_used_command_interfaces;
+
 
     struct FloatBaseData
     {

@@ -6,11 +6,11 @@ test_controller_manager:
 elastoplastic_controller:
   ros__parameters:
     target_joint_trajectory_topic: "/joints_target"
-    ft_sensor_name: "ft_sensor"
+    ft_sensor_name: "tcp_fts_sensor"
     frames:
-      base: "base_link"
-      tool: "tool0"
-      sensor: "sensor"
+      base: "az_base_link"
+      tool: "az_tool0"
+      sensor: "az_robotiq_ft_frame_id"
     joints:
       - az_shoulder_pan_joint
       - az_shoulder_lift_joint
@@ -20,7 +20,6 @@ elastoplastic_controller:
       - az_wrist_3_joint
     command_interfaces:
       - position
-      - velocity
     state_interfaces:
       - position
       - velocity

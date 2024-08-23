@@ -34,10 +34,12 @@ TEST_F(ElastoplasticControllerTest, robot_description_from_topic)
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
 
   auto dummy_node = rclcpp::Node("dummy_node");
-  auto pub_rb = dummy_node.create_publisher<std_msgs::msg::String>("/test_elastoplastic_controller/robot_description", 1);
+  auto pub_rb = dummy_node.create_publisher<std_msgs::msg::String>("/robot_description", rclcpp::QoS(2).transient_local());
   std_msgs::msg::String rb;
   rb.data = test_urdf;
   pub_rb->publish(rb);
+
+  rclcpp::spin_some(controller_->get_node()->get_node_base_interface());
 
   EXPECT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
   EXPECT_TRUE(controller_->get_node()->has_parameter("robot_description"));

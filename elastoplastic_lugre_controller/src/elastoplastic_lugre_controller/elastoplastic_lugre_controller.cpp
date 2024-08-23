@@ -38,7 +38,7 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
   }
   else
   {
-    RCLCPP_INFO(this->get_node()->get_logger(), "%s", "robot_description obtained correctly");
+    RCLCPP_INFO(this->get_node()->get_logger(), "Robot description obtained correctly");
   }
 
   if(not get_node()->has_parameter("robot_description"))
@@ -176,7 +176,17 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_robot_description_configuration = RDStatus::EMPTY;
   }
 
-  return controller_interface::CallbackReturn::SUCCESS;
+  std::ranges::fill(m_used_command_interfaces, false);
+  if(std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[0]) != m_command_interfaces_names.end())
+  {
+    m_used_command_interfaces.at(0) = true;
+  }
+  if(std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[1]) != m_command_interfaces_names.end())
+  {
+    m_used_command_interfaces.at(1) = true;
+  }
+
+   return controller_interface::CallbackReturn::SUCCESS;
 }
 
 
@@ -232,9 +242,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 {
   auto t_start = get_node()->get_clock()->now();
   do{
-    get_node()->get_clock()->sleep_for(std::chrono::milliseconds(10));
-  } while(m_robot_description_configuration != RDStatus::OK &&
-           get_node()->get_clock()->now() - t_start < std::chrono::seconds(5));
+    get_node()->get_clock()->sleep_for(std::chrono::milliseconds(100));
+  } while(!ready_for_activation() && get_node()->get_clock()->now() - t_start < std::chrono::seconds(5));
   if(m_robot_description_configuration != RDStatus::OK)
   {
     RCLCPP_ERROR(get_node()->get_logger(), "No robot description found");
@@ -245,8 +254,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_reset_window.clear();
   m_elastoplastic_target_tool_in_world.clear();
 
-  m_joint_state_interfaces.resize(m_state_interfaces_names.size());
-  m_joint_command_interfaces.resize(m_command_interfaces_names.size());
+  m_joint_state_interfaces.resize(2);
+  m_joint_command_interfaces.resize(2);
 
   for(const auto& interface : m_allowed_interface_types)
   {
@@ -260,22 +269,26 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     }
   }
 
+  auto at_least_one_command_interface {false};
   for(const auto& interface : m_allowed_interface_types)
   {
     auto it = std::ranges::find(m_allowed_interface_types, interface);
     auto idx = std::distance(m_allowed_interface_types.begin(), it);
-    // for(const auto& v : command_interfaces_)
-    // {
-    //   RCLCPP_INFO(get_node()->get_logger(), "command_interface_ (value): %s", v.get_name().c_str() );
-    // }
     if(not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.joints, interface, m_joint_command_interfaces.at(idx)))
     {
-      RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints command interfaces");
-      return controller_interface::CallbackReturn::FAILURE;
+      // RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints command interfaces");
+      // return controller_interface::CallbackReturn::FAILURE;
+      continue;
     }
+    at_least_one_command_interface = true;
+  }
+  if(!at_least_one_command_interface)
+  {
+    RCLCPP_ERROR(this->get_node()->get_logger(), "Missing at least one joints command interface");
+    return controller_interface::CallbackReturn::FAILURE;
   }
 
-  if(not m_ft_sensor->assign_loaned_state_interfaces(state_interfaces_))
+  if(!m_ft_sensor->assign_loaned_state_interfaces(state_interfaces_))
   {
     RCLCPP_ERROR(get_node()->get_logger(), "Cannot assing state interface to ft_sensor");
     return controller_interface::CallbackReturn::ERROR;
@@ -647,18 +660,18 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ***********
   // ** Write **
   // ***********
-  for(size_t ax = 0; ax < m_nax; ++ax)
+  if(m_used_command_interfaces.at(0))
   {
-    if(m_command_interfaces_names.size() > 1)
+    for(size_t ax = 0; ax < m_nax; ++ax)
     {
       m_joint_command_interfaces.at(0).at(ax).get().set_value(m_q(ax));
-      m_joint_command_interfaces.at(1).at(ax).get().set_value(m_qp(ax));
     }
-    else
+  }
+  if(m_used_command_interfaces.at(1))
+  {
+    for(size_t ax = 0; ax < m_nax; ++ax)
     {
-      m_joint_command_interfaces.at(0).at(ax).get().set_value(
-        std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[0]) != m_command_interfaces_names.end() ? m_q(ax) : m_qp(ax)
-      );
+      m_joint_command_interfaces.at(1).at(ax).get().set_value(m_qp(ax));
     }
   }
 
