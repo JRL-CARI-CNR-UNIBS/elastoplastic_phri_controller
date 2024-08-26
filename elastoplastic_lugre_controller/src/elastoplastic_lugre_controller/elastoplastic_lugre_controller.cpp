@@ -438,6 +438,13 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   Eigen::VectorXd target_twist_tool_world_in_world = target_twist_tool_base_in_world + target_twist_base_world_in_world;
 
+  std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.begin(), [](const hardware_interface::LoanedStateInterface& lsi){
+    return lsi.get_value();
+  });
+  std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.begin(), [](const hardware_interface::LoanedStateInterface& lsi){
+    return lsi.get_value();
+  });
+
   // ************
   // ** Update **
   // ************

@@ -91,7 +91,7 @@ TEST_F(ElastoplasticControllerTest, export_reference_interfaces)
 
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
-  EXPECT_EQ(export_reference_interfaces().size(), joints_.size() * command_interfaces_names_.size());
+  EXPECT_EQ(export_reference_interfaces().size(), joints_.size() * 2);
 }
 
 TEST_F(ElastoplasticControllerTest, unchained_control_no_base_no_force)
@@ -101,18 +101,22 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_no_force)
   set_initial_position();
   std::ranges::fill(fts_state_values_, 0.0);
 
+
+
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
-  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * command_interfaces_names_.size());
+  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * 2);
   ASSERT_EQ(controller_->set_chained_mode(false), true);
   ASSERT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
+
+  // print_joint();
 
   auto result = controller_->update(rclcpp::Clock().now(), std::chrono::milliseconds(10));
   ASSERT_EQ(result, controller_interface::return_type::OK);
 
   std::for_each(joint_command_values_.begin(),
       std::next(joint_command_values_.begin(), joints_.size()),
-      [](const double val){EXPECT_EQ(val, INITIAL_POS);});
+      [](const double joint_command_value){EXPECT_EQ(joint_command_value, INITIAL_POS);});
 
 }
 
@@ -131,7 +135,7 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_use_force)
 
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
-  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * command_interfaces_names_.size());
+  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * 2);
   ASSERT_EQ(controller_->set_chained_mode(false), true);
   ASSERT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
 
@@ -153,7 +157,7 @@ TEST_F(ElastoplasticControllerTest, unchained_control_base_no_force)
   controller_->get_node()->set_parameter({"floating_base.enabled", true});
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
-  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * command_interfaces_names_.size());
+  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * 2);
   ASSERT_EQ(controller_->set_chained_mode(false), true);
   ASSERT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
 
@@ -180,7 +184,7 @@ TEST_F(ElastoplasticControllerTest, unchained_control_base_force)
   controller_->get_node()->set_parameter({"floating_base.enabled", true});
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
-  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * command_interfaces_names_.size());
+  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * 2);
   ASSERT_EQ(controller_->set_chained_mode(false), true);
   ASSERT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
 
@@ -206,7 +210,7 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_torque)
 
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
-  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * command_interfaces_names_.size());
+  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * 2);
   ASSERT_EQ(controller_->set_chained_mode(false), true);
   ASSERT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
 
@@ -233,7 +237,7 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_use_force_debug_pu
   controller_->get_node()->set_parameter({"debug", true});
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
-  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * command_interfaces_names_.size());
+  ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * 2);
   ASSERT_EQ(controller_->set_chained_mode(false), true);
   ASSERT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
 

@@ -81,7 +81,7 @@ protected:
   void assign_interfaces()
   {
     joint_command_values_.resize(command_interfaces_names_.size() * joints_.size());
-    joint_state_values_.resize(command_interfaces_names_.size() * joints_.size());
+    joint_state_values_.resize(state_interfaces_names_.size() * joints_.size());
     fts_state_values_.resize(ft_sensor_interfaces_.size());
 
     std::vector<hardware_interface::LoanedCommandInterface> loaned_command_interfaces;
@@ -97,14 +97,17 @@ protected:
       );
       loaned_command_interfaces.emplace_back(command_interfaces_.back());
     }
-    for(size_t idx = 0; idx < joints_.size(); ++idx)
+    if(command_interfaces_names_.size() > 1)
     {
-      command_interfaces_.emplace_back(
-          hardware_interface::CommandInterface(
-              joints_[idx], command_interfaces_names_[1], &joint_command_values_[joints_.size() + idx]
-              )
-          );
-      loaned_command_interfaces.emplace_back(command_interfaces_.back());
+      for(size_t idx = 0; idx < joints_.size(); ++idx)
+      {
+        command_interfaces_.emplace_back(
+            hardware_interface::CommandInterface(
+                joints_[idx], command_interfaces_names_[1], &joint_command_values_[joints_.size() + idx]
+                )
+            );
+        loaned_command_interfaces.emplace_back(command_interfaces_.back());
+      }
     }
 
 
@@ -137,6 +140,11 @@ protected:
       loaned_state_interfaces.emplace_back(state_interfaces_.back());
     }
 
+    // zeroing interfaces
+    // std::ranges::fill(joint_state_values_, 0.0);
+    // std::ranges::fill(joint_command_values_, 0.0);
+
+
     controller_->assign_interfaces(std::move(loaned_command_interfaces),
                                    std::move(loaned_state_interfaces));
 
@@ -152,6 +160,13 @@ protected:
     std::fill(joint_state_values_.begin(),
         std::next(joint_state_values_.begin(), joints_.size()),
         INITIAL_POS);
+
+    std::fill(std::next(joint_state_values_.begin(), joints_.size()), joint_state_values_.end(), 0.0);
+  }
+
+  void print_joint()
+  {
+    fmt::print("size: {}\nvalues: {}", joint_state_values_.size(), joint_state_values_);
   }
 
 
@@ -163,9 +178,8 @@ protected:
                                       "az_wrist_1_joint",
                                       "az_wrist_2_joint",
                                       "az_wrist_3_joint"};
-  std::vector<std::string> command_interfaces_names_ {hardware_interface::HW_IF_POSITION,
-                                                        hardware_interface::HW_IF_VELOCITY};
-  std::vector<std::string> state_interfaces_names_ {hardware_interface::HW_IF_POSITION,
+  const std::vector<std::string> command_interfaces_names_ {hardware_interface::HW_IF_POSITION};
+  const std::vector<std::string> state_interfaces_names_ {hardware_interface::HW_IF_POSITION,
                                                       hardware_interface::HW_IF_VELOCITY};
   std::vector<std::string> ft_sensor_interfaces_ {"force.x",  "force.y",  "force.z",
                                                     "torque.x", "torque.y", "torque.z"};
