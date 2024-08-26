@@ -114,9 +114,10 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_no_force)
   auto result = controller_->update(rclcpp::Clock().now(), std::chrono::milliseconds(10));
   ASSERT_EQ(result, controller_interface::return_type::OK);
 
-  std::for_each(joint_command_values_.begin(),
-      std::next(joint_command_values_.begin(), joints_.size()),
-      [](const double joint_command_value){EXPECT_EQ(joint_command_value, INITIAL_POS);});
+  for(size_t idx = 0; idx < joints_.size(); ++idx)
+  {
+    EXPECT_EQ(joint_command_values_.at(idx), initial_pos_.at(idx));
+  }
 
 }
 
@@ -142,9 +143,10 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_use_force)
   auto result = controller_->update(rclcpp::Clock().now(), std::chrono::milliseconds(10));
   ASSERT_EQ(result, controller_interface::return_type::OK);
 
-  std::for_each(joint_command_values_.begin(),
-      std::next(joint_command_values_.begin(), joints_.size()),
-      [](const double val){EXPECT_NE(val, INITIAL_POS);});
+  for(size_t idx = 0; idx < joints_.size(); ++idx)
+  {
+    EXPECT_NE(joint_command_values_.at(idx), initial_pos_.at(idx));
+  }
 }
 
 TEST_F(ElastoplasticControllerTest, unchained_control_base_no_force)
@@ -164,9 +166,10 @@ TEST_F(ElastoplasticControllerTest, unchained_control_base_no_force)
   auto result = controller_->update(rclcpp::Clock().now(), std::chrono::milliseconds(10));
   ASSERT_EQ(result, controller_interface::return_type::OK);
 
-  std::for_each(joint_command_values_.begin(),
-      std::next(joint_command_values_.begin(), joints_.size()),
-      [](const double val){EXPECT_EQ(val, INITIAL_POS);});
+  for(size_t idx = 0; idx < joints_.size(); ++idx)
+  {
+    EXPECT_EQ(joint_command_values_.at(idx), initial_pos_.at(idx));
+  }
 }
 
 TEST_F(ElastoplasticControllerTest, unchained_control_base_force)
@@ -191,9 +194,10 @@ TEST_F(ElastoplasticControllerTest, unchained_control_base_force)
   auto result = controller_->update(rclcpp::Clock().now(), std::chrono::milliseconds(10));
   ASSERT_EQ(result, controller_interface::return_type::OK);
 
-  std::for_each(joint_command_values_.begin(),
-      std::next(joint_command_values_.begin(), joints_.size()),
-      [](const double val){EXPECT_NE(val, INITIAL_POS);});
+  for(size_t idx = 0; idx < joints_.size(); ++idx)
+  {
+    EXPECT_NE(joint_command_values_.at(idx), initial_pos_.at(idx));
+  }
 }
 
 TEST_F(ElastoplasticControllerTest, unchained_control_no_base_torque)
@@ -217,9 +221,10 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_torque)
   auto result = controller_->update(rclcpp::Clock().now(), std::chrono::milliseconds(10));
   ASSERT_EQ(result, controller_interface::return_type::OK);
 
-  std::for_each(joint_command_values_.begin(),
-      std::next(joint_command_values_.begin(), joints_.size()),
-      [](const double val){EXPECT_EQ(val, INITIAL_POS);});
+  for(size_t idx = 0; idx < joints_.size(); ++idx)
+  {
+    EXPECT_EQ(joint_command_values_.at(idx), initial_pos_.at(idx));
+  }
 }
 
 TEST_F(ElastoplasticControllerTest, unchained_control_no_base_use_force_debug_publisher)
@@ -247,9 +252,10 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_use_force_debug_pu
   auto result = controller_->update(rclcpp::Clock().now(), std::chrono::milliseconds(10));
   ASSERT_EQ(result, controller_interface::return_type::OK);
 
-  std::for_each(joint_command_values_.begin(),
-      std::next(joint_command_values_.begin(), joints_.size()),
-      [](const double val){EXPECT_NE(val, INITIAL_POS);});
+  for(size_t idx = 0; idx < joints_.size(); ++idx)
+  {
+    EXPECT_NE(joint_command_values_.at(idx), initial_pos_.at(idx));
+  }
 
   geometry_msgs::msg::WrenchStamped msg_out; rclcpp::MessageInfo info;
   bool message_received {false};

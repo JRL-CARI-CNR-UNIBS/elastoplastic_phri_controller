@@ -318,6 +318,12 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     m_pub_z->on_activate();
   }
 
+  geometry_msgs::msg::PoseWithCovariance init_pose_msg;
+  init_pose_msg.pose.orientation.w = 1.0;
+  m_rt_buffer_base_pose_in_world.initRT(init_pose_msg);
+  m_rt_buffer_base_twist_in_base.initRT(geometry_msgs::msg::TwistWithCovariance());
+  m_rt_buffer_fb_target.initRT(geometry_msgs::msg::Twist());
+
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -586,7 +592,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // J_A_extended_base_tool << J_A_world_tool, m_float_base.jacobian();
 
   Eigen::JacobiSVD<Eigen::Matrix<double, 6, -1>> svd(J_A_world_tool, Eigen::ComputeThinU | Eigen::ComputeThinV);
-  // if (svd.singularValues()(svd.cols()-1)==0)
+  RCLCPP_WARN_STREAM(this->get_node()->get_logger(), fmt::format("Singular values: {}", svd.singularValues()));
   if(svd.nonzeroSingularValues() != std::min(svd.rows(), svd.cols()))
     RCLCPP_ERROR(this->get_node()->get_logger(), "SINGULARITY POINT (null singular values)");
   else if (svd.singularValues()(0)/svd.singularValues()(std::min(svd.rows(), svd.cols())-1) > 1e2)

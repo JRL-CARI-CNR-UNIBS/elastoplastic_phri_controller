@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <random>
 #include <rclcpp/logger.hpp>
 
 class ElastoplasticControllerTest : public ::testing::Test
@@ -157,9 +158,23 @@ protected:
 
   void set_initial_position()
   {
-    std::fill(joint_state_values_.begin(),
+    // std::fill(joint_state_values_.begin(),
+    //     std::next(joint_state_values_.begin(), joints_.size()),
+    //     INITIAL_POS);
+    std::random_device dev;
+    std::mt19937 rng(dev());
+    std::uniform_real_distribution<double> dist(-M_2_PI, M_2_PI);
+    std::transform(joint_state_values_.begin(),
         std::next(joint_state_values_.begin(), joints_.size()),
-        INITIAL_POS);
+        joint_state_values_.begin(),
+        [&](const double d){
+          return dist(rng);
+        });
+
+    initial_pos_.resize(joints_.size());
+    std::copy(joint_state_values_.begin(),
+        std::next(joint_state_values_.begin(), joints_.size()),
+        initial_pos_.begin());
 
     std::fill(std::next(joint_state_values_.begin(), joints_.size()), joint_state_values_.end(), 0.0);
   }
@@ -192,6 +207,8 @@ protected:
   std::unique_ptr<elastoplastic::ElastoplasticController> controller_;
 
   const std::string ft_sensor_name_ {"tcp_fts_sensor"};
+
+  std::vector<double> initial_pos_;
 
   constexpr static double INITIAL_POS = M_PI_2;
 };
