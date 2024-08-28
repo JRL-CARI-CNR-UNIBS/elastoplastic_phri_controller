@@ -481,7 +481,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   auto compute_alpha = [this](const double z) -> double
   {
     const double& z_ba = m_parameters.impedance.lugre.z_ba;
-    const double& z_ss = m_parameters.impedance.lugre.z_ba;
+    const double& z_ss = m_parameters.impedance.lugre.z_ss;
     if (std::abs(z) < z_ba)
     {
       return 0.0;
@@ -499,7 +499,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   auto compute_dalpha = [this](const double z) -> double
   {
     const double& z_ba = m_parameters.impedance.lugre.z_ba;
-    const double& z_ss = m_parameters.impedance.lugre.z_ba;
+    const double& z_ss = m_parameters.impedance.lugre.z_ss;
     if (std::abs(z) < z_ba)
     {
       return 0.0;
