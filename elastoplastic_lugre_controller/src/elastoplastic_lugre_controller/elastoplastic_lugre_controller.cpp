@@ -105,6 +105,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 {
   m_parameters = m_param_listener->get_params();
 
+  m_elastoplastic_model = std::make_unique<ElastoplasticModel>(get_model_data());
+
   m_nax = m_parameters.joints.size();
 
   m_q.resize(m_nax);
@@ -116,7 +118,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     RCLCPP_ERROR(this->get_node()->get_logger(), "Inertia has negative values!");
     return controller_interface::CallbackReturn::FAILURE;
   }
-  m_inertia_inv = Eigen::Map<Eigen::Vector3d>(m_parameters.impedance.inertia.data(), m_parameters.impedance.inertia.size()).cwiseInverse();
 
   using namespace std::placeholders;
   m_sub_fb_target = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(m_parameters.floating_base.input_target_topic, 1, std::bind(&ElastoplasticController::get_fb_target_callback, this, _1));
@@ -253,8 +254,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     return controller_interface::CallbackReturn::FAILURE;
   }
 
-  m_state.clear();
-  m_reset_window.clear();
+  m_elastoplastic_model->clear();
   m_elastoplastic_target_tool_in_world.clear();
 
   m_joint_state_interfaces.resize(2);
@@ -345,8 +345,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
   });
   m_qpp.setZero();
 
-  m_state.clear();
-  m_reset_window.clear();
+  m_elastoplastic_model->clear();
   m_elastoplastic_target_tool_in_world.clear();
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -380,13 +379,6 @@ std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_ex
 
 controller_interface::return_type ElastoplasticController::update_reference_from_subscribers()
 {
-  // geometry_msgs::msg::Twist* msg = m_rt_buffer_twist_tool_in_base.readFromRT();
-  // reference_interfaces_.at(0) = msg->linear.x;
-  // reference_interfaces_.at(1) = msg->linear.y;
-  // reference_interfaces_.at(2) = msg->linear.z;
-  // reference_interfaces_.at(3) = msg->angular.x;
-  // reference_interfaces_.at(4) = msg->angular.y;
-  // reference_interfaces_.at(5) = msg->angular.z;
   /* "Joint trajectory available only in chainable mode with joint_trajectory_controller" */
 
   std::fill(reference_interfaces_.begin(), reference_interfaces_.end(), 0.0);
@@ -475,7 +467,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector6d  twist_tool_world_in_world = from_base_to_world(twist_tool_world_in_base);
 
   Eigen::Vector6d cart_vel_error_tool_target_in_world = twist_tool_world_in_world - target_twist_tool_world_in_world;
-  Eigen::Vector6d cart_acc_tool_target_in_world;
+  Eigen::Vector6d cart_acc_tool_target_in_world = Eigen::Vector6d::Zero();
 
   Eigen::Affine3d T_world_target = rdyn::spatialIntegration(T_world_tool, target_twist_tool_world_in_world, period.seconds());
 
@@ -490,95 +482,21 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   wrench_tool_in_world_filtered.head<3>() = wrench_tool_in_world.head<3>().unaryExpr([this](double w){return std::abs(w) > m_parameters.wrench_deadband.at(0)? w : 0.0;});
   wrench_tool_in_world_filtered.tail<3>() = wrench_tool_in_world.tail<3>().unaryExpr([this](double w){return std::abs(w) > m_parameters.wrench_deadband.at(1)? w : 0.0;});
 
-  auto compute_alpha = [this](const double z) -> double
-  {
-    const double& z_ba = m_parameters.impedance.lugre.z_ba;
-    const double& z_ss = m_parameters.impedance.lugre.z_ss;
-    if (std::abs(z) < z_ba)
-    {
-      return 0.0;
-    }
-    else if (std::abs(z) >= z_ss)
-    {
-      return 1.0;
-    }
-    else
-    {
-      return 0.5*std::sin(M_PI*((z-(z_ba+z_ss)/2)/(z_ss-z_ba)))+0.5;
-    }
-  };
+  /*
+ *                                   +-----------------------+
+ *         +---+                     |                       |
+ *    xpp  | 1 |      +---+ [-]      |     Elastoplastic     | delta_xp     +---+ [-]
+ * <-------+ - +<-----+ + +<---------+                       +<-------------+ + +<-------
+ *         | m |      +-+-+          |      Controller       |              +-+-+  xp = FK(q,qp)
+ *         +---+        ^            |                       |                ^
+ *                      |            +-----------------------+                |
+ *                      |                                                     |
+ *                      |                                                     |
+ *                   external                                             xp_target
+ *                    force
+ */
 
-  auto compute_dalpha = [this](const double z) -> double
-  {
-    const double& z_ba = m_parameters.impedance.lugre.z_ba;
-    const double& z_ss = m_parameters.impedance.lugre.z_ss;
-    if (std::abs(z) < z_ba)
-    {
-      return 0.0;
-    }
-    else if (std::abs(z) >= z_ss)
-    {
-      return 0.0;
-    }
-    else
-    {
-      return 0.5*std::cos(M_PI*((z-(z_ba+z_ss)/2)/(z_ss-z_ba)));
-    }
-  };
-
-  const auto& impedance = m_parameters.impedance;
-
-  Eigen::Vector4d alpha_with_r;
-  alpha_with_r << m_state.z, m_state.r;
-  Eigen::Vector3d alpha = Eigen::Vector3d::Constant(compute_alpha(alpha_with_r.norm()));
-  ModelState d_dt;
-  d_dt.r = compute_dalpha(m_state.z.norm());
-  d_dt.z = cart_vel_error_tool_target_in_world.head<3>() - alpha.cwiseProduct(cart_vel_error_tool_target_in_world.head<3>().cwiseProduct(m_state.z)) / impedance.lugre.z_ss;
-  d_dt.w = alpha.cwiseProduct(m_state.z - m_state.w) / impedance.tau_w;
-
-  Eigen::Vector3d friction_force = impedance.lugre.sigma_0 * (m_state.z - m_state.w)
-                                 + impedance.lugre.sigma_1 * d_dt.z
-                                 + impedance.lugre.sigma_2 * cart_vel_error_tool_target_in_world.head<3>();
-
-  cart_acc_tool_target_in_world.head(3) = m_inertia_inv.head(3).cwiseProduct(wrench_tool_in_world_filtered.head(3) - friction_force);
-  cart_acc_tool_target_in_world.tail(3) = Eigen::Vector3d::Zero();
-
-  m_state.z += d_dt.z * period.seconds();
-  m_state.w += d_dt.w * period.seconds();
-  m_state.r += d_dt.r * period.seconds();
-
-  // Reset condition
-  if(alpha.maxCoeff() > 0)
-  {
-    const size_t window_reset_size = (size_t) std::ceil(impedance.reset_condition.reset_window_size/(period.seconds()*1e3));
-    m_reset_window.emplace_back(wrench_tool_in_world_filtered.head<3>().transpose() * cart_vel_error_tool_target_in_world.head<3>());
-    if(m_reset_window.size() > window_reset_size)
-    {
-      m_reset_window.pop_front();
-    }
-    const double reset_value = std::accumulate(m_reset_window.begin(),
-                                               m_reset_window.end(),
-                                               0.0,
-                                                 [&period](const double d, const double x) -> double
-                                                 {
-                                                   return d + x*period.seconds();
-                                                 }
-                                               );
-
-    if(m_reset_window.size() >= window_reset_size &&
-        reset_value < impedance.reset_condition.reset_threshold)
-    {
-      m_state.clear();
-      m_reset_window.clear();
-    }
-    else
-    {
-      if(!m_reset_window.empty())
-      {
-        m_reset_window.clear();
-      }
-    }
-  }
+  cart_acc_tool_target_in_world.head<3>() = m_elastoplastic_model->update(cart_error_target_tool_in_world.head<3>(), wrench_tool_in_world_filtered.head<3>(), period.seconds());
 
   /*
    *
@@ -659,7 +577,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // WARNING: Esiste un modo più intelligente per fare la selezione?
   // WARNING: come gestisco i giunti che non vengono usati dal task?
   auto task_selector = [&, this]() -> Eigen::VectorXd {
-    return alpha.maxCoeff() > 0? task_only_plastic(m_q) : task_only_elastic(twist_base_world_in_world);
+    return m_elastoplastic_model->alpha() > 0? task_only_plastic(m_q) : task_only_elastic(twist_base_world_in_world);
   };
 
   const Eigen::Vector6d Kd = Eigen::Vector6d::Constant(1.0); // FIXME: Cambia di posto
@@ -739,19 +657,20 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   if(m_parameters.debug)
   {
     std_msgs::msg::Float64MultiArray msg_z;
-    msg_z.data = std::vector<double>(m_state.z.data(), m_state.z.data() + m_state.z.size());
+
+    msg_z.data = std::vector<double>(m_elastoplastic_model->z().data(), m_elastoplastic_model->z().data() + m_elastoplastic_model->z().size());
     m_pub_z->publish(msg_z);
 
     std_msgs::msg::Float64MultiArray msg_w;
-    msg_w.data = std::vector<double>(m_state.w.data(), m_state.w.data() + m_state.w.size());
+    msg_w.data = std::vector<double>(m_elastoplastic_model->w().data(), m_elastoplastic_model->w().data() + m_elastoplastic_model->w().size());
     m_pub_w->publish(msg_w);
 
     geometry_msgs::msg::WrenchStamped msg_friction_in_world;
     msg_friction_in_world.header.frame_id = m_parameters.frames.base;
     msg_friction_in_world.header.stamp = this->get_node()->get_clock()->now();
-    msg_friction_in_world.wrench.force.x = friction_force[0];
-    msg_friction_in_world.wrench.force.y = friction_force[1];
-    msg_friction_in_world.wrench.force.z = friction_force[2];
+    msg_friction_in_world.wrench.force.x = m_elastoplastic_model->friction_force()[0];
+    msg_friction_in_world.wrench.force.y = m_elastoplastic_model->friction_force()[1];
+    msg_friction_in_world.wrench.force.z = m_elastoplastic_model->friction_force()[2];
     msg_friction_in_world.wrench.torque.x = 0.0;
     msg_friction_in_world.wrench.torque.y = 0.0;
     msg_friction_in_world.wrench.torque.z = 0.0;

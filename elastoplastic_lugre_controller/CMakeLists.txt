@@ -36,6 +36,8 @@ add_library(elastoplastic_controller SHARED
   src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
   test/test_params.yaml
+  include/elastoplastic_lugre_controller/elastoplastic_model.hpp
+  src/elastoplastic_lugre_controller/elastoplastic_model.cpp
 )
 add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
 

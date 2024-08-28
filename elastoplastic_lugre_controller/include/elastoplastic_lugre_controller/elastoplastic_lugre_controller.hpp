@@ -1,6 +1,8 @@
 #ifndef ELASTOPLASTIC_LUGRE_CONTROLLER_HPP
 #define ELASTOPLASTIC_LUGRE_CONTROLLER_HPP
 
+#include "elastoplastic_model.hpp"
+
 #include "rdyn_core/primitives.h"
 
 #include <Eigen/Core>
@@ -185,19 +187,7 @@ protected:
       Eigen::VectorXd acc;
     } m_limits;
 
-    Eigen::Vector3d m_inertia_inv;
-
-    struct ModelState{
-      Eigen::Vector3d z;
-      Eigen::Vector3d w;
-      double r;
-
-      void clear() {
-        z.setZero();
-        w.setZero();
-        r = 0;
-      }
-    } m_state;
+    std::unique_ptr<ElastoplasticModel> m_elastoplastic_model;
 
     struct IntegralState{
       Eigen::Vector6d position;
@@ -205,23 +195,21 @@ protected:
       void clear(){position.setZero(); velocity.setZero();}
     } m_elastoplastic_target_tool_in_world;
 
-    std::deque<double> m_reset_window;
 
-    // // If orientation is roll-pitch-yaw
-    // // Analytic jacobian = B_AG * geometric jacobian
-    // std::function<Eigen::Matrix<double, 6, 6>(Eigen::Vector3d)> B_AG = [](const Eigen::Vector3d& rpy){
-    //   const double& r = rpy(1);
-    //   const double& p = rpy(2);
-    //   // const double& y = rpy(3);
-    //   return Eigen::Matrix<double, 6, 6>({
-    //       {1,0,0,0,0,0},
-    //       {0,1,0,0,0,0},
-    //       {0,0,1,0,0,0},
-    //       {0,0,0, 1, 0, std::sin(p)},
-    //       {0,0,0, 0, std::cos(r), -std::cos(p)*std::sin(r)},
-    //       {0,0,0, 0, std::sin(r), std::cos(p)*std::cos(r)}
-    //   });
-    // };
+    ElastoplasticModelData get_model_data()
+    {
+      ElastoplasticModelData data;
+      data.inertia_inv = Eigen::Map<Eigen::Vector3d>(m_parameters.impedance.inertia.data(), 3).cwiseInverse();
+      data.lugre.sigma_0 = m_parameters.impedance.lugre.sigma_0;
+      data.lugre.sigma_1 = m_parameters.impedance.lugre.sigma_1;
+      data.lugre.sigma_2 = m_parameters.impedance.lugre.sigma_2;
+      data.lugre.z_ss = m_parameters.impedance.lugre.z_ss;
+      data.lugre.z_ba = m_parameters.impedance.lugre.z_ba;
+      data.lugre.tau_w = m_parameters.impedance.tau_w;
+      data.reset_condition.reset_window_size = m_parameters.impedance.reset_condition.reset_window_size;
+      data.reset_condition.reset_threshold = m_parameters.impedance.reset_condition.reset_threshold;
+      return data;
+    }
 };
 }
 
