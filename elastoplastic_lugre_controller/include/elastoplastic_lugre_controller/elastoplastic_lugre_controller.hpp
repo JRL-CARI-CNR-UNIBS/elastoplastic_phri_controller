@@ -122,6 +122,9 @@ protected:
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray> ::SharedPtr m_pub_w;
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_friction_in_world;
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_world;
+    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cart_vel_error;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_pos_correction;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_vel_correction;
 
     enum class RDStatus {
       OK,
@@ -148,7 +151,7 @@ protected:
 
     struct FloatBaseData
     {
-      Eigen::Vector6d twist;
+      Eigen::Vector6d twist_in_base;
       bool enabled {true};
 
       std::string ns;
@@ -203,6 +206,22 @@ protected:
     } m_elastoplastic_target_tool_in_world;
 
     std::deque<double> m_reset_window;
+
+    // // If orientation is roll-pitch-yaw
+    // // Analytic jacobian = B_AG * geometric jacobian
+    // std::function<Eigen::Matrix<double, 6, 6>(Eigen::Vector3d)> B_AG = [](const Eigen::Vector3d& rpy){
+    //   const double& r = rpy(1);
+    //   const double& p = rpy(2);
+    //   // const double& y = rpy(3);
+    //   return Eigen::Matrix<double, 6, 6>({
+    //       {1,0,0,0,0,0},
+    //       {0,1,0,0,0,0},
+    //       {0,0,1,0,0,0},
+    //       {0,0,0, 1, 0, std::sin(p)},
+    //       {0,0,0, 0, std::cos(r), -std::cos(p)*std::sin(r)},
+    //       {0,0,0, 0, std::sin(r), std::cos(p)*std::cos(r)}
+    //   });
+    // };
 };
 }
 
