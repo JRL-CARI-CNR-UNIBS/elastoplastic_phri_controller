@@ -41,7 +41,10 @@ protected:
         {"impedance.lugre.z_ba", 0.1},
         {"impedance.tau_w", 0.02},
         {"impedance.reset_condition.reset_window_size", 1000},
-        {"impedance.reset_condition.reset_threshold", 0.1}
+        {"impedance.reset_condition.reset_threshold", 0.1},
+        {"clik.kp", 0.1},
+        {"clik.kd", 0.0},
+        {"debug", true}
     };
   }
 

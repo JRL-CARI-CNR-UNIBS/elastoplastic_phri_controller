@@ -151,6 +151,15 @@ elastoplastic_controller:
           gt_eq<>: 0,
         }
       }
+  clik:
+    kp: {
+      type: double,
+      description: "CLIK position gain"
+    }
+    kd: {
+      type: double,
+      description: "CLIK velocity gain"
+    }
   debug: {
     type: bool,
     description: "Enable debug publishers",

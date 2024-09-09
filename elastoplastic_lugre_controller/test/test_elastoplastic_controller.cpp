@@ -247,7 +247,7 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_use_force_debug_pu
   ASSERT_EQ(activateController(), controller_interface::CallbackReturn::SUCCESS);
 
   auto dummy_node = std::make_shared<rclcpp::Node>("dummy_node");
-  auto sub_friction_in_world = dummy_node->create_subscription<geometry_msgs::msg::WrenchStamped>("/friciton_in_world", 1, [](const geometry_msgs::msg::WrenchStamped::SharedPtr msg){RCLCPP_INFO(rclcpp::get_logger("test"), "Got message!");});
+  auto sub_friction_in_world = dummy_node->create_subscription<geometry_msgs::msg::WrenchStamped>("/test_elastoplastic_controller/friction_in_world", 1, [](const geometry_msgs::msg::WrenchStamped::SharedPtr msg){RCLCPP_INFO(rclcpp::get_logger("test"), "Got message!");});
 
   auto result = controller_->update(rclcpp::Clock().now(), std::chrono::milliseconds(10));
   ASSERT_EQ(result, controller_interface::return_type::OK);
@@ -259,14 +259,14 @@ TEST_F(ElastoplasticControllerTest, unchained_control_no_base_use_force_debug_pu
 
   geometry_msgs::msg::WrenchStamped msg_out; rclcpp::MessageInfo info;
   bool message_received {false};
-  // rclcpp::spin_some(dummy_node);
   auto start = std::chrono::steady_clock::now();
   do
   {
     message_received = sub_friction_in_world->take(msg_out, info);
+    rclcpp::spin_some(dummy_node);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   } while(!message_received && std::chrono::steady_clock::now() - start < std::chrono::seconds(10));
-  EXPECT_TRUE(message_received);
+  ASSERT_TRUE(message_received);
   EXPECT_NE(msg_out.wrench.force.x, 0.0);
   EXPECT_NE(msg_out.wrench.force.y, 0.0);
   EXPECT_NE(msg_out.wrench.force.z, 0.0);

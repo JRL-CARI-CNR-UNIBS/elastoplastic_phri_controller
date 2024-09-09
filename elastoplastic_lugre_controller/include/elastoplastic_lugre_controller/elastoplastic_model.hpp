@@ -42,6 +42,7 @@ public:
   const Eigen::Vector3d& w() const {return m_state.w;}
   const double& r() const {return m_state.r;}
   const Eigen::Vector3d& friction_force(){return m_last_friction_force;}
+  const ElastoplasticModelData& params(){return m_model_params;}
 
 protected:
 

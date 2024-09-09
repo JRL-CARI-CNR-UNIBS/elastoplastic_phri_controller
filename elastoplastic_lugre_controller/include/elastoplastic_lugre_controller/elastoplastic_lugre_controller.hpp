@@ -193,7 +193,7 @@ protected:
       Eigen::Vector6d position;
       Eigen::Vector6d velocity;
       void clear(){position.setZero(); velocity.setZero();}
-    } m_elastoplastic_target_tool_in_world;
+    } m_delta_elastoplastic_in_world;
 
 
     ElastoplasticModelData get_model_data()

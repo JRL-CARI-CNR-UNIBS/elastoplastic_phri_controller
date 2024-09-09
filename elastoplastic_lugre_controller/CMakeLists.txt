@@ -102,6 +102,20 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(controller_manager REQUIRED)
 
+  ament_add_gtest(test_elastoplastic_model
+      test/test_elastoplastic_model.cpp)
+  target_include_directories(test_elastoplastic_model PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+  target_link_libraries(test_elastoplastic_model
+    elastoplastic_controller::elastoplastic_controller
+  )
+  ament_target_dependencies(test_elastoplastic_model
+    rclcpp
+    rclcpp_lifecycle
+  )
+
   ament_add_gtest(test_elastoplastic_controller
       test/test_elastoplastic_controller.cpp
     )
