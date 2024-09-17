@@ -67,14 +67,14 @@ Eigen::Vector3d ElastoplasticModel::update(const Eigen::Vector3d& velocity, cons
                         + m_model_params.lugre.sigma_2 * velocity;
 
 
-  fmt::print(fmt::fg(fmt::color::cyan), "\n+----------------------\n"
-                                          "Velocity:    {:8.4e} | {:8.4e} | {:8.4e}\n"
-                                          "Input Force: {:8.4e} | {:8.4e} | {:8.4e}\n"
-                                          "Friction:    {:8.4e} | {:8.4e} | {:8.4e}\n"
-                                          "+----------------------\n",
-      velocity(0), velocity(1), velocity(2),
-      force(0), force(1), force(2),
-      m_last_friction_force(0),m_last_friction_force(1),m_last_friction_force(2));
+  // fmt::print(fmt::fg(fmt::color::cyan), "\n+----------------------\n"
+  //                                         "Velocity:    {:8.4e} | {:8.4e} | {:8.4e}\n"
+  //                                         "Input Force: {:8.4e} | {:8.4e} | {:8.4e}\n"
+  //                                         "Friction:    {:8.4e} | {:8.4e} | {:8.4e}\n"
+  //                                         "+----------------------\n",
+  //     velocity(0), velocity(1), velocity(2),
+  //     force(0), force(1), force(2),
+  //     m_last_friction_force(0),m_last_friction_force(1),m_last_friction_force(2));
 
   Eigen::Vector3d acc;
   acc = m_model_params.inertia_inv.cwiseProduct(force - m_last_friction_force);

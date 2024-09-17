@@ -11,8 +11,6 @@
 
 namespace elastoplastic {
 
-namespace views = std::ranges::views;
-
 
 controller_interface::CallbackReturn ElastoplasticController::on_init()
 {
@@ -135,7 +133,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_pub_cart_vel_error =   this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/cart_vel_error", 10);
   m_pub_pos_correction =   this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/pose_correction", 10);
   m_pub_vel_correction  =   this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/vel_correction", 10);
-  m_clik_pub = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("/generic_debug",rclcpp::QoS(10).durability_volatile().reliable());
+  m_clik_pub = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/clik_errors",rclcpp::QoS(10).durability_volatile().reliable());
 
   m_state_interfaces_names.reserve(m_allowed_interface_types.size());
   m_command_interfaces_names.reserve(m_allowed_interface_types.size());
@@ -265,10 +263,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   {
     auto it = std::ranges::find(m_allowed_interface_types, interface);
     auto idx = std::distance(m_allowed_interface_types.begin(), it);
-    //RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "state_interfaces_: " << state_interfaces_.size());
     if(not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, interface, m_joint_state_interfaces.at(idx)))
     {
-      RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints state interfaces");
+      RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints state interfaces: %d names vs %d interfaces", m_parameters.joints.size(), m_joint_state_interfaces.at(idx).size());
       return controller_interface::CallbackReturn::FAILURE;
     }
   }
@@ -280,8 +277,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     auto idx = std::distance(m_allowed_interface_types.begin(), it);
     if(not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.joints, interface, m_joint_command_interfaces.at(idx)))
     {
-      // RCLCPP_ERROR(this->get_node()->get_logger(), "Missing joints command interfaces");
-      // return controller_interface::CallbackReturn::FAILURE;
       continue;
     }
     at_least_one_command_interface = true;
@@ -349,6 +344,11 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
 
   m_elastoplastic_model->clear();
   m_delta_elastoplastic_in_world.clear();
+
+  m_joint_state_interfaces.clear();
+  m_joint_command_interfaces.clear();
+
+  m_ft_sensor->release_interfaces();
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -483,9 +483,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector6d wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor, T_tool_sensor);
   // Eigen::Vector6d wrench_tool_in_world = rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.rotation());
   // Eigen::Vector6d wrench_tool_in_world_filtered = wrench_tool_in_world.unaryExpr([](double w){return std::abs(w) > 1e-9? w : 0.0;});
-
-  fmt::print(fmt::fg(fmt::color::khaki), "wrench_tool_in_tool: {}\n", wrench_tool_in_tool);
-  // fmt::print(fmt::fg(fmt::color::khaki), "wrench_tool_in_world: {}\n", wrench_tool_in_world);
 
 
   /*
