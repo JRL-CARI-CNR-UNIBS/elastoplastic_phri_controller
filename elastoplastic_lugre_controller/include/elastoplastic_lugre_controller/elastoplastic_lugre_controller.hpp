@@ -113,6 +113,9 @@ protected:
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_fb_target;
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovariance>   m_rt_buffer_base_pose_in_world;
     realtime_tools::RealtimeBuffer<geometry_msgs::msg::TwistWithCovariance>   m_rt_buffer_base_twist_in_base;
+    realtime_tools::RealtimeBuffer<nav_msgs::msg::Odometry> m_rt_buffer_base_odom;
+
+    rclcpp::Time m_last_odom_msg_time;
 
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
 
@@ -125,6 +128,8 @@ protected:
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_vel_correction;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_pub;
 
+    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
+
     enum class RDStatus {
       OK,
       ERROR,
@@ -134,12 +139,15 @@ protected:
 
     rdyn::ChainPtr m_chain_base_tool;
     rdyn::ChainPtr m_chain_base_sensor;
+    rdyn::ChainPtr m_chain_world_tool;
 
     size_t m_nax;
 
     Eigen::VectorXd m_q;
     Eigen::VectorXd m_qp;
     Eigen::VectorXd m_qpp;
+
+    Eigen::Affine3d m_T_world_base;
 
     // Required both for states and at least one for command
     const std::vector<std::string> m_allowed_interface_types {
@@ -150,7 +158,6 @@ protected:
 
     struct FloatBaseData
     {
-      Eigen::Vector6d twist_in_base;
       bool enabled {true};
 
       std::string ns;
