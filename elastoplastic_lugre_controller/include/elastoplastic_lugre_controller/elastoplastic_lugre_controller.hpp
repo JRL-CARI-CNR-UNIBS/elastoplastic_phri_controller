@@ -126,9 +126,13 @@ protected:
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cart_vel_error;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_pos_correction;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_vel_correction;
-    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_pub;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_errors_pub;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_correction_pub;
 
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
+
+    constexpr static double POSITION_TOLLERANCE = 1e-4;
+    constexpr static double VELOCITY_TOLLERANCE = 1e-5;
 
     enum class RDStatus {
       OK,
@@ -148,6 +152,7 @@ protected:
     Eigen::VectorXd m_qpp;
 
     Eigen::Affine3d m_T_world_base;
+    Eigen::Affine3d m_T_world_tool_initial ;
 
     // Required both for states and at least one for command
     const std::vector<std::string> m_allowed_interface_types {
@@ -170,8 +175,13 @@ protected:
         {
           return Eigen::Matrix<double, 6, -1>(6, 0);
         }
-        Eigen::Matrix<double,6,-1> id = Eigen::MatrixXd::Identity(6,6);
-        return id(Eigen::all, idxs());
+        return Eigen::Matrix<double,6,-1> {
+            {1,0,0},
+            {0,1,0},
+            {0,0,0},
+            {0,0,0},
+            {0,0,0},
+            {0,0,1}};
       };
 
     private:
