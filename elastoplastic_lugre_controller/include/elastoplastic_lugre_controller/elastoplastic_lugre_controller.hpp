@@ -143,9 +143,13 @@ protected:
 
     rdyn::ChainPtr m_chain_base_tool;
     rdyn::ChainPtr m_chain_base_sensor;
+    rdyn::ChainPtr m_chain_world_base;
     rdyn::ChainPtr m_chain_world_tool;
 
+    std::vector<std::string> m_joint_names;
+
     size_t m_nax;
+    size_t m_full_nax;
 
     Eigen::VectorXd m_q;
     Eigen::VectorXd m_qp;
@@ -168,6 +172,7 @@ protected:
       std::string ns;
       const size_t nax() const {return enabled? nax_: 0;}
       const std::array<size_t, 3>& idxs() const {return idxs_;}
+      const std::vector<std::string> base_joint_names() {return enabled? base_joint_names_ : std::vector<std::string>{};};
 
       Eigen::Matrix6Xd jacobian()
       {
@@ -187,6 +192,7 @@ protected:
     private:
       constexpr static size_t nax_ {3};
       constexpr static std::array<size_t, 3> idxs_ {0,1,5};
+      const std::vector<std::string> base_joint_names_ {"x2y", "y2rz", "rz2mount"};
 
     } m_float_base;
 
