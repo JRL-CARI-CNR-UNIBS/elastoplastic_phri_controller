@@ -136,7 +136,9 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
 
   std::string what;
   m_joint_names.resize(m_parameters.joints.size() + m_float_base.nax());
-  std::merge(m_float_base.base_joint_names().begin(), m_float_base.base_joint_names().end(), m_parameters.joints.begin(), m_parameters.joints.end(), m_joint_names.begin());
+  //std::merge(m_float_base.base_joint_names().begin(), m_float_base.base_joint_names().end(), m_parameters.joints.begin(), m_parameters.joints.end(), m_joint_names.begin());
+  std::ranges::copy(m_float_base.base_joint_names(), m_joint_names.begin());
+  std::copy(m_parameters.joints.begin(), m_parameters.joints.end(), std::next(m_joint_names.begin(), m_float_base.nax()));
   m_chain_base_tool  ->setInputJointsName(m_parameters.joints, what);
   m_chain_base_sensor->setInputJointsName(m_parameters.joints, what);
   m_chain_world_tool->setInputJointsName(m_joint_names, what);
@@ -182,6 +184,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_clik_errors_pub = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/clik_errors",rclcpp::QoS(10).durability_volatile().reliable());
   m_clik_correction_pub = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/clik_correction", rclcpp::QoS(10).durability_volatile().reliable());
   m_pub_twist_in_world = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/twist_in_world", 10);
+  m_clik_qepp_pub = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/qepp", 10);
 
   m_state_interfaces_names.reserve(m_allowed_interface_types.size());
   m_command_interfaces_names.reserve(m_allowed_interface_types.size());
@@ -369,6 +372,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     m_clik_errors_pub->on_activate();
     m_clik_correction_pub->on_activate();
     m_pub_twist_in_world->on_activate();
+    m_clik_qepp_pub->on_activate();
   }
 
   // geometry_msgs::msg::PoseWithCovariance init_pose_msg;
@@ -379,14 +383,15 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_rt_buffer_fb_target.initRT(geometry_msgs::msg::Twist(rosidl_runtime_cpp::MessageInitialization::ZERO));
 
   m_last_odom_msg_time = this->get_node()->get_clock()->now();
-  if(!m_float_base.enabled)
-  {
-    m_T_world_base = Eigen::Affine3d::Identity();
-  }
-  else
-  {
-    m_T_world_base = m_chain_world_base->getTransformation(m_q.head<3>());
-  }
+  // if(!m_float_base.enabled)
+  // {
+  //   m_T_world_base = Eigen::Affine3d::Identity();
+  // }
+  // else
+  // {
+  //   m_T_world_base = m_chain_world_base->getTransformation(m_q.head<3>());
+  // }
+  m_T_world_base = Eigen::Affine3d::Identity();
 
   Eigen::Affine3d T_base_tool = m_chain_base_tool->getTransformation(m_q.tail(m_nax));
   m_T_world_tool_initial = m_T_world_base * T_base_tool;
@@ -474,11 +479,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // **********
 
   nav_msgs::msg::Odometry odom_msg = *(m_rt_buffer_base_odom.readFromRT());
-  geometry_msgs::msg::PoseWithCovariance msg_pose_base_in_world = odom_msg.pose;
   Eigen::Vector6d twist_base_world_in_world;
   if(rclcpp::Time(odom_msg.header.stamp) >= m_last_odom_msg_time)
   {
-    Eigen::fromMsg(msg_pose_base_in_world.pose, m_T_world_base);
+    Eigen::fromMsg(odom_msg.pose.pose, m_T_world_base);
     m_last_odom_msg_time = odom_msg.header.stamp;
   }
 
@@ -508,12 +512,18 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     wrench_sensor_in_sensor.setZero();
   }
 
+  Eigen::VectorXd target_twist_tool_world_in_world = target_twist_tool_base_in_world + target_twist_base_world_in_world;
+
   // Get Floating Base state
   Eigen::Vector6d twist_base_world_in_base;
   Eigen::fromMsg(odom_msg.twist.twist, twist_base_world_in_base);
   twist_base_world_in_world = from_base_to_world(twist_base_world_in_base);
-
-  Eigen::VectorXd target_twist_tool_world_in_world = target_twist_tool_base_in_world + target_twist_base_world_in_world;
+  if(m_float_base.enabled)
+  {
+    m_qp.head<3>() = fit_twist_into_base_joints(twist_base_world_in_world, m_float_base);
+    m_q.head<2>() = m_T_world_base.translation().head<2>();
+    m_q(2) = Eigen::AngleAxisd(m_T_world_base.linear()).angle();
+  }
 
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(), [](const hardware_interface::LoanedStateInterface& lsi){
     return lsi.get_value();
@@ -529,12 +539,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ** Update **
   // ************
   Eigen::Affine3d  T_base_tool = m_chain_base_tool->getTransformation(m_q.tail(m_nax));
-  Eigen::Affine3d  T_world_tool = m_T_world_base * T_base_tool;
-  Eigen::Matrix6Xd J_base_tool_in_base = m_chain_base_tool->getJacobian(m_q.tail(m_nax));
-  Eigen::Vector6d  twist_tool_base_in_base = J_base_tool_in_base * m_qp.tail(m_nax);
-  Eigen::Vector6d  twist_tool_world_in_base = twist_tool_base_in_base + twist_base_world_in_base;
+  Eigen::Affine3d  T_world_tool = m_chain_world_tool->getTransformation(m_q);//m_T_world_base * T_base_tool;
 
-  Eigen::Vector6d  twist_tool_world_in_world = from_base_to_world(twist_tool_world_in_base);
+  Eigen::Vector6d twist_tool_world_in_world = m_chain_world_tool->getJacobian(m_q) * m_qp;
 
   Eigen::Vector6d cart_vel_error_tool_target_in_world = twist_tool_world_in_world - target_twist_tool_world_in_world;
   Eigen::Vector6d cart_acc_tool_target_in_world = Eigen::Vector6d::Zero();
@@ -599,52 +606,32 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ============= TEST CLIK ================
   // ** Overwrite velocities and positions **
 
-  // static bool ini {false};
-  // static double initial_position_z, initial_velocity_z;
-  // static double temp;
-  // if(!ini)
-  // {
-  //   temp = 0.0;
-  //   ini=true;
-  //   initial_position_z = T_world_tool.translation()(1);
-  //   initial_velocity_z = twist_tool_world_in_world(1);
-  // }
+  static bool ini {false};
+  static double initial_position_z, initial_velocity_z;
+  static double temp;
+  if(!ini)
+  {
+    temp = 0.0;
+    ini=true;
+    initial_position_z = T_world_tool.translation()(1);
+    initial_velocity_z = twist_tool_world_in_world(1);
+  }
 
-  // constexpr double AMP = 0.1;
-  // constexpr double PULSE = 2 * M_PI * 0.4;
-  // T_next_world_tool = m_T_world_tool_initial;
-  // T_next_world_tool.translation()(1) = initial_position_z + AMP * (1 - std::cos(PULSE * temp));
-  // twist_next_tool_world_in_world.tail<3>() = Eigen::Vector3d::Zero();
-  // twist_next_tool_world_in_world(1) = + AMP * PULSE * std::sin(PULSE * temp);
-  // twist_next_tool_world_in_world(0) = 0.0;
-  // twist_next_tool_world_in_world(2) = 0.0;
-  // cart_acc_tool_target_in_world.tail<3>() = Eigen::Vector3d::Zero();
-  // cart_acc_tool_target_in_tool(0) = 0.0;
-  // cart_acc_tool_target_in_tool(2) = 0.0;
-  // cart_acc_tool_target_in_tool(1) = AMP * PULSE * PULSE * std::cos(PULSE * temp);
-  // temp += period.seconds();
+  constexpr double AMP = 0.1;
+  constexpr double PULSE = 2 * M_PI * 0.4;
+  T_next_world_tool = m_T_world_tool_initial;
+  T_next_world_tool.translation()(1) = initial_position_z + AMP * (1 - std::cos(PULSE * temp));
+  twist_next_tool_world_in_world.tail<3>() = Eigen::Vector3d::Zero();
+  twist_next_tool_world_in_world(1) = + AMP * PULSE * std::sin(PULSE * temp);
+  twist_next_tool_world_in_world(0) = 0.0;
+  twist_next_tool_world_in_world(2) = 0.0;
+  cart_acc_tool_target_in_world.tail<3>() = Eigen::Vector3d::Zero();
+  cart_acc_tool_target_in_tool(0) = 0.0;
+  cart_acc_tool_target_in_tool(2) = 0.0;
+  cart_acc_tool_target_in_tool(1) = AMP * PULSE * PULSE * std::cos(PULSE * temp);
+  temp += period.seconds();
 
   // =========================================
-
-  // Inverse Kinematics
-  // auto jac_from_base_to_world = [&from_base_to_world, this](const Eigen::Matrix6Xd& jac_in_base) -> Eigen::Matrix6Xd
-  // {
-  //   Eigen::Matrix6Xd jac_in_world(jac_in_base);
-  //   for(int idx = 0; idx < jac_in_base.cols(); ++idx)
-  //   {
-  //     jac_in_world.col(idx) = from_base_to_world(jac_in_base.col(idx));
-  //   }
-  //   return jac_in_world;
-  // };
-
-  // Eigen::Matrix6Xd J_G_base_tool_in_base = m_chain_base_tool->getJacobian(m_q);
-  // Eigen::Matrix6Xd J_G_base_tool_in_world = m_chain_base_tool->getJacobian(m_q); //jac_from_base_to_world(J_G_base_tool_in_base);
-  // Eigen::Matrix6Xd J_G_world_tool_in_world(6, J_G_base_tool_in_world.cols() + m_float_base.nax());
-  // J_G_world_tool_in_world.block(0,0,6,J_G_base_tool_in_world.cols()) << J_G_base_tool_in_world;
-  // if(m_float_base.enabled)
-  // {
-  //   J_G_world_tool_in_world.block(0, J_G_base_tool_in_world.cols(), 6, m_float_base.nax()) << m_float_base.jacobian();
-  // }
 
   Eigen::Matrix6Xd J_G_world_tool_in_world = m_chain_world_tool->getJacobian(m_q);
 
@@ -699,7 +686,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::Vector6d pose_error_tool_world_in_world;
     rdyn::getFrameDistance(T_next_world_tool, T_world_tool, pose_error_tool_world_in_world);
     Eigen::Vector6d velocity_error_tool_world_in_world = p_twist_next_tool_world_in_world - twist_tool_world_in_world;
-    Eigen::Vector6d acc_non_linear_in_world = m_chain_world_tool->getDTwistNonLinearPartTool(m_q, m_qp); // NOTE: Sicuro non ci sia nulla della base?
+    Eigen::Vector6d acc_non_linear_in_world = m_chain_world_tool->getDTwistNonLinearPartTool(m_q, m_qp);
     Eigen::Vector6d correction =  m_parameters.clik.kd * (velocity_error_tool_world_in_world)
                                   + m_parameters.clik.kp * (pose_error_tool_world_in_world)
                                   - acc_non_linear_in_world
@@ -726,7 +713,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
 
   Eigen::VectorXd qepp = clik(twist_next_tool_world_in_world);
-  Eigen::VectorXd qp = m_qp.tail(m_nax) + qepp.head(m_nax) * period.seconds();
+  Eigen::VectorXd qp = m_qp.tail(m_nax) + qepp.tail(m_nax) * period.seconds();
 
   // Scaling due to joint velocity limits
   double scaling_vel = 1.0;
@@ -791,7 +778,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_pub_cmd_vel->publish(cmd_vel);
   }
 
-  m_T_world_base.prerotate(Eigen::AngleAxisd(*(qp_base_in_world.end()-1) * period.seconds(), Eigen::Vector3d::UnitZ())).translate(qp_base_in_world.head<3>() * period.seconds());
+  m_T_world_base.rotate(Eigen::AngleAxisd(*(qp_base_in_world.end()-1) * period.seconds(), Eigen::Vector3d::UnitZ())).translate(qp_base_in_world.head<3>() * period.seconds());
 
   // *************
   // ** PUBLISH **
@@ -846,10 +833,18 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_pub_pos_correction->publish(q_msg);
     m_pub_vel_correction->publish(qp_msg);
 
-
+    std_msgs::msg::Float64MultiArray qepp_msg;
+    qepp_msg.data.resize(qepp.size());
+    std::copy(qepp.begin(), qepp.end(), qepp_msg.data.begin());
+    m_clik_qepp_pub->publish(qepp_msg);
   }
 
   return controller_interface::return_type::OK;
+}
+
+Eigen::VectorXd ElastoplasticController::fit_twist_into_base_joints(const Eigen::Vector6d& w, const FloatBaseData& fb)
+{
+  return w(fb.idxs());
 }
 
 } // namespace elastoplastic

@@ -128,6 +128,7 @@ protected:
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_vel_correction;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_errors_pub;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_correction_pub;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_qepp_pub;
 
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
 
@@ -230,6 +231,8 @@ protected:
       data.reset_condition.reset_threshold = m_parameters.impedance.reset_condition.reset_threshold;
       return data;
     }
+
+    Eigen::VectorXd fit_twist_into_base_joints(const Eigen::Vector6d& w, const FloatBaseData& fb);
 };
 }
 
