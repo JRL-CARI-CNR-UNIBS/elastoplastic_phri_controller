@@ -1,4 +1,12 @@
 elastoplastic_controller:
+  dt: {
+    type: double,
+    default_value: 0.01,
+    description: "Sampling for controller integration. TO REMOVE IN THE FUTURE",
+    validation: {
+      gt<>: 0
+    }
+  }
   target_joint_trajectory_topic: {
     type: string,
     default_value: "/joint_trajectory",
@@ -160,6 +168,14 @@ elastoplastic_controller:
       type: double,
       description: "CLIK velocity gain"
     }
+    task:
+      last:
+        kp: {
+          type: double,
+        }
+        kv: {
+          type: double,
+        }
   debug: {
     type: bool,
     description: "Enable debug publishers",

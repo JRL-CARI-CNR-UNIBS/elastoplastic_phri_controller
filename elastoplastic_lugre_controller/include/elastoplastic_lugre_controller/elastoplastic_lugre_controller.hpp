@@ -124,11 +124,12 @@ protected:
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_friction_in_world;
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_world;
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cart_vel_error;
-    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_pos_correction;
-    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_vel_correction;
-    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_errors_pub;
+    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_delta_acceleration;
+    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_delta_velocity;
+    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_delta_pose;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_components_pub;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_correction_pub;
-    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_qepp_pub;
+    rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_xp_pub;
 
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
 
@@ -156,6 +157,13 @@ protected:
     Eigen::VectorXd m_qp;
     Eigen::VectorXd m_qpp;
 
+    double m_dt;
+
+    double m_kp_last_task, m_kv_last_task;
+
+    Eigen::VectorXd m_old_q;
+    Eigen::VectorXd m_old_qp;
+
     Eigen::Affine3d m_T_world_base;
     Eigen::Affine3d m_T_world_tool_initial ;
 
@@ -171,31 +179,16 @@ protected:
       bool enabled {true};
 
       std::string ns;
+      Eigen::Vector6d velocity_in_base;
       const size_t nax() const {return enabled? nax_: 0;}
-      const std::array<size_t, 3>& idxs() const {return idxs_;}
       const std::vector<std::string> base_joint_names() {return enabled? base_joint_names_ : std::vector<std::string>{};};
-
-      Eigen::Matrix6Xd jacobian()
-      {
-        if(!enabled)
-        {
-          return Eigen::Matrix<double, 6, -1>(6, 0);
-        }
-        return Eigen::Matrix<double,6,-1> {
-            {1,0,0},
-            {0,1,0},
-            {0,0,0},
-            {0,0,0},
-            {0,0,0},
-            {0,0,1}};
-      };
-
     private:
       constexpr static size_t nax_ {3};
-      constexpr static std::array<size_t, 3> idxs_ {0,1,5};
-      const std::vector<std::string> base_joint_names_ {"x2y", "y2rz", "rz2mount"};
+      const std::vector<std::string> base_joint_names_ {"move_x", "move_y", "rot_z"};
 
     } m_float_base;
+
+
 
     std::vector<std::string> m_state_interfaces_names;
     std::vector<std::string> m_command_interfaces_names;
@@ -232,7 +225,11 @@ protected:
       return data;
     }
 
-    Eigen::VectorXd fit_twist_into_base_joints(const Eigen::Vector6d& w, const FloatBaseData& fb);
+    Eigen::VectorXd base_velocity_from_twist(const Eigen::Vector6d& w);
+    Eigen::Vector6d twist_from_base_velocity(const Eigen::Vector3d& p_v);
+
+    Eigen::VectorXd m_initial_q;
+    Eigen::VectorXd m_initial_qp;
 };
 }
 
