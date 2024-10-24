@@ -164,12 +164,15 @@ elastoplastic_controller:
       type: double,
       description: "CLIK position gain"
     }
-    kd: {
+    kv: {
       type: double,
       description: "CLIK velocity gain"
     }
     task:
       last:
+        priority: {
+          type: double,
+        }
         kp: {
           type: double,
         }
