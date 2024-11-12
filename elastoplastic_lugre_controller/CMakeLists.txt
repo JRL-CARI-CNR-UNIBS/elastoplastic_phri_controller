@@ -70,6 +70,8 @@ target_include_directories(elastoplastic_controller PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
+target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas)
+
 install(TARGETS elastoplastic_controller elastoplastic_parameters
         EXPORT export_elastoplastic_controller
         LIBRARY DESTINATION lib

@@ -75,6 +75,16 @@ elastoplastic_controller:
         not_empty<>: []
       }
     }
+    max_vel:
+      linear: {
+        type: double_array,
+        validation: {
+          fixed_size<>: [2]
+        }
+      }
+      angular: {
+        type: double,
+      }
   command_interfaces: {
     type: string_array,
     default_value: ["position", "velocity"],
@@ -169,10 +179,13 @@ elastoplastic_controller:
       description: "CLIK velocity gain"
     }
     task:
-      last:
-        priority: {
-          type: double,
+      priorities: {
+        type: double_array,
+        validation: {
+          not_empty<>: []
         }
+      }
+      last:
         kp: {
           type: double,
         }

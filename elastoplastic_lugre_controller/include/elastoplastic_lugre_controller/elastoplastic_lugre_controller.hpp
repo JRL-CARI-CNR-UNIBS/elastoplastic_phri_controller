@@ -31,6 +31,12 @@
 
 #include "elastoplastic_parameters.hpp"
 
+#include "derivatives.hpp"
+
+namespace Eigen{
+using Tensor3d = Tensor<double, 3>;
+}
+
 namespace elastoplastic {
 
 class ElastoplasticController : public controller_interface::ChainableControllerInterface
@@ -227,9 +233,18 @@ protected:
 
     Eigen::VectorXd base_velocity_from_twist(const Eigen::Vector6d& w);
     Eigen::Vector6d twist_from_base_velocity(const Eigen::Vector3d& p_v);
+    std::array<Eigen::MatrixXd, 6> update_hessian(const Eigen::Matrix6Xd& jacobian, const Eigen::VectorXd& q);
 
     Eigen::VectorXd m_initial_q;
     Eigen::VectorXd m_initial_qp;
+
+    cppoptlib::Problem prb;
+
+    std::array<Eigen::MatrixXd, 6> m_hessian;
+    struct BFGSData {
+      Eigen::Matrix6Xd jacobian_p;
+      std::array<Eigen::MatrixXd, 6> hessian_p;
+    } bfgs_prev;
 };
 }
 

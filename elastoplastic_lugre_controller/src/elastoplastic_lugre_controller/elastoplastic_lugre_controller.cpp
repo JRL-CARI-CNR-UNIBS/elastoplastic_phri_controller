@@ -10,7 +10,6 @@
 #include <fmt/color.h>
 
 #include <eigen_matrix_utils/eiquadprog.hpp>
-// #include <>
 
 namespace elastoplastic {
 
@@ -714,26 +713,100 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     return task_during_elastic(m_qp.head<3>(), m_q);
   };
 #else
-  auto task_minimize_acc = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F, Eigen::MatrixXd& W) -> void {
+  auto task_minimize_input_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F) -> void {
     F.resize(m_full_nax); G.resize(m_full_nax, m_full_nax);
-    // F = - 2 * m_initial_qp.transpose() * KV;
     F = Eigen::VectorXd::Zero(m_full_nax);
-    G = W;
+    G = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
   };
 
-  auto task_during_plastic_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F, Eigen::MatrixXd& W) -> void {
+  prb.value = [&](const cppoptlib::Problem::TVector& x) -> double {
+    Eigen::Matrix6Xd J = m_chain_base_tool->getJacobian(x);
+    return std::sqrt((J * J.transpose()).determinant());
+  };
+
+  auto task_manipulability_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F, Eigen::MatrixXd& W) -> void {
     F.resize(m_full_nax); G.resize(m_full_nax, m_full_nax);
-    F.tail(m_nax) = m_dt * m_dt * (m_q.tail(m_nax) - 0.5 * (m_limits.pos_upper + m_limits.pos_lower) + m_qp.tail(m_nax) * m_dt).transpose() * W.bottomRightCorner(m_nax, m_nax);
+    Eigen::VectorXd grad(m_nax); Eigen::MatrixXd hess = Eigen::MatrixXd::Zero(m_nax, m_nax);
+    prb.gradient(m_q.tail(m_nax), grad);
+    prb.hessian(m_q.tail(m_nax), hess);
+    // RCLCPP_INFO_STREAM(this->get_node()->get_logger(), "Hessian m: " << hess );
+    // RCLCPP_INFO_STREAM(this->get_node()->get_logger(), "Gradient m: " << grad );
+    F.tail(m_nax) = - m_dt * m_dt * ( grad.transpose() + m_qp.tail(m_nax).transpose() * hess * m_dt) * W.bottomRightCorner(m_nax, m_nax);
+    G.bottomRightCorner(m_nax, m_nax) = - 0.5 * hess * W.bottomRightCorner(m_nax, m_nax) * m_dt * m_dt * m_dt * m_dt;
+    //F.tail(m_nax) = - m_dt * grad.transpose() * W.bottomRightCorner(m_nax, m_nax);
+    //G.bottomRightCorner(m_nax, m_nax) = - 0.5 * hess * W.bottomRightCorner(m_nax, m_nax);
     F.head<3>() = Eigen::Vector3d::Zero();
-    G = W * std::pow(m_dt, 4) * 0.5;
     G.topLeftCorner(3,3) = Eigen::Matrix3d::Zero();
   };
 
-  auto task_during_elastic_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F, Eigen::MatrixXd& W) -> void {
+  auto task_during_elastic_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F) -> void {
     F.resize(m_full_nax); F = Eigen::VectorXd::Zero(m_full_nax);
     G.resize(m_full_nax, m_full_nax); G = Eigen::MatrixXd::Zero(m_full_nax, m_full_nax);
-    F.head<3>() = 2 * (m_qp.head<3>() - base_velocity_from_twist(target_twist_base_world_in_world)).transpose() * W.block(0,0,3,3) * m_dt;
-    G.block(0,0,3,3) = W.block(0,0,3,3) * m_dt * m_dt;
+    F.head<3>() = 2 * (m_qp.head<3>() - base_velocity_from_twist(target_twist_base_world_in_world)).transpose() * m_dt;
+    G.block<3,3>(0,0) = Eigen::Matrix3d::Identity() * m_dt * m_dt;
+  };
+
+  // auto task_center_cog_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F, Eigen::MatrixXd& W) -> void {
+    // F.resize(m_full_nax); F = Eigen::VectorXd::Zero(m_full_nax);
+    // G.resize(m_full_nax, m_full_nax); G = Eigen::MatrixXd::Zero(m_full_nax, m_full_nax);
+    // auto links = m_chain_base_tool->getLinks();
+    // Eigen::Vector3d cog = Eigen::Vector3d::Zero();
+    // double mass = 0;
+    // for(const auto link : links)
+    // {
+      // cog += link->getCog() * link->getMass();
+      // mass += link->getMass();
+    // }
+    // cog /= mass;
+  // };
+
+  auto task_tool_over_base_2_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F) -> void {
+    F = Eigen::VectorXd::Zero(m_full_nax);
+    G = Eigen::MatrixXd::Zero(m_full_nax, m_full_nax);
+    Eigen::Matrix6Xd J = m_chain_world_tool->getJacobian(m_q);
+    G.bottomRightCorner(m_nax, m_nax) = J.rightCols(m_nax).topRows<3>().transpose() * J.rightCols(m_nax).topRows<3>() * m_dt * m_dt;
+    Eigen::Vector3d v = (J.rightCols(m_nax) * m_q.tail(m_nax)).head<3>() + 1000 * (m_chain_world_tool->getTransformation(m_q).translation() - m_chain_world_base->getTransformation(m_q.head(3)).translation()).normalized();
+    F.tail(m_nax) = 2 * v.transpose() * J.rightCols(m_nax).topRows<3>() * m_dt;
+  };
+
+  auto task_tool_over_base_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F) -> void {
+    F = Eigen::VectorXd::Zero(m_full_nax);
+    G = Eigen::MatrixXd::Zero(m_full_nax, m_full_nax);
+    Eigen::Matrix66d conversion_matrix, conversion_matrix_diff;
+    Eigen::Affine3d T_base_tool = m_chain_base_tool->getTransformation(m_q.tail(m_nax));
+    Eigen::Vector6d w_tool_base_in_base = m_chain_base_tool->getTwistTool(m_q.tail(m_nax), m_qp.tail(m_nax));
+    Eigen::Vector3d rpy = T_base_tool.rotation().eulerAngles(0,1,2); // To RPY
+
+    using std::sin, std::cos, std::pow;
+    conversion_matrix = Eigen::Matrix66d::Identity();
+    conversion_matrix_diff = Eigen::Matrix66d::Zero();
+
+    double& x = rpy(0);
+    double& y = rpy(1);
+    conversion_matrix.bottomRightCorner(3,3) <<
+        1,  std::sin(x) * std::sin(y) / std::cos(y), -std::sin(y) * std::cos(x) / std::cos(y),
+        0,  std::cos(x)                            ,  std::sin(x),
+        0, -std::sin(x) / std::cos(y)              ,  std::cos(x)/std::cos(y);
+
+    // Eigen::Vector3d d_rpy = conversion_matrix.bottomRightCorner(3,3) * rpy;
+    Eigen::Vector3d d_rpy = conversion_matrix.bottomRightCorner(3,3) * w_tool_base_in_base.tail<3>();
+    double& dx = d_rpy(0);
+    double& dy = d_rpy(1);
+    conversion_matrix_diff.bottomRightCorner(3,3) <<
+        0, sin(x) * pow(sin(y),2) * dy / pow(cos(y),2) + sin(x)*dy + sin(y) * cos(x) * dx / cos(y), sin(x) * sin(y) * dx / cos(y) - pow(sin(y), 2) * cos(x) * dy / pow(cos(y),2) - cos(x) * dy,
+        0, - sin(x) * dx                                                                          , cos(x) * dx,
+        0, - sin(x) * sin(y) * dy / pow(cos(y),2) - cos(x) * dx / cos(y)                          , sin(x) * dx / cos(y) + sin(y) * cos(x) * dy / pow(cos(y), 2);
+
+    Eigen::Matrix6Xd J_G = m_chain_base_tool->getJacobian(m_q.tail(m_nax));
+    Eigen::Matrix6Xd J_A = conversion_matrix * J_G;
+    Eigen::Vector6d Jpqp = conversion_matrix_diff * J_G * m_qp.tail(m_nax) + conversion_matrix * m_chain_base_tool->getDTwistNonLinearPartTool(m_q.tail(m_nax), m_qp.tail(m_nax));
+    Eigen::Vector6d fk_q;
+    fk_q << T_base_tool.translation(), rpy;
+    F.tail(m_nax) = fk_q.transpose() * J_A * m_dt * m_dt
+        + m_qp.tail(m_nax) * J_A.transpose() * J_A * std::pow(m_dt, 3)
+        + 0.5 * Jpqp.transpose() * J_A * std::pow(m_dt, 4)
+        - Eigen::Vector6d{0,0,T_base_tool.translation()(2),rpy(0),rpy(1),rpy(2)}.transpose() * J_A * std::pow(m_dt, 2);
+    G.bottomRightCorner(m_nax, m_nax) = 0.25 * std::pow(m_dt, 4) * J_A.transpose() * J_A;
   };
 
   auto task_last_q_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F) -> void {
@@ -752,22 +825,21 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     G = KV * m_dt * m_dt;
   };
 
-  auto constraint_sys = [&, this](Eigen::MatrixXd& CE, Eigen::VectorXd& ce) -> void
-  {
-    CE = Eigen::MatrixXd::Zero(2 * m_full_nax, 3 * m_full_nax);
-    ce = Eigen::VectorXd::Zero(2 * m_full_nax);
-    for(int idx = 0; idx < m_full_nax; ++idx)
-    {
-      // Velocity
-      CE(idx, idx) = + m_dt;
-      CE(idx, m_full_nax + idx) = -1;
-      ce(idx) = m_qp(idx);
-      // Position
-      CE(idx + m_full_nax, idx) = 0.5 * m_dt * m_dt;
-      CE(idx + m_full_nax, idx + 2 * m_full_nax) = -1;
-      ce(idx + m_full_nax) = m_q(idx) + m_qp(idx) * m_dt;
-    }
+  auto joint_vel_constraints_QP = [&, this](Eigen::MatrixXd& CI, Eigen::VectorXd& ci) -> void {
+    CI.resize(2 * m_full_nax, m_full_nax); // N righe, q.size() colonne
+    ci.resize(2 * m_full_nax);
+    CI.block(0,0,m_full_nax, m_full_nax) = - Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
+    CI.block(m_full_nax, 0, m_full_nax, m_full_nax) = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
+    ci.head<3>() << (m_parameters.floating_base.max_vel.linear[0] - m_qp(0))/m_dt,
+                    (m_parameters.floating_base.max_vel.linear[1] - m_qp(1))/m_dt,
+                    (m_parameters.floating_base.max_vel.angular   - m_qp(2))/m_dt;
+    ci.segment(3, m_nax) = (m_limits.vel - m_qp.tail(m_nax))/m_dt;
+    ci.segment(m_full_nax, 3) << (-m_parameters.floating_base.max_vel.linear[0] + m_qp(0))/m_dt,
+                                 (-m_parameters.floating_base.max_vel.linear[1] + m_qp(1))/m_dt,
+                                 (-m_parameters.floating_base.max_vel.angular   + m_qp(2))/m_dt;
+    ci.segment(m_full_nax + 3, m_nax) = (-m_limits.vel + m_qp.tail(m_nax))/m_dt;
   };
+
 #endif
   auto clik = [&, this](const Eigen::VectorXd& p_twist_next_tool_world_in_world) -> Eigen::VectorXd {
     Eigen::VectorXd gradientW=m_kp_last_task*(m_initial_q-m_q)+m_kv_last_task*(m_initial_qp-m_qp);
@@ -779,7 +851,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                                   + m_parameters.clik.kp * (pose_error_tool_world_in_world)
                                   - acc_non_linear_in_world
                                   // + cart_acc_tool_target_in_world
-                                 - J_world_tool_in_world * gradientW
+                                  - J_world_tool_in_world * gradientW
         // - J_world_tool_in_world * task_selector()
                                   ;
     /* DEBUG */
@@ -804,32 +876,37 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 #else
     // QP
     int dim = m_full_nax * 1;
-    Eigen::VectorXd sol(dim); // [acc, vel, pos]'
+    Eigen::VectorXd sol(dim);
     Eigen::MatrixXd G = Eigen::MatrixXd::Zero(dim, dim);
     Eigen::VectorXd F = Eigen::VectorXd::Zero(dim);
+    Eigen::MatrixXd W = Eigen::MatrixXd::Identity(dim, dim);
+    // W.diagonal() << 0.1, 0.1, 0.1, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
     G.block(0,0,m_full_nax, m_full_nax) = J_world_tool_in_world.transpose() * J_world_tool_in_world;
     F.segment(0, m_full_nax) = -2*(- acc_non_linear_in_world
                               + m_parameters.clik.kv * (velocity_error_tool_world_in_world)
                               + m_parameters.clik.kp * (pose_error_tool_world_in_world)
                             ).transpose() * J_world_tool_in_world;
 
+
     // Acceleration minimization
-    // Eigen::MatrixXd G1; Eigen::VectorXd F1;
-    // Eigen::MatrixXd W1 = Eigen::MatrixXd::Identity(m_full_nax,m_full_nax) * 1e-9;
-    // task_minimize_acc(G1, F1, W1);
-    // G.block(0,0,m_full_nax, m_full_nax) += G1;
-    // F.segment(0, m_full_nax) += F1;
+    Eigen::MatrixXd G1; Eigen::VectorXd F1;
+    Eigen::MatrixXd W1 = Eigen::MatrixXd::Identity(m_full_nax,m_full_nax) * m_parameters.clik.task.priorities.back() / 10;
+    task_minimize_input_QP(G1, F1);
+    G.block(0,0,m_full_nax, m_full_nax) += G1;
+    F.segment(0, m_full_nax) += F1;
 
     // Secondary task
     Eigen::MatrixXd G2; Eigen::VectorXd F2;
-    Eigen::MatrixXd W2 = Eigen::MatrixXd::Identity(m_full_nax,m_full_nax) * 1e-3;
-    // task_during_elastic_QP(G2, F2, W2);
-    task_during_plastic_QP(G2, F2, W2);
-    G.block(0,0,m_full_nax, m_full_nax) += G2;
-    F.segment(0, m_full_nax) += F2;
+    Eigen::MatrixXd W2 = Eigen::MatrixXd::Identity(m_full_nax,m_full_nax) * m_parameters.clik.task.priorities[0];
+    task_during_elastic_QP(G2, F2);
+    // task_manipulability_QP(G2, F2, W2);
+    // task_tool_over_base_QP(G2, F2);
+    // task_tool_over_base_2_QP(G2, F2);
+    G.block(0,0,m_full_nax, m_full_nax) += W2 * G2;
+    F.segment(0, m_full_nax) += W2 * F2;
 
     // Last task
-    double wl = m_parameters.clik.task.last.priority;
+    double wl = m_parameters.clik.task.priorities[1];
     Eigen::MatrixXd GLp(dim, dim), GLv(dim, dim); Eigen::VectorXd FLp(dim), FLv(dim);
     task_last_q_QP(GLp, FLp);
     task_last_qp_QP(GLv, FLv);
@@ -840,18 +917,23 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     F.segment(0, m_full_nax) += FLp;
     F.segment(0, m_full_nax) += FLv;
 
-    // Constraints
+    // EQ Constraints
     Eigen::MatrixXd CE; Eigen::VectorXd ce;
-    // constraint_sys(CE, ce);
     CE = Eigen::MatrixXd::Zero(dim, dim);
     ce = Eigen::VectorXd::Zero(dim);
+
+    // DISEQ Constraints
+    Eigen::MatrixXd CI; Eigen::VectorXd ci;
+    // CI = Eigen::MatrixXd::Zero(dim, dim);
+    // ci = Eigen::VectorXd::Zero(dim);
+    joint_vel_constraints_QP(CI, ci);
 
     double ret = Eigen::solve_quadprog(G,
         F,
         CE.transpose(),
         ce.transpose(),
-        Eigen::MatrixXd::Zero(dim, dim),
-        Eigen::VectorXd::Zero(dim),
+        CI,
+        ci,
         sol);
     assert(ret != std::numeric_limits<double>::infinity());
     return sol.head(m_full_nax);
@@ -997,6 +1079,24 @@ Eigen::VectorXd ElastoplasticController::base_velocity_from_twist(const Eigen::V
 Eigen::Vector6d ElastoplasticController::twist_from_base_velocity(const Eigen::Vector3d& p_v)
 {
   return Eigen::Vector6d {p_v(0), p_v(1), 0, 0, 0, p_v(2)};
+}
+
+// Questa o quella esatta da rdyn?
+std::array<Eigen::MatrixXd, 6> ElastoplasticController::update_hessian(const Eigen::Matrix6Xd& jacobian, const Eigen::VectorXd& q)
+{
+  for(int idx = 0; idx < jacobian.rows(); idx++)
+  {
+    Eigen::VectorXd yt = jacobian.row(idx) - bfgs_prev.jacobian_p.row(idx);
+    Eigen::VectorXd st = q - m_old_q;
+    double rho = 1 / (yt.transpose() * st);
+    m_hessian.at(idx) =
+        (Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) - rho * st * yt.transpose())
+            * bfgs_prev.hessian_p.at(idx)
+        * (Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) - rho * yt * st.transpose())
+        + rho * st * st.transpose();
+  }
+  bfgs_prev.hessian_p = m_hessian;
+  bfgs_prev.jacobian_p = jacobian;
 }
 
 } // namespace elastoplastic
