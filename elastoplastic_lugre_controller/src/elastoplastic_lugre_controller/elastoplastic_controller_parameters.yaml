@@ -179,6 +179,12 @@ elastoplastic_controller:
       description: "CLIK velocity gain"
     }
     task:
+      weights: {
+        type: double_array,
+        validation: {
+          not_empty<>: []
+        }
+      }
       priorities: {
         type: double_array,
         validation: {

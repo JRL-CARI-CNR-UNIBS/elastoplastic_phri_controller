@@ -139,6 +139,8 @@ protected:
 
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
 
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_next_pose;
+
     constexpr static double POSITION_TOLLERANCE = 1e-4;
     constexpr static double VELOCITY_TOLLERANCE = 1e-5;
 
