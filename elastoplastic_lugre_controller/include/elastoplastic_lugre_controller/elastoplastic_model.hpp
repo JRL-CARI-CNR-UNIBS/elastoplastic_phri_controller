@@ -36,7 +36,7 @@ public:
     m_state.clear();
   }
 
-  Eigen::Vector3d update(const Eigen::Vector3d& v, const Eigen::Vector3d& f, double period);
+  Eigen::Vector3d update(const Eigen::Vector3d& v, const Eigen::Vector3d& f, const double period);
 
   const Eigen::Vector3d& z() const {return m_state.z;}
   const Eigen::Vector3d& w() const {return m_state.w;}
@@ -46,7 +46,7 @@ public:
 
 protected:
 
-  bool check_reset_condition();
+  bool reset_condition(const Eigen::Vector3d& v, const Eigen::Vector3d& f, const double period);
 
   const ElastoplasticModelData m_model_params;
 

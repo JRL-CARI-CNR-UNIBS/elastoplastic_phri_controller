@@ -50,7 +50,7 @@ double ElastoplasticModel::dalpha(const double z) const
   }
 };
 
-Eigen::Vector3d ElastoplasticModel::update(const Eigen::Vector3d& velocity, const Eigen::Vector3d& force, double period)
+Eigen::Vector3d ElastoplasticModel::update(const Eigen::Vector3d& velocity, const Eigen::Vector3d& force, const double period)
 {
   // fmt::print(fmt::fg(fmt::color::cyan), "v: {}, w: {}, period: {}\n", v, w, period);
   Eigen::Vector4d alpha_with_r;
@@ -85,7 +85,13 @@ Eigen::Vector3d ElastoplasticModel::update(const Eigen::Vector3d& velocity, cons
   m_state.r += d_dt.r * period;
   // fmt::print(fmt::fg(fmt::color::cyan), "z: {}, w: {}, r: {}\n", m_state.z, m_state.w, m_state.r);
 
-  // Reset condition
+  reset_condition(velocity, force, period);
+  return acc;
+}
+
+bool ElastoplasticModel::reset_condition(const Eigen::Vector3d& velocity, const Eigen::Vector3d& force, const double period)
+{
+  bool reset_status = false;
   if(m_last_alpha.maxCoeff() > 0)
   {
     const size_t window_reset_size = (size_t) std::ceil(m_model_params.reset_condition.reset_window_size/(period*1e3));
@@ -95,30 +101,31 @@ Eigen::Vector3d ElastoplasticModel::update(const Eigen::Vector3d& velocity, cons
       m_reset_window.pop_front();
     }
     const double reset_value = std::accumulate(m_reset_window.begin(),
-        m_reset_window.end(),
-        0.0,
-        [&period](const double d, const double x) -> double
-        {
-          return d + x*period;
-        }
-        );
+                                               m_reset_window.end(),
+                                               0.0,
+                                               [&period](const double d, const double x) -> double
+                                               {
+                                                 return d + x*period;
+                                               }
+                                               );
 
     if(m_reset_window.size() >= window_reset_size &&
         reset_value < m_model_params.reset_condition.reset_threshold)
     {
       m_state.clear();
       m_reset_window.clear();
+      reset_status = true;
     }
-    else
-    {
-      if(!m_reset_window.empty())
-      {
-        m_reset_window.clear();
-      }
-    }
-  }
 
-  return acc;
+    // else
+    // {
+    //   if(!m_reset_window.empty())
+    //   {
+    //     m_reset_window.clear();
+    //   }
+    // }
+  }
+  return reset_status;
 }
 
 }

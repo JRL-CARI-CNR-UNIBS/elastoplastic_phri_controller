@@ -185,6 +185,10 @@ elastoplastic_controller:
           not_empty<>: []
         }
       }
+      alpha_gain: {
+        type: double,
+        description: "Weight on alpha to change between base/arm priority"
+      }
       priorities: {
         type: double_array,
         validation: {
