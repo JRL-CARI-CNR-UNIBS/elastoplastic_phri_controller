@@ -3,6 +3,9 @@ data
 slprj
 old
 
+# Other directories
+test
+
 # VSCode
 .vscode
 

@@ -621,6 +621,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector6d twist_next_tool_world_in_world = m_delta_elastoplastic_in_world.velocity + target_twist_tool_world_in_world;
   Eigen::Affine3d T_next_world_tool = rdyn::spatialIntegration(T_world_tool, twist_next_tool_world_in_world, m_dt);
 
+  // Proietta nelle direzioni ortogonali alla traiettoria?
+  // Scala la traiettoria (in funzione del della differenza vel_trj - vel_ep)?
+
+
 #else
   Eigen::Affine3d T_next_world_tool;
   Eigen::Vector6d twist_next_tool_world_in_world;
@@ -687,41 +691,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     return full;
   };
 
-  // auto task_2_during_elastic = [&, this](const Eigen::VectorXd& lower_task) -> Eigen::VectorXd {
-  //   Eigen::Matrix6Xd Jm(6, m_full_nax), Jb(6, m_full_nax);
-  //   Jm = Jb = Eigen::Matrix6Xd::Zero(6, m_full_nax);
-  //   Jm.rightCols(m_nax) = J_world_tool_in_world.rightCols(m_nax);
-  //   Jb.leftCols<3>() = J_world_tool_in_world.leftCols<3>();
-  //   Eigen::JacobiSVD<Eigen::Matrix<double, 6, -1>> svd_Jm(Jm, Eigen::ComputeThinU | Eigen::ComputeThinV);
-  //   Eigen::JacobiSVD<Eigen::Matrix<double, 6, -1>> svd_Jb(Jb, Eigen::ComputeThinU | Eigen::ComputeThinV);
-  //   Eigen::Matrix6Xd
-
-  //   (twist_next_tool_world_in_world - Jb * target_twist_base_world_in_base - Jm * lower_task)
-  //   // Eigen::Matrix6Xd jac =
-  // }
-
-  // auto task_during_elastic = [&, this](const Eigen::VectorXd& p_qp, const Eigen::VectorXd& p_q) -> Eigen::VectorXd {
-  //   if(p_q.size() <= 6)
-  //   {
-  //     return Eigen::VectorXd::Zero(p_q.size());
-  //   }
-  //   constexpr double kp = 1.0; // FIXME: Cambiare di posto
-  //   constexpr double kp2 = 1.0; // FIXME: Cambiare di posto
-  //   Eigen::VectorXd grad(m_full_nax); Eigen::MatrixXd hess(m_full_nax, m_full_nax);
-  //   prb.gradient(m_q, grad);
-  //   prb.hessian(m_q, hess);
-  //   Eigen::VectorXd full(m_full_nax);
-  //   full.head(m_float_base.nax()) = - kp * (p_qp.head(this->m_float_base.nax()) - base_velocity_from_twist(target_twist_base_world_in_base));
-  //   // full.tail(m_nax).setZero();
-  //   full.tail(m_nax) = - kp2 * (grad.tail(m_nax).transpose() * m_qp.tail(m_nax) * m_dt + 0.5 * m_dt * m_dt * m_qp.tail(m_nax).transpose() * hess.bottomRightCorner(m_nax, m_nax) * m_qp.tail(m_nax));
-  //   return full;
-  // };
-
-  // WARNING: Esiste un modo più intelligente per fare la selezione?
-  // auto task_selector = [&, this]() -> Eigen::VectorXd {
-  //   // return m_elastoplastic_model->alpha() > 0? task_during_plastic(m_q) : task_during_elastic(twist_base_world_in_world, m_q);
-  //   return task_during_elastic(m_qp.head<3>(), m_q);
-  // };
 #else
   auto task_minimize_input_QP = [&, this](Eigen::MatrixXd& G, Eigen::VectorXd& F) -> void {
     F.resize(m_full_nax); G.resize(m_full_nax, m_full_nax);
@@ -894,7 +863,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Q_half.diagonal() = Eigen::Map<Eigen::VectorXd>(m_parameters.clik.task.weights.data(), m_parameters.clik.task.weights.size())
                             .cwiseSqrt();
     Q_half.diagonal().head<3>() *= (1 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
-    RCLCPP_INFO_STREAM(this->get_node()->get_logger(), "1/cond: " << svd_manipulator.singularValues()(Eigen::last)/svd_manipulator.singularValues()(0));
+    //RCLCPP_INFO_STREAM(this->get_node()->get_logger(), "1/cond: " << svd_manipulator.singularValues()(Eigen::last)/svd_manipulator.singularValues()(0));
     Eigen::JacobiSVD<Eigen::Matrix<double, 6, -1>> svd_q(J_world_tool_in_world * Q_half, Eigen::ComputeThinU | Eigen::ComputeThinV);
     return gradientW + Q_half * svd_q.solve(correction);
 #else
