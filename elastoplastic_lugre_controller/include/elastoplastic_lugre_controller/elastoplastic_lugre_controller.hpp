@@ -33,10 +33,6 @@
 
 #include "derivatives.hpp"
 
-namespace Eigen{
-using Tensor3d = Tensor<double, 3>;
-}
-
 namespace elastoplastic {
 
 class ElastoplasticController : public controller_interface::ChainableControllerInterface

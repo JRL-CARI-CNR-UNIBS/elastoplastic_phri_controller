@@ -100,14 +100,15 @@ bool ElastoplasticModel::reset_condition(const Eigen::Vector3d& velocity, const 
     {
       m_reset_window.pop_front();
     }
-    const double reset_value = std::accumulate(m_reset_window.begin(),
-                                               m_reset_window.end(),
-                                               0.0,
-                                               [&period](const double d, const double x) -> double
-                                               {
-                                                 return d + x*period;
-                                               }
-                                               );
+    const double reset_value =
+        std::accumulate(m_reset_window.begin(),
+                        m_reset_window.end(),
+                        0.0,
+                        [&period](const double d, const double x) -> double
+                          {
+                            return d + x*period;
+                          }
+                        );
 
     if(m_reset_window.size() >= window_reset_size &&
         reset_value < m_model_params.reset_condition.reset_threshold)
@@ -116,14 +117,6 @@ bool ElastoplasticModel::reset_condition(const Eigen::Vector3d& velocity, const 
       m_reset_window.clear();
       reset_status = true;
     }
-
-    // else
-    // {
-    //   if(!m_reset_window.empty())
-    //   {
-    //     m_reset_window.clear();
-    //   }
-    // }
   }
   return reset_status;
 }

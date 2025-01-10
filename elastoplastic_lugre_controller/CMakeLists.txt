@@ -61,7 +61,7 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
 
 target_link_libraries(elastoplastic_controller
   PUBLIC elastoplastic_parameters
-  PUBLIC rdyn_core::rdyn_core
+  PUBLIC rdyn_core::rdyn_core_compiled
   PUBLIC Eigen3::Eigen
   PUBLIC fmt::fmt
   PUBLIC eigen_matrix_utils::eigen_matrix_utils)
