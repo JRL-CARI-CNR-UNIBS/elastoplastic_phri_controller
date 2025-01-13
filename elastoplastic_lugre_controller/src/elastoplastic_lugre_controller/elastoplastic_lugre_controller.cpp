@@ -206,6 +206,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_clik_correction_pub = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/clik_correction", rclcpp::QoS(10).durability_volatile().reliable());
   m_pub_twist_in_world = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/twist_in_world", 10);
   m_xp_pub = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/new_twist_in_world", 10);
+  m_pub_joint_reference = this->get_node()->create_publisher<sensor_msgs::msg::JointState>("~/joint_references", 10);
 
   m_pub_next_pose = this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>("~/next_pose", 10);
 
@@ -402,6 +403,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     m_clik_correction_pub->on_activate();
     m_pub_twist_in_world->on_activate();
     m_xp_pub->on_activate();
+    m_pub_joint_reference->on_activate();
   }
 
   m_rt_buffer_base_odom.initRT(nav_msgs::msg::Odometry(rosidl_runtime_cpp::MessageInitialization::ALL));
@@ -674,7 +676,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                                   - acc_non_linear_in_world
                                   + cart_acc_tool_target_in_world
                                   - J_world_tool_in_world * gradientW
-        // - J_world_tool_in_world * task_selector()
                                   ;
     if(m_parameters.debug)
     {
@@ -716,7 +717,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::MatrixXd W_half;
 
     W.diagonal().head(m_full_nax) = Eigen::Map<Eigen::VectorXd>(m_parameters.clik.task.weights.data(), m_parameters.clik.task.weights.size());
-    W.diagonal().head<3>() *= 1.0/(1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
+    W.diagonal().head<3>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
     W_half = W.cwiseSqrt();
 
     G.diagonal() = W.diagonal().cwiseInverse();
@@ -881,19 +882,19 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     msg_friction_in_world.wrench.torque.z = 0.0;
     m_pub_friction_in_world->publish(msg_friction_in_world);
 
-    // geometry_msgs::msg::WrenchStamped msg_wrench_in_tool;
-    // msg_wrench_in_tool.header.frame_id = m_parameters.frames.tool;
-    // msg_wrench_in_tool.header.stamp = this->get_node()->get_clock()->now();
-    // msg_wrench_in_tool.wrench.force.x =  wrench_tool_in_tool[0];
-    // msg_wrench_in_tool.wrench.force.y =  wrench_tool_in_tool[1];
-    // msg_wrench_in_tool.wrench.force.z =  wrench_tool_in_tool[2];
-    // msg_wrench_in_tool.wrench.torque.x = wrench_tool_in_tool[3];
-    // msg_wrench_in_tool.wrench.torque.y = wrench_tool_in_tool[4];
-    // msg_wrench_in_tool.wrench.torque.z = wrench_tool_in_tool[5];
-    // m_pub_wrench_in_world->publish(msg_wrench_in_tool);
+    geometry_msgs::msg::WrenchStamped msg_wrench_in_tool;
+    msg_wrench_in_tool.header.frame_id = m_parameters.frames.tool;
+    msg_wrench_in_tool.header.stamp = this->get_node()->get_clock()->now();
+    msg_wrench_in_tool.wrench.force.x =  wrench_tool_in_tool[0];
+    msg_wrench_in_tool.wrench.force.y =  wrench_tool_in_tool[1];
+    msg_wrench_in_tool.wrench.force.z =  wrench_tool_in_tool[2];
+    msg_wrench_in_tool.wrench.torque.x = wrench_tool_in_tool[3];
+    msg_wrench_in_tool.wrench.torque.y = wrench_tool_in_tool[4];
+    msg_wrench_in_tool.wrench.torque.z = wrench_tool_in_tool[5];
+    m_pub_wrench_in_world->publish(msg_wrench_in_tool);
 
-    // m_pub_cart_vel_error->publish(tf2::toMsg(cart_vel_error_tool_target_in_world));
-    // m_pub_twist_in_world->publish(tf2::toMsg(twist_tool_world_in_world));
+    m_pub_cart_vel_error->publish(tf2::toMsg(cart_vel_error_tool_target_in_world));
+    m_pub_twist_in_world->publish(tf2::toMsg(twist_tool_world_in_world));
 
     geometry_msgs::msg::Twist acc_delta_msg;
     acc_delta_msg = toMsg(cart_acc_tool_target_in_world);
@@ -916,6 +917,14 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     next_pose_msg.header.frame_id = "map";
     m_pub_next_pose->publish(next_pose_msg);
 
+    sensor_msgs::msg::JointState jref_msg;
+    jref_msg.header.stamp = get_node()->get_clock()->now();
+    jref_msg.name = m_joint_names;
+    jref_msg.position.resize(m_full_nax);
+    jref_msg.velocity.resize(m_full_nax);
+    std::copy(full_position_references.begin(), full_position_references.end(), jref_msg.position.begin());
+    std::copy(full_velocity_references.begin(), full_velocity_references.end(), jref_msg.velocity.begin());
+    m_pub_joint_reference->publish(jref_msg);
 
   }
 
