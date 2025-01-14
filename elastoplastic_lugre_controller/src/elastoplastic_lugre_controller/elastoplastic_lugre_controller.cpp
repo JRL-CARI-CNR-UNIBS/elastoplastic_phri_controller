@@ -628,43 +628,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     RCLCPP_ERROR_THROTTLE(this->get_node()->get_logger(), *this->get_node()->get_clock(), 1000, "SINGULARITY POINT (high conditioning number)");
 
 #define USE_QP
-#ifndef USE_QP
-
-  prb.value = [&](const cppoptlib::Problem::TVector& x) -> double {
-    Eigen::Matrix6Xd J = m_chain_world_tool->getJacobian(x).rightCols(m_nax);
-    return std::sqrt((J * J.transpose()).determinant());
-  };
-
-  auto task_during_plastic = [&, this](const Eigen::VectorXd& p_q) -> Eigen::VectorXd {
-    constexpr double kp = 1.0;
-    Eigen::VectorXd q = p_q.tail(m_nax);
-    Eigen::VectorXd full(m_full_nax);
-    Eigen::VectorXd result = Eigen::VectorXd::Zero(p_q.size());
-    for(long int idx = 0; idx < q.size(); ++idx)
-    {
-      result(idx) = - kp/m_nax * (q(idx) - 0.5*(this->m_limits.pos_upper(idx) + this->m_limits.pos_lower(idx))) / (this->m_limits.pos_upper(idx) - this->m_limits.pos_lower(idx));
-    }
-    full << result, Eigen::VectorXd::Zero(m_float_base.nax());
-    return full;
-  };
-
-#else
-  auto joint_vel_constraints_QP = [&, this](Eigen::MatrixXd& CI, Eigen::VectorXd& ci) -> void {
-    CI.resize(2 * m_full_nax, m_full_nax); // N righe, q.size() colonne
-    ci.resize(2 * m_full_nax);
-    CI.block(0,0,m_full_nax, m_full_nax) = - Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
-    CI.block(m_full_nax, 0, m_full_nax, m_full_nax) = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
-    ci.head<3>() << (m_parameters.floating_base.max_vel.linear[0] - m_qp(0))/m_dt,
-                    (m_parameters.floating_base.max_vel.linear[1] - m_qp(1))/m_dt,
-                    (m_parameters.floating_base.max_vel.angular   - m_qp(2))/m_dt;
-    ci.segment(3, m_nax) = (m_limits.vel - m_qp.tail(m_nax))/m_dt;
-    ci.segment(m_full_nax, 3) << (-m_parameters.floating_base.max_vel.linear[0] + m_qp(0))/m_dt,
-                                 (-m_parameters.floating_base.max_vel.linear[1] + m_qp(1))/m_dt,
-                                 (-m_parameters.floating_base.max_vel.angular   + m_qp(2))/m_dt;
-    ci.segment(m_full_nax + 3, m_nax) = (-m_limits.vel + m_qp.tail(m_nax))/m_dt;
-  };
-
-#endif
   auto clik = [&, this](const Eigen::VectorXd& p_twist_next_tool_world_in_world) -> Eigen::VectorXd {
     Eigen::VectorXd gradientW = m_kp_last_task*(full_position_references - m_q) + m_kv_last_task*(full_velocity_references - m_qp);
     Eigen::Vector6d pose_error_tool_world_in_world;
@@ -717,16 +680,15 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::MatrixXd W_half;
 
     W.diagonal().head(m_full_nax) = Eigen::Map<Eigen::VectorXd>(m_parameters.clik.task.weights.data(), m_parameters.clik.task.weights.size());
-    W.diagonal().head<3>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
+    //W.diagonal().head<3>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
     W_half = W.cwiseSqrt();
 
     G.topLeftCorner(m_full_nax, m_full_nax).diagonal() = W.diagonal().cwiseInverse();
     //G.diagonal().tail(m_full_nax).setOnes();
 
     // last task
-    Eigen::MatrixXd At, Ae, Aw, As, Ap, Av, A2;
-    Eigen::VectorXd bt, be, bw, bs, bp, bv, b2;
-    double wl = 1e-2;
+    Eigen::MatrixXd At, Ae, Aw, As, Ap, Av;
+    Eigen::VectorXd bt, be, bw, bs, bp, bv;
 
     // Velocity
     At = - m_kv_last_task * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
@@ -739,10 +701,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     bs = bw;
     Av = As;
     bv = - bs;
-    // G.block(m_full_nax,m_full_nax,m_full_nax - m_nax, m_full_nax - m_nax) = Av.transpose() * Av;
-    // F.segment(m_full_nax, m_full_nax) = - 2 * bv.transpose() * Av;
-    // G.block(0,0,m_full_nax, m_full_nax) += Aw.transpose() * wl * Aw;
-    // F.segment(0, m_full_nax) += - 2 * bw.transpose() * wl * Aw;
 
     // Position
     At = - m_kp_last_task * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
@@ -755,10 +713,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     bs = bw;
     Ap = As;
     bp = - bs;
-    // G.block(m_full_nax,m_full_nax,m_full_nax, m_full_nax) = Ap.transpose() * Ap;
-    // F.segment(m_full_nax, m_full_nax) = - 2 * bp.transpose() * Ap;
-    // G.block(0,0,m_full_nax, m_full_nax) += Aw.transpose() * wl * Aw;
-    // F.segment(0, m_full_nax) += - 2 * bw.transpose() * wl * Aw;
 
 
     // EQ Constraints
@@ -777,21 +731,42 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     ce.segment(6, m_full_nax) = bv + bp;
 
     // DISEQ Constraints
-    Eigen::MatrixXd CI; Eigen::VectorXd ci;
-    // CI = Eigen::MatrixXd::Zero(prb_dim, prb_dim);
-    // ci = Eigen::VectorXd::Zero(prb_dim);
-    // joint_vel_constraints_QP(CI, ci);
+    // TODO: include weight matrix
+    Eigen::MatrixXd CI(2 * m_full_nax + 4 * m_nax, prb_dim); Eigen::VectorXd ci(2 * m_full_nax + 4 * m_nax);
+      // Velocity
+    CI.block(0, 0, m_full_nax, m_full_nax) = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
+    CI.block(m_nax, 0, m_full_nax, m_full_nax) = - Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
+    ci.head<3>() <<
+        (m_parameters.floating_base.max_vel.linear[0] - m_qp(0)),
+        (m_parameters.floating_base.max_vel.linear[1] - m_qp(1)),
+        (m_parameters.floating_base.max_vel.angular   - m_qp(2));
+    ci.segment(3, m_nax) = (m_limits.vel - m_qp.tail(m_nax));
+    ci.segment(m_full_nax, 3) <<
+        (-m_parameters.floating_base.max_vel.linear[0] + m_qp(0)),
+        (-m_parameters.floating_base.max_vel.linear[1] + m_qp(1)),
+        (-m_parameters.floating_base.max_vel.angular   + m_qp(2));
+    ci.segment(m_full_nax + 3, m_nax) = (-m_limits.vel + m_qp.tail(m_nax));
+      // Acceleration
+    CI.block(2 * m_full_nax, m_full_nax - m_nax, m_nax, m_nax) =           Eigen::MatrixXd::Identity(m_nax, m_nax);
+    CI.block(2 * m_full_nax + m_nax, m_full_nax - m_nax, m_nax, m_nax) = - Eigen::MatrixXd::Identity(m_nax, m_nax);
+    ci.segment(2 * m_full_nax, m_nax) = m_limits.acc;
+    ci.segment(2 * m_full_nax + m_nax, m_nax) = - m_limits.acc;
+      // Positions
+    CI.block(2 * m_full_nax + 2 * m_nax, m_full_nax - m_nax, m_nax, m_nax) =   0.5 * m_dt * m_dt * Eigen::MatrixXd::Identity(m_nax, m_nax);
+    CI.block(2 * m_full_nax + 3 * m_nax, m_full_nax - m_nax, m_nax, m_nax) = - 0.5 * m_dt * m_dt * Eigen::MatrixXd::Identity(m_nax, m_nax);
+    ci.segment(2 * m_full_nax + 2 * m_nax, m_nax) =   m_limits.pos_lower - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
+    ci.segment(2 * m_full_nax + 3 * m_nax, m_nax) = - m_limits.pos_upper + (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
 
     double ret = Eigen::solve_quadprog(G,
         F,
         CE.transpose(),
         ce,
-        CI,
+        CI.transpose(),
         ci,
         sol);
     assert(ret != std::numeric_limits<double>::infinity());
     Eigen::VectorXd null_space_q(m_full_nax);
-    null_space_q << Eigen::VectorXd::Zero(m_nax), sol.tail(m_full_nax - m_nax);
+    null_space_q << Eigen::VectorXd::Zero(6), sol.tail(m_full_nax - 6);
     Eigen::VectorXd return_q = sol.head(m_full_nax) + svd_full.matrixV() * null_space_q;
     return W_half * return_q;
 #endif
