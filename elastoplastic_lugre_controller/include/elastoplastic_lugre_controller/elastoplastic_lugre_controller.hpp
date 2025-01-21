@@ -197,8 +197,6 @@ protected:
 
     } m_float_base;
 
-
-
     std::vector<std::string> m_state_interfaces_names;
     std::vector<std::string> m_command_interfaces_names;
 
@@ -237,9 +235,6 @@ protected:
     Eigen::VectorXd base_velocity_from_twist(const Eigen::Vector6d& w);
     Eigen::Vector6d twist_from_base_velocity(const Eigen::Vector3d& p_v);
     std::array<Eigen::MatrixXd, 6> update_hessian(const Eigen::Matrix6Xd& jacobian, const Eigen::VectorXd& q);
-
-    Eigen::VectorXd m_initial_q;
-    Eigen::VectorXd m_initial_qp;
 
     cppoptlib::Problem prb;
 

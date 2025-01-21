@@ -189,12 +189,6 @@ elastoplastic_controller:
         type: double,
         description: "Weight on alpha to change between base/arm priority"
       }
-      priorities: {
-        type: double_array,
-        validation: {
-          not_empty<>: []
-        }
-      }
       last:
         kp: {
           type: double,
