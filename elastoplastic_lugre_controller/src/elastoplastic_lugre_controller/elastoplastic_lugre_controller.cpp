@@ -704,6 +704,17 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                                      ).transpose() * J_world_tool_in_world * W;
 
     // null task
+    /*
+     * 0.5 * || kp * (qr - q) + kv * (qpr - qp) ||^2 ==> 0.5 * || A qpp - b ||^2
+     *
+     * A = - 0.5 * kp * dt^2 - kv * dt
+     *
+     * -b = kp * (qr - q0 - qp0 * dt) + kv * (qpr - qp0)
+     *
+     * ==> 0.5 * qpp' * A' * A * qpp - b' * A * qpp + ...
+     *
+     */
+
     Eigen::MatrixXd At(m_full_nax, m_full_nax),
         As(m_full_nax, null_space_dim);
     Eigen::VectorXd bt(m_full_nax),
@@ -730,8 +741,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     // ********************
     //const unsigned int num_eq = CARTESIAN_DIM + m_full_nax;
     const unsigned int num_eq = m_full_nax;
-    Eigen::MatrixXd CE = Eigen::MatrixXd::Zero(num_eq, prb_dim);
-    Eigen::VectorXd ce = Eigen::VectorXd::Zero(num_eq);
+    Eigen::MatrixXd CE; // = Eigen::MatrixXd::Zero(num_eq, prb_dim);
+    Eigen::VectorXd ce; // = Eigen::VectorXd::Zero(num_eq);
       // Main constraint
     // CE.block(0,0,CARTESIAN_DIM, m_full_nax) = (J_world_tool_in_world * W);
     // ce.segment(0, CARTESIAN_DIM) = acc_non_linear_in_world
@@ -807,6 +818,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     ci.segment(ineq_num + m_nax, m_nax) =   m_limits.pos_upper - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
     ineq_num += 2 * m_nax;
 
+    //Eigen::MatriXd G_copy_for_debug(G);
+    Eigen::LDLT<Eigen::MatrixXd, Eigen::Lower> ldl(G);
+    RCLCPP_INFO_STREAM(get_node()->get_logger(), "G is positive semidefinite -> " << ldl.isPositive());
     double ret = Eigen::solve_quadprog(G,
         F,
         CE.transpose(),
@@ -828,14 +842,20 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                                 + m_parameters.clik.kp * (pose_error_tool_world_in_world)
                                 );
 
-    RCLCPP_INFO_STREAM(get_node()->get_logger(), "\n######################################################" <<
-                                                     "\n## W ##\n" << W.diagonal().transpose() <<
-                                                     "\n## qpp_LS ## \n" << (W * sol.head(m_nax)).transpose() <<
-                                                     "\n## p ## \n" << (J_svd.matrixV() * null_space_q).transpose() <<
-                                                     "\n## J * qpp - xpp ##\n" << (J_world_tool_in_world * sol.head(m_full_nax) - xpp_clik).transpose() <<
-                                                     "\n## As * null - bs ##\n" << (As * sol.tail(null_space_dim) - bs).transpose() <<
-                                                     "\n## CI * x + ci ##\n" << (CI * sol + ci).transpose() <<
-                                                     "\n#####################################################");
+    // RCLCPP_INFO_STREAM(get_node()->get_logger(), "\n######################################################" <<
+    //                                                  "\n## W ##\n" << W.diagonal().transpose() <<
+    //                                                  "\n## sol ##\n" << sol.transpose() <<
+    //                                                  "\n## ret ##\n" << ret <<
+    //                                                  "\n## qpp_LS ## \n" << (W * sol.head(m_nax)).transpose() <<
+    //                                                  "\n## p ## \n" << (W * J_svd.matrixV() * null_space_q).transpose() <<
+    //                                                  "\n## J * qpp - xpp ##\n" << (J_world_tool_in_world * sol.head(m_full_nax) - xpp_clik).transpose() <<
+    //                                                  "\n## As * null - bs ##\n" << (As * sol.tail(null_space_dim) - bs).transpose() <<
+    //                                                  "\n## CI * x + ci ##\n" << (CI * sol + ci).transpose() <<
+    //                                                  "\n## G ##\n" << G_copy_for_debug <<
+    //                                                  "\n## F ##\n" << F <<
+    //                                                  "\n## CI ##\n" << CI <<
+    //                                                  "\n## ci ##\n" << ci.transpose() <<
+    //                                                  "\n#####################################################");
 
     return return_q;
 #endif
