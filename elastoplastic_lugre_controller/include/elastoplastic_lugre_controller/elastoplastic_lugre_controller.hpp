@@ -143,7 +143,7 @@ protected:
     constexpr static double POSITION_TOLLERANCE = 1e-4;
     constexpr static double VELOCITY_TOLLERANCE = 1e-5;
 
-    constexpr static int CARTESIAN_DIM = 6;
+    constexpr static int k_cartesian_dim = 6;
 
     enum class RDStatus {
       OK,

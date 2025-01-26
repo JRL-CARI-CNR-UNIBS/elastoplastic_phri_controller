@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <fmt/color.h>
 
+//#define TRACE_SOLVER
 #include <eigen_matrix_utils/eiquadprog.hpp>
 
 
@@ -670,7 +671,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                                                                 m_parameters.clik.task.weights.size());
     W.diagonal().head<3>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
 
-    Eigen::JacobiSVD<Eigen::MatrixXd> J_svd(m_chain_world_tool->getJacobian(m_q), Eigen::ComputeFullV);
+    Eigen::JacobiSVD<Eigen::MatrixXd> J_svd(J_world_tool_in_world * W, Eigen::ComputeFullV);
     // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), fmt::format("Singular values: {}", J_svd.singularValues()));
     // if(J_svd.nonzeroSingularValues() != std::min(J_svd.rows(), J_svd.cols()))
     //   RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000, "SINGULARITY POINT (null singular values)");
@@ -685,7 +686,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     }
     unsigned int prb_dim = m_full_nax + null_space_dim;
     Eigen::VectorXd sol(prb_dim);
-    Eigen::MatrixXd G = 2 * Eigen::MatrixXd::Identity(prb_dim, prb_dim);
+    Eigen::MatrixXd G = Eigen::MatrixXd::Identity(prb_dim, prb_dim);
     Eigen::VectorXd F = Eigen::VectorXd::Zero(prb_dim);
 
 
@@ -716,36 +717,38 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
      */
 
     Eigen::MatrixXd At(m_full_nax, m_full_nax),
-        As(m_full_nax, null_space_dim);
+        As(m_full_nax, m_full_nax+null_space_dim);
     Eigen::VectorXd bt(m_full_nax),
         bs(m_full_nax);
 
     // Velocity
     At = - m_kv_last_task * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
-    bt = - m_kv_last_task * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * (full_velocity_references - m_qp);
-    As = (At * J_svd.matrixV()).rightCols(null_space_dim);
+    bt = m_kv_last_task * (full_velocity_references - m_qp); // = -b
+    As << At * W, (At * W * J_svd.matrixV()).rightCols(null_space_dim);
+//    As = (At * W * J_svd.matrixV()).rightCols(null_space_dim);
     bs = bt;
 
     // Position
     At = - m_kp_last_task * 0.5 * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * std::pow(m_dt, 2);
-    bt = - m_kp_last_task * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * (full_position_references - (m_q + m_qp * m_dt));
-    As += (At * J_svd.matrixV()).rightCols(null_space_dim);
+    bt = m_kp_last_task * (full_position_references - (m_q + m_qp * m_dt)); // -b
+    As.leftCols(m_full_nax) += At * W;
+    As.rightCols(null_space_dim) = (At * W * J_svd.matrixV()).rightCols(null_space_dim);
+    //As += (At * W * J_svd.matrixV()).rightCols(null_space_dim);
     bs += bt;
 
     // TODO: Considera il caso in cui null_space_dim != 3
     G.block(m_full_nax, m_full_nax, null_space_dim, null_space_dim) = As.transpose() * As;
-    F.segment(m_full_nax, null_space_dim) = - bs.transpose() * As;
+    F.segment(m_full_nax, null_space_dim) = bs.transpose() * As;
 
     // ********************
     // ** EQ Constraints **
     // ********************
-    //const unsigned int num_eq = CARTESIAN_DIM + m_full_nax;
-    const unsigned int num_eq = m_full_nax;
-    Eigen::MatrixXd CE; // = Eigen::MatrixXd::Zero(num_eq, prb_dim);
-    Eigen::VectorXd ce; // = Eigen::VectorXd::Zero(num_eq);
+    Eigen::MatrixXd CE(k_cartesian_dim, m_full_nax + null_space_dim); // = Eigen::MatrixXd::Zero(num_eq, prb_dim);
+    Eigen::VectorXd ce(k_cartesian_dim); // = Eigen::VectorXd::Zero(num_eq);
       // Main constraint
-    // CE.block(0,0,CARTESIAN_DIM, m_full_nax) = (J_world_tool_in_world * W);
-    // ce.segment(0, CARTESIAN_DIM) = acc_non_linear_in_world
+    // CE.block(0,0,k_cartesian_dim, m_full_nax) = (J_world_tool_in_world * W);
+    // CE.leftCols(null_space_dim).setZero();
+    // ce.segment(0, k_cartesian_dim) = acc_non_linear_in_world
     //      - cart_acc_tool_target_in_world
     //      - m_parameters.clik.kv * (velocity_error_tool_world_in_world)
     //      - m_parameters.clik.kp * (pose_error_tool_world_in_world);
@@ -757,18 +760,18 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     // ** DISEQ Constraints **
     // ***********************
     // TODO: Controlla che le matrici dei pesi siano usate correttamente!
-    Eigen::MatrixXd CI = Eigen::MatrixXd::Zero(4 * m_full_nax + 2 * m_nax, prb_dim);
-    Eigen::VectorXd ci = Eigen::VectorXd::Zero(4 * m_full_nax + 2 * m_nax);
+    Eigen::MatrixXd CI(4 * m_full_nax + 2 * m_nax, prb_dim);
+    Eigen::VectorXd ci(4 * m_full_nax + 2 * m_nax);
     unsigned int ineq_num = 0;
 
       // Velocity
     CI.block(0, 0, m_full_nax, m_full_nax + null_space_dim) <<
         W * m_dt,
-        J_svd.matrixV().rightCols(null_space_dim) * m_dt;
+        W * J_svd.matrixV().rightCols(null_space_dim) * m_dt;
 
     CI.block(m_full_nax, 0, m_full_nax, m_full_nax + null_space_dim) <<
         - W * m_dt,
-        - J_svd.matrixV().rightCols(null_space_dim) * m_dt;
+        - W * J_svd.matrixV().rightCols(null_space_dim) * m_dt;
 
     ci.head<3>() <<
         (m_qp(0) + m_parameters.floating_base.max_vel.linear[0]),
@@ -786,11 +789,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
        // Acceleration
     CI.block(ineq_num, 0, m_full_nax, m_full_nax + null_space_dim) <<
         W, // LS
-        J_svd.matrixV().rightCols(null_space_dim); // NULL_SPACE
+        W * J_svd.matrixV().rightCols(null_space_dim); // NULL_SPACE
 
     CI.block(ineq_num + m_full_nax, 0, m_full_nax, m_full_nax + null_space_dim) <<
         - W, // LS
-        - J_svd.matrixV().rightCols(null_space_dim); // NULL_SPACE
+        - W * J_svd.matrixV().rightCols(null_space_dim); // NULL_SPACE
 
     ci.segment(ineq_num, 3) <<
         10 * m_parameters.floating_base.max_vel.linear[0],
@@ -808,11 +811,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       // Positions
     CI.block(ineq_num, m_full_nax - m_nax, m_nax, m_nax + null_space_dim) <<
         W.bottomRightCorner(m_nax, m_nax) * 0.5 * m_dt * m_dt,
-        J_svd.matrixV().bottomRightCorner(m_nax, null_space_dim) * 0.5 * m_dt * m_dt; // NULL_SPACE
+        W.bottomRightCorner(m_nax, m_nax) * J_svd.matrixV().bottomRightCorner(m_nax, null_space_dim) * 0.5 * m_dt * m_dt; // NULL_SPACE
 
     CI.block(ineq_num + m_nax, m_full_nax - m_nax, m_nax, m_nax + null_space_dim) <<
         - W.bottomRightCorner(m_nax, m_nax) *  0.5 * m_dt * m_dt,
-        - J_svd.matrixV().bottomRightCorner(m_nax, null_space_dim) * 0.5 * m_dt * m_dt; // NULL_SPACE
+        - W.bottomRightCorner(m_nax, m_nax) * J_svd.matrixV().bottomRightCorner(m_nax, null_space_dim) * 0.5 * m_dt * m_dt; // NULL_SPACE
 
     ci.segment(ineq_num,         m_nax) =   (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt) - m_limits.pos_lower;
     ci.segment(ineq_num + m_nax, m_nax) =   m_limits.pos_upper - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
@@ -835,7 +838,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     }
     Eigen::VectorXd null_space_q(m_full_nax);
     null_space_q << Eigen::VectorXd::Zero(m_full_nax - null_space_dim), sol.tail(null_space_dim);
-    Eigen::VectorXd return_q = W * sol.head(m_full_nax) + J_svd.matrixV() * null_space_q;
+    Eigen::VectorXd return_q = W * sol.head(m_full_nax) + W * J_svd.matrixV() * null_space_q;
     Eigen::VectorXd xpp_clik = (- acc_non_linear_in_world
                                 + cart_acc_tool_target_in_world
                                 + m_parameters.clik.kv * (velocity_error_tool_world_in_world)
@@ -873,22 +876,22 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   // Scaling due to joint velocity limits
   double scaling_vel = 1.0;
-  for(size_t idx = 0; idx < m_nax; idx++)
-  {
-    scaling_vel = std::max(scaling_vel,std::abs(qp(idx))/m_limits.vel(idx));
-  }
-  if(scaling_vel > 1)
-  {
-    qepp = clik(twist_next_tool_world_in_world/scaling_vel);
-    if (qepp.hasNaN())
-    {
-      RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
-      //return controller_interface::return_type::ERROR;
-      this->on_deactivate(rclcpp_lifecycle::State());
-      throw std::runtime_error("Controller crashed");
-    }
-    RCLCPP_WARN(get_node()->get_logger(), "Joint velocity greater than limits (ratio = %4f). Applying scaling", scaling_vel);
-  }
+  // for(size_t idx = 0; idx < m_nax; idx++)
+  // {
+  //   scaling_vel = std::max(scaling_vel,std::abs(qp(idx))/m_limits.vel(idx));
+  // }
+  // if(scaling_vel > 1)
+  // {
+  //   RCLCPP_WARN(get_node()->get_logger(), "Joint velocity greater than limits (ratio = %4f). Applying scaling", scaling_vel);
+  //   qepp = clik(twist_next_tool_world_in_world/scaling_vel);
+  //   if (qepp.hasNaN())
+  //   {
+  //     RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
+  //     //return controller_interface::return_type::ERROR;
+  //     this->on_deactivate(rclcpp_lifecycle::State());
+  //     throw std::runtime_error("Controller crashed");
+  //   }
+  // }
 
   m_q  += m_qp * m_dt + 0.5 * qepp * std::pow(m_dt, 2);
   m_qp += qepp * m_dt;
