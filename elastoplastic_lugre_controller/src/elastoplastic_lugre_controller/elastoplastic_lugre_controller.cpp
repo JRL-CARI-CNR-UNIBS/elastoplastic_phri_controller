@@ -15,6 +15,11 @@
 
 namespace elastoplastic {
 
+Eigen::MatrixXd& regularize(Eigen::MatrixXd& m)
+{
+  m += Eigen::MatrixXd::Identity(m.rows(), m.cols()) * 10e-6 * m.trace()/m.cols();
+  return m;
+}
 
 controller_interface::CallbackReturn ElastoplasticController::on_init()
 {
@@ -672,11 +677,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     W.diagonal().head<3>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
 
     Eigen::JacobiSVD<Eigen::MatrixXd> J_svd(J_world_tool_in_world * W, Eigen::ComputeFullV);
-    // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), fmt::format("Singular values: {}", J_svd.singularValues()));
-    // if(J_svd.nonzeroSingularValues() != std::min(J_svd.rows(), J_svd.cols()))
-    //   RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000, "SINGULARITY POINT (null singular values)");
-    // else if (J_svd.singularValues()(0)/J_svd.singularValues()(std::min(J_svd.rows(), J_svd.cols())-1) > 1e2)
-    //   RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000, "SINGULARITY POINT (high conditioning number)");
 
     unsigned int null_space_dim = m_full_nax - J_svd.nonzeroSingularValues();
     if(null_space_dim != 3)
@@ -684,25 +684,19 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       this->on_deactivate(rclcpp_lifecycle::State()); //DEBUG
       throw std::runtime_error("Controller crashed"); // DEBUG
     }
-    unsigned int prb_dim = m_full_nax + null_space_dim;
+    const unsigned int prb_dim = m_full_nax;
     Eigen::VectorXd sol(prb_dim);
-    Eigen::MatrixXd G = Eigen::MatrixXd::Identity(prb_dim, prb_dim);
-    Eigen::VectorXd F = Eigen::VectorXd::Zero(prb_dim);
+    Eigen::MatrixXd G(prb_dim, prb_dim), G2(prb_dim, prb_dim);
+    Eigen::VectorXd F(prb_dim), F2(prb_dim);
 
+    Eigen::VectorXd xpp_clik = (- acc_non_linear_in_world
+                                + cart_acc_tool_target_in_world
+                                + m_parameters.clik.kv * (velocity_error_tool_world_in_world)
+                                + m_parameters.clik.kp * (pose_error_tool_world_in_world)
+                                );
 
-    double epsilon = 1e-3; // TODO: move to parameters if it works
-    double wl_max = 1e-3;  // TODO: move to parameters if it works
-    double last_sing = J_svd.singularValues()(Eigen::last);
-    double wL = 0; //last_sing >= epsilon ? 0 : (1 - std::pow(last_sing/epsilon, 2.0)) * wl_max;
-
-    G.block(0,0,m_full_nax, m_full_nax) =
-        (J_world_tool_in_world * W).transpose() * (J_world_tool_in_world * W)
-        + std::pow(wL, 2) * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
-    F.segment(0, m_full_nax) = - (- acc_non_linear_in_world
-                                      + cart_acc_tool_target_in_world
-                                      + m_parameters.clik.kv * (velocity_error_tool_world_in_world)
-                                      + m_parameters.clik.kp * (pose_error_tool_world_in_world)
-                                     ).transpose() * J_world_tool_in_world * W;
+    G.block(0,0,m_full_nax, m_full_nax) = (J_world_tool_in_world * W).transpose() * (J_world_tool_in_world * W);
+    F.segment(0, m_full_nax) = - xpp_clik.transpose() * J_world_tool_in_world * W;
 
     // null task
     /*
@@ -716,62 +710,55 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
      *
      */
 
-    Eigen::MatrixXd At(m_full_nax, m_full_nax),
-        As(m_full_nax, m_full_nax+null_space_dim);
-    Eigen::VectorXd bt(m_full_nax),
+    Eigen::MatrixXd
+        At(m_full_nax, m_full_nax),
+        As(m_full_nax, m_full_nax);
+    Eigen::VectorXd
+        bt(m_full_nax),
         bs(m_full_nax);
 
     // Velocity
     At = - m_kv_last_task * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
-    bt = m_kv_last_task * (full_velocity_references - m_qp); // = -b
-    As << At * W, (At * W * J_svd.matrixV()).rightCols(null_space_dim);
-//    As = (At * W * J_svd.matrixV()).rightCols(null_space_dim);
+    bt = - m_kv_last_task * (full_velocity_references - m_qp);
+    As = At * W;
     bs = bt;
 
     // Position
     At = - m_kp_last_task * 0.5 * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * std::pow(m_dt, 2);
-    bt = m_kp_last_task * (full_position_references - (m_q + m_qp * m_dt)); // -b
-    As.leftCols(m_full_nax) += At * W;
-    As.rightCols(null_space_dim) = (At * W * J_svd.matrixV()).rightCols(null_space_dim);
-    //As += (At * W * J_svd.matrixV()).rightCols(null_space_dim);
+    bt = - m_kp_last_task * (full_position_references - (m_q + m_qp * m_dt));
+    As += At * W;
     bs += bt;
 
-    // TODO: Considera il caso in cui null_space_dim != 3
-    G.block(m_full_nax, m_full_nax, null_space_dim, null_space_dim) = As.transpose() * As;
-    F.segment(m_full_nax, null_space_dim) = bs.transpose() * As;
+    G2 = As.transpose() * As;
+    F2 = - bs.transpose() * As;
+    //G.block(m_full_nax, m_full_nax, null_space_dim, null_space_dim) = As.transpose() * As;
+    //F.segment(m_full_nax, null_space_dim) = bs.transpose() * As;
 
     // ********************
     // ** EQ Constraints **
     // ********************
-    Eigen::MatrixXd CE(k_cartesian_dim, m_full_nax + null_space_dim); // = Eigen::MatrixXd::Zero(num_eq, prb_dim);
-    Eigen::VectorXd ce(k_cartesian_dim); // = Eigen::VectorXd::Zero(num_eq);
-      // Main constraint
-    // CE.block(0,0,k_cartesian_dim, m_full_nax) = (J_world_tool_in_world * W);
-    // CE.leftCols(null_space_dim).setZero();
-    // ce.segment(0, k_cartesian_dim) = acc_non_linear_in_world
-    //      - cart_acc_tool_target_in_world
-    //      - m_parameters.clik.kv * (velocity_error_tool_world_in_world)
-    //      - m_parameters.clik.kp * (pose_error_tool_world_in_world);
-      // A p = b
-    // CE.block(0, m_full_nax, m_full_nax, null_space_dim) = As;
-    // ce.segment(0, m_full_nax) = - bs;
+    Eigen::MatrixXd CE(k_cartesian_dim, m_full_nax);
+    Eigen::VectorXd ce(k_cartesian_dim);
+      // Null space
+    Eigen::MatrixXd CE2(k_cartesian_dim, m_full_nax);
+    Eigen::VectorXd ce2(k_cartesian_dim);
+    CE2.block(0,0,k_cartesian_dim, m_full_nax) = (J_world_tool_in_world * W);
+    ce2.segment(0, k_cartesian_dim) = - xpp_clik;
 
     // ***********************
     // ** DISEQ Constraints **
     // ***********************
     // TODO: Controlla che le matrici dei pesi siano usate correttamente!
-    Eigen::MatrixXd CI(4 * m_full_nax + 2 * m_nax, prb_dim);
+    Eigen::MatrixXd CI = Eigen::MatrixXd::Zero(4 * m_full_nax + 2 * m_nax, prb_dim);
     Eigen::VectorXd ci(4 * m_full_nax + 2 * m_nax);
     unsigned int ineq_num = 0;
 
       // Velocity
-    CI.block(0, 0, m_full_nax, m_full_nax + null_space_dim) <<
-        W * m_dt,
-        W * J_svd.matrixV().rightCols(null_space_dim) * m_dt;
+    CI.block(0, 0, m_full_nax, prb_dim) <<
+        W * m_dt;
 
-    CI.block(m_full_nax, 0, m_full_nax, m_full_nax + null_space_dim) <<
-        - W * m_dt,
-        - W * J_svd.matrixV().rightCols(null_space_dim) * m_dt;
+    CI.block(m_full_nax, 0, m_full_nax, prb_dim) <<
+        - W * m_dt;
 
     ci.head<3>() <<
         (m_qp(0) + m_parameters.floating_base.max_vel.linear[0]),
@@ -787,13 +774,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     ineq_num += 2 * m_full_nax;
 
        // Acceleration
-    CI.block(ineq_num, 0, m_full_nax, m_full_nax + null_space_dim) <<
-        W, // LS
-        W * J_svd.matrixV().rightCols(null_space_dim); // NULL_SPACE
+    CI.block(ineq_num, 0, m_full_nax, prb_dim) <<
+        W;
 
-    CI.block(ineq_num + m_full_nax, 0, m_full_nax, m_full_nax + null_space_dim) <<
-        - W, // LS
-        - W * J_svd.matrixV().rightCols(null_space_dim); // NULL_SPACE
+    CI.block(ineq_num + m_full_nax, 0, m_full_nax, prb_dim) <<
+        - W;
 
     ci.segment(ineq_num, 3) <<
         10 * m_parameters.floating_base.max_vel.linear[0],
@@ -809,21 +794,25 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     ineq_num += 2 * m_full_nax;
 
       // Positions
-    CI.block(ineq_num, m_full_nax - m_nax, m_nax, m_nax + null_space_dim) <<
-        W.bottomRightCorner(m_nax, m_nax) * 0.5 * m_dt * m_dt,
-        W.bottomRightCorner(m_nax, m_nax) * J_svd.matrixV().bottomRightCorner(m_nax, null_space_dim) * 0.5 * m_dt * m_dt; // NULL_SPACE
+    CI.block(ineq_num, m_full_nax - m_nax, m_nax, m_nax) <<
+        W.bottomRightCorner(m_nax, m_nax) * 0.5 * m_dt * m_dt;
 
-    CI.block(ineq_num + m_nax, m_full_nax - m_nax, m_nax, m_nax + null_space_dim) <<
-        - W.bottomRightCorner(m_nax, m_nax) *  0.5 * m_dt * m_dt,
-        - W.bottomRightCorner(m_nax, m_nax) * J_svd.matrixV().bottomRightCorner(m_nax, null_space_dim) * 0.5 * m_dt * m_dt; // NULL_SPACE
+    CI.block(ineq_num + m_nax, m_full_nax - m_nax, m_nax, m_nax) <<
+        - W.bottomRightCorner(m_nax, m_nax) *  0.5 * m_dt * m_dt;
 
     ci.segment(ineq_num,         m_nax) =   (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt) - m_limits.pos_lower;
     ci.segment(ineq_num + m_nax, m_nax) =   m_limits.pos_upper - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
     ineq_num += 2 * m_nax;
 
-    //Eigen::MatriXd G_copy_for_debug(G);
-    Eigen::LDLT<Eigen::MatrixXd, Eigen::Lower> ldl(G);
-    RCLCPP_INFO_STREAM(get_node()->get_logger(), "G is positive semidefinite -> " << ldl.isPositive());
+    // Regularization
+    regularize(G);
+    Eigen::MatrixXd G_copy_for_debug(G);
+    Eigen::LLT<Eigen::MatrixXd, Eigen::Lower> test_chol(G);
+    if(test_chol.info() != Eigen::Success)
+    {
+      RCLCPP_ERROR_STREAM(get_node()->get_logger(), "G is not positive definite");
+    }
+
     double ret = Eigen::solve_quadprog(G,
         F,
         CE.transpose(),
@@ -832,34 +821,71 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
         ci,
         sol);
 
-    if(ret == std::numeric_limits<double>::infinity())
+    if(J_svd.nonzeroSingularValues() < J_world_tool_in_world.rows())
     {
+      RCLCPP_ERROR(get_node()->get_logger(), "Singularity");
+    }
+    if(ret == std::numeric_limits<double>::infinity()) {
+      RCLCPP_ERROR(get_node()->get_logger(), "Problem unfeasible");
       return Eigen::VectorXd::Constant(1,1,std::nan("0"));
     }
-    Eigen::VectorXd null_space_q(m_full_nax);
-    null_space_q << Eigen::VectorXd::Zero(m_full_nax - null_space_dim), sol.tail(null_space_dim);
-    Eigen::VectorXd return_q = W * sol.head(m_full_nax) + W * J_svd.matrixV() * null_space_q;
-    Eigen::VectorXd xpp_clik = (- acc_non_linear_in_world
-                                + cart_acc_tool_target_in_world
-                                + m_parameters.clik.kv * (velocity_error_tool_world_in_world)
-                                + m_parameters.clik.kp * (pose_error_tool_world_in_world)
-                                );
 
-    // RCLCPP_INFO_STREAM(get_node()->get_logger(), "\n######################################################" <<
-    //                                                  "\n## W ##\n" << W.diagonal().transpose() <<
-    //                                                  "\n## sol ##\n" << sol.transpose() <<
-    //                                                  "\n## ret ##\n" << ret <<
-    //                                                  "\n## qpp_LS ## \n" << (W * sol.head(m_nax)).transpose() <<
-    //                                                  "\n## p ## \n" << (W * J_svd.matrixV() * null_space_q).transpose() <<
-    //                                                  "\n## J * qpp - xpp ##\n" << (J_world_tool_in_world * sol.head(m_full_nax) - xpp_clik).transpose() <<
-    //                                                  "\n## As * null - bs ##\n" << (As * sol.tail(null_space_dim) - bs).transpose() <<
-    //                                                  "\n## CI * x + ci ##\n" << (CI * sol + ci).transpose() <<
-    //                                                  "\n## G ##\n" << G_copy_for_debug <<
-    //                                                  "\n## F ##\n" << F <<
-    //                                                  "\n## CI ##\n" << CI <<
-    //                                                  "\n## ci ##\n" << ci.transpose() <<
-    //                                                  "\n#####################################################");
+    Eigen::VectorXd first_sol(sol); double first_ret {ret};
+    Eigen::VectorXd deviation_from_task_1 = CE2 * sol + ce2;
+    ce2 -= deviation_from_task_1;
 
+    // Nullspace task
+    ret = Eigen::solve_quadprog(regularize(G2),
+                                F2,
+                                CE2.transpose(),
+                                ce2,
+                                CI.transpose(),
+                                ci,
+                                sol);
+    //RCLCPP_INFO_STREAM(get_node()->get_logger(), "\n################## Second Round ######################" <<
+    //                                                 "\n## W ##\n" << W.diagonal().transpose() <<
+    //                                                 "\n## sol ##\n" << sol.transpose() <<
+    //                                                 "\n## ret ##\n" << ret <<
+    //                                                 "\n## qpp_LS ## \n" << (W * sol.head(m_full_nax)).transpose() <<
+    //                                                 "\n## J * qpp - xpp ##\n" << (J_world_tool_in_world * sol.head(m_full_nax) - xpp_clik).transpose() <<
+    //                                                 "\n## As * null - bs ##\n" << (As * sol - bs).transpose() <<
+    //                                                 "\n## CI * x + ci ##\n" << (CI * sol + ci).transpose() <<
+    //                                                 "\n## G ##\n" << G_copy_for_debug <<
+    //                                                 "\n## F ##\n" << F <<
+    //                                                 "\n## CI ##\n" << CI <<
+    //                                                 "\n## ci ##\n" << ci.transpose() <<
+    //                                                 "\n#####################################################");
+
+    if(ret == std::numeric_limits<double>::infinity())
+    {
+      RCLCPP_ERROR_STREAM(get_node()->get_logger(), "\n######################################################" <<
+                                                        "\n## W ##\n" << W.diagonal().transpose() <<
+                                                        "\n## sol ##\n" << sol.transpose() <<
+                                                        "\n## ret ##\n" << ret <<
+                                                        "\n## qpp_LS ## \n" << (W * sol.head(m_full_nax)).transpose() <<
+                                                        "\n## J * qpp - xpp ##\n" << (J_world_tool_in_world * sol.head(m_full_nax) - xpp_clik).transpose() <<
+                                                        "\n## As * null - bs ##\n" << (As * sol - bs).transpose() <<
+                                                        "\n## CI * x + ci ##\n" << (CI * sol + ci).transpose() <<
+                                                        "\n## G ##\n" << G_copy_for_debug <<
+                                                        "\n## F ##\n" << F <<
+                                                        "\n## CI ##\n" << CI <<
+                                                        "\n## ci ##\n" << ci.transpose() <<
+                                                        "\n#####################################################");
+      return Eigen::VectorXd::Constant(1,1,std::nan("0"));
+    }
+
+    RCLCPP_INFO_STREAM(get_node()->get_logger(), "\n################## Least Squares ######################" <<
+                                                     "\n## W ##\n" << W.diagonal().transpose() <<
+                                                     "\n## first round sol ##\n" << first_sol.transpose() <<
+                                                     "\n## first round ret ##\n" << first_ret <<
+                                                     "\n## second round sol ##\n" << sol.transpose() <<
+                                                     "\n## second round ret ##\n" << ret <<
+                                                     "\n## qpp ## \n" << (W * sol.head(m_full_nax)).transpose() <<
+                                                     "\n## J * qpp - xpp[clik] ##\n" << (J_world_tool_in_world * sol.head(m_full_nax) - xpp_clik).transpose() <<
+                                                     "\n## Null task: As * qpp - bs ##\n" << (As * sol - bs).transpose() <<
+                                                     "\n## CI * x + ci (>= 0) ##\n" << (CI * sol + ci).transpose() <<
+                                                     "\n#####################################################");
+    Eigen::VectorXd return_q = W * sol.head(m_full_nax); // + W * J_svd.matrixV() * null_space_q;
     return return_q;
 #endif
   };
