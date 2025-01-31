@@ -5,7 +5,7 @@
 
 #include "rdyn_core/primitives.h"
 
-#include <Eigen/Core>
+#include <Eigen/Dense>
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>

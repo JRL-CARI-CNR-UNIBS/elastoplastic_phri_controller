@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(elastoplastic_lugre_controller)
 add_compile_options(-funroll-loops -Wall -Ofast)
 set(CMAKE_BUILD_TYPE Debug)
-# set(CMAKE_BUILD_TYPE RelWithDebInfo)
+#set(CMAKE_BUILD_TYPE RelWithDebInfo)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -72,6 +72,7 @@ target_include_directories(elastoplastic_controller PUBLIC
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
 target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas)
+target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
 install(TARGETS elastoplastic_controller elastoplastic_parameters
         EXPORT export_elastoplastic_controller
