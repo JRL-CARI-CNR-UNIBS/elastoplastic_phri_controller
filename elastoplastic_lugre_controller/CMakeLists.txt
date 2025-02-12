@@ -25,7 +25,8 @@ find_package(generate_parameter_library REQUIRED)
 
 find_package(fmt                        REQUIRED)
 find_package(rdyn_core                  REQUIRED)
-find_package(cnr_control_toolbox        REQUIRED)
+# find_package(cnr_control_toolbox        REQUIRED)
+find_package(eiquadprog                 REQUIRED)
 find_package(Eigen3 3.4                 REQUIRED)
 
 generate_parameter_library(
@@ -65,7 +66,9 @@ target_link_libraries(elastoplastic_controller
   PUBLIC rdyn_core::rdyn_core_compiled
   PUBLIC Eigen3::Eigen
   PUBLIC fmt::fmt
-  PUBLIC eigen_matrix_utils::eigen_matrix_utils)
+  #PUBLIC eigen_matrix_utils::eigen_matrix_utils
+  PUBLIC eiquadprog::eiquadprog
+)
 
 target_include_directories(elastoplastic_controller PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
