@@ -25,9 +25,10 @@ find_package(generate_parameter_library REQUIRED)
 
 find_package(fmt                        REQUIRED)
 find_package(rdyn_core                  REQUIRED)
-# find_package(cnr_control_toolbox        REQUIRED)
 find_package(eiquadprog                 REQUIRED)
 find_package(Eigen3 3.4                 REQUIRED)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 generate_parameter_library(
   elastoplastic_parameters # cmake target name for the parameter library
