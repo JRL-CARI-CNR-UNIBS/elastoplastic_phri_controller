@@ -21,6 +21,13 @@ elastoplastic_controller:
       not_empty<>: []
     }
   }
+  cmd_vel_topic: {
+    type: string,
+    default_value: "~/cmd_vel",
+    validation: {
+      not_empty<>: []
+    }
+  }
   ft_sensor_name: {
     type: string,
     default_value: "ft_sensor",
@@ -30,6 +37,11 @@ elastoplastic_controller:
     }
   }
   frames:
+    map: {
+      type: string,
+      default_value: "",
+      description: "Map frame"
+    }
     base: {
       type: string,
       default_value: "",
@@ -59,7 +71,7 @@ elastoplastic_controller:
     description: "Robot Joints",
     # read_only: true
   }
-  floating_base:
+  mobile_base:
     enabled: {
       type: bool,
       default_value: true,
@@ -70,6 +82,14 @@ elastoplastic_controller:
       type: string,
       default_value: "/input_cmd_vel",
       description: "auxiliary axis command",
+      validation: {
+        not_empty<>: []
+      }
+    }
+    localization_topic: {
+      type: string,
+      default_value: "/amcl_pose",
+      description: "Topic published by the localization node with the base position",
       validation: {
         not_empty<>: []
       }
@@ -110,10 +130,10 @@ elastoplastic_controller:
   }
   wrench_deadband: {
     type: double_array,
-    default_value: [0.0,0.0],
-    description: "Wrench deadband. [force_deadband, torque_deadband]",
+    default_value: [0.0,0.0,0.0,0.0,0.0,0.0],
+    description: "Wrench deadband. [force_deadband(x,y,z), torque_deadband(x,y,z)]",
     validation: {
-      fixed_size<>: 2,
+      fixed_size<>: 6,
       lower_element_bounds<>: 0.0
     }
   }

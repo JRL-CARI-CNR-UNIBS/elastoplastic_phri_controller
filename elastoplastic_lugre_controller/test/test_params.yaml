@@ -23,7 +23,7 @@ elastoplastic_controller:
     state_interfaces:
       - position
       - velocity
-    floating_base:
+    mobile_base:
       enabled: false
       input_target_topic: "/reference_cmd_vel"
       odom: "/odom"

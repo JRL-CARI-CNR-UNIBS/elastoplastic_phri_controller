@@ -18,7 +18,7 @@
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "semantic_components/force_torque_sensor.hpp"
-#include "geometry_msgs/msg/pose_with_covariance.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "geometry_msgs/msg/twist_with_covariance.hpp"
 #include "geometry_msgs/msg/wrench.hpp"
 #include "geometry_msgs/msg/wrench_stamped.hpp"
@@ -90,8 +90,9 @@ protected:
   void configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 
   void get_target_callback(const geometry_msgs::msg::Twist & msg);
-  void get_fb_target_callback(const geometry_msgs::msg::Twist & msg);
+  void get_mobile_base_target_callback(const geometry_msgs::msg::Twist & msg);
   void get_odometry_callback(const nav_msgs::msg::Odometry & msg);
+  void get_localization_callback(const geometry_msgs::msg::PoseWithCovarianceStamped & msg);
 
 protected:
   std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
@@ -102,24 +103,26 @@ protected:
 
   InterfaceReference<hardware_interface::LoanedStateInterface> m_joint_state_interfaces;
   InterfaceReference<hardware_interface::LoanedCommandInterface> m_joint_command_interfaces;
-  InterfaceReference<hardware_interface::LoanedStateInterface> m_fb_state_interfaces;
-  InterfaceReference<hardware_interface::LoanedCommandInterface> m_fb_command_interfaces;
+  InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
+  InterfaceReference<hardware_interface::LoanedCommandInterface> m_mobile_base_command_interfaces;
 
   size_t m_joint_reference_interfaces_size;
 
   std::unique_ptr<semantic_components::ForceTorqueSensor> m_ft_sensor;
 
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_fb_target;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_mobile_base_target;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_base_odometry;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr m_sub_base_pose;
 
-  realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_fb_target;
-  realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovariance>
+  realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_mobile_base_target;
+  realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovarianceStamped>
   m_rt_buffer_base_pose_in_world;
   realtime_tools::RealtimeBuffer<geometry_msgs::msg::TwistWithCovariance>
   m_rt_buffer_base_twist_in_base;
   realtime_tools::RealtimeBuffer<nav_msgs::msg::Odometry> m_rt_buffer_base_odom;
 
   rclcpp::Time m_last_odom_msg_time;
+  rclcpp::Time m_last_localization_msg_time;
 
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
 
@@ -129,6 +132,8 @@ protected:
     m_pub_friction_in_world;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr
     m_pub_wrench_in_world;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr
+    m_pub_wrench_in_tool;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cart_vel_error;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr
     m_pub_delta_acceleration;
@@ -142,16 +147,17 @@ protected:
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr
     m_pub_joint_reference;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr
-    m_pub_forward_kinematics;
+    m_pub_fk_world_tool;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr
+    m_pub_fk_base_tool;
 
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
 
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_next_pose;
 
-  constexpr static double K_POSITION_TOLLERANCE = 1e-4;
-  constexpr static double K_VELOCITY_TOLLERANCE = 1e-5;
-  constexpr static double K_MINIMUM_SAMPLING_TIME = 1e-4;
-
+  constexpr static double k_position_tollerance = 1e-4;
+  constexpr static double k_velocity_tollerance = 1e-5;
+  constexpr static double k_minimum_sampling_time = 1e-4;
   constexpr static unsigned int k_cartesian_dim = 6;
 
   enum class RDStatus
@@ -205,11 +211,13 @@ protected:
       return enabled ? base_joint_names_ : std::vector<std::string>{};
     }
 
-private:
+  private:
     constexpr static size_t nax_ {3};
     const std::vector<std::string> base_joint_names_ {"move_x", "move_y", "rot_z"};
 
-  } m_float_base;
+  } m_mobile_base;
+
+  bool m_mobile_base_pose_updated;
 
   std::vector<std::string> m_state_interfaces_names;
   std::vector<std::string> m_command_interfaces_names;
@@ -256,6 +264,9 @@ private:
     const Eigen::Matrix6Xd & jacobian,
     const Eigen::VectorXd & q);
 
+  // tf2_ros::Buffer::SharedPtr m_tf_buffer;
+  // std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
+
   //cppoptlib::Problem prb;
 
   std::array<Eigen::MatrixXd, 6> m_hessian;
@@ -264,6 +275,7 @@ private:
     Eigen::Matrix6Xd jacobian_p;
     std::array<Eigen::MatrixXd, 6> hessian_p;
   } bfgs_prev;
+
 };
 }
 

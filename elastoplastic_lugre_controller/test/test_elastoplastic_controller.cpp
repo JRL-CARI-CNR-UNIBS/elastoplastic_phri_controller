@@ -156,7 +156,7 @@ TEST_F(ElastoplasticControllerTest, unchained_control_base_no_force)
   set_initial_position();
   std::ranges::fill(fts_state_values_, 0.0);
 
-  controller_->get_node()->set_parameter({"floating_base.enabled", true});
+  controller_->get_node()->set_parameter({"mobile_base.enabled", true});
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
   ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * 2);
@@ -184,7 +184,7 @@ TEST_F(ElastoplasticControllerTest, unchained_control_base_force)
   fts_state_values_.at(4) = 0.0;
   fts_state_values_.at(5) = 0.0;
 
-  controller_->get_node()->set_parameter({"floating_base.enabled", true});
+  controller_->get_node()->set_parameter({"mobile_base.enabled", true});
   controller_->get_node()->declare_parameter("robot_description", test_urdf);
   ASSERT_EQ(configureController(), controller_interface::CallbackReturn::SUCCESS);
   ASSERT_EQ(export_reference_interfaces().size(), joints_.size() * 2);
