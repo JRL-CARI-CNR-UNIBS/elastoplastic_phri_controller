@@ -746,19 +746,40 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     wrench_sensor_in_sensor,
     T_tool_sensor);
 
+  std::transform(wrench_tool_in_tool.begin(), wrench_tool_in_tool.end(), m_old_wrench_in_tool.begin(), wrench_tool_in_tool.begin(), [this](const double w, const double w_old){
+    return filters::exponentialSmoothing(w, w_old, m_parameters.wrench.filter_alfa);
+  });
+  m_old_wrench_in_tool = wrench_tool_in_tool;
+
+
   Eigen::Vector6d cart_vel_error_tool_target_in_tool = rdyn::spatialRotation(
     cart_vel_error_tool_target_in_world, T_world_tool.linear().transpose());
 
   Eigen::Vector6d cart_acc_tool_target_in_tool;
-  cart_acc_tool_target_in_tool.head<3>() = m_elastoplastic_model->update(
+  cart_acc_tool_target_in_tool.head<3>() = m_elastoplastic_model_linear->update(
     cart_vel_error_tool_target_in_tool.head<3>(),
     wrench_tool_in_tool.head<3>(),
     m_dt);
+
+
 
   Eigen::Vector6d cart_acc_tool_target_in_world = Eigen::Vector6d::Zero();
   cart_acc_tool_target_in_world.head<3>() = rdyn::spatialRotation(
     cart_acc_tool_target_in_tool,
     T_world_tool.linear()).head<3>();
+
+  // Solo attorno a Z world
+  Eigen::Vector6d wrench_tool_in_world;
+  rdyn::spatialRotation(wrench_tool_in_tool,
+                        T_world_tool.linear(),
+                        &wrench_tool_in_world
+                        );
+
+  //cart_acc_tool_target_in_world.tail<3>() = m_elastoplastic_model_linear->update(
+  //    {0.0, 0.0, cart_vel_error_tool_target_in_world(Eigen::last)},
+  //    {0.0, 0.0, wrench_tool_in_world(Eigen::last)},
+  //    m_dt);
+  //cart_acc_tool_target_in_world({3,4}).setZero();
 
   m_delta_elastoplastic_in_world.position +=
     m_delta_elastoplastic_in_world.velocity * m_dt +
