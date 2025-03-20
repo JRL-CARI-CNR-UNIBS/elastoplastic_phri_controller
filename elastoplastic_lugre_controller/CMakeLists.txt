@@ -11,6 +11,7 @@ set(BUILD_TESTING OFF)
 find_package(ament_cmake                REQUIRED)
 find_package(controller_interface       REQUIRED)
 find_package(hardware_interface         REQUIRED)
+find_package(control_toolbox            REQUIRED)
 find_package(realtime_tools             REQUIRED)
 find_package(pluginlib                  REQUIRED)
 find_package(rclcpp                     REQUIRED)
@@ -50,6 +51,7 @@ pluginlib_export_plugin_description_file(controller_interface elastoplastic.plug
 ament_target_dependencies(elastoplastic_controller PUBLIC
   controller_interface
   hardware_interface
+  control_toolbox
   pluginlib
   rclcpp
   rclcpp_lifecycle
@@ -106,6 +108,7 @@ ament_export_dependencies(controller_interface
   tf2_eigen
   urdfdom
   realtime_tools
+  control_toolbox
 )
 
 if(BUILD_TESTING)
