@@ -112,6 +112,54 @@ elastoplastic_controller:
       angular: {
         type: double,
       }
+    max_acc_x: {
+      type: double,
+      default_value: 0.0,
+      description: "Max acceleration mobile base in x",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_dec_x: {
+      type: double,
+      default_value: 0.0,
+      description: "Max deceleration mobile base in x",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_acc_y: {
+      type: double,
+      default_value: 0.0,
+      description: "Max acceleration mobile base in y",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_dec_y: {
+      type: double,
+      default_value: 0.0,
+      description: "Max deceleration mobile base in y",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_acc_yaw: {
+      type: double,
+      default_value: 0.0,
+      description: "Max acceleration mobile base in yaw",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_dec_yaw: {
+      type: double,
+      default_value: 0.0,
+      description: "Max deceleration mobile base in yaw",
+      validation: {
+        gt<>: 0.0
+      }
+    }
   command_interfaces: {
     type: string_array,
     default_value: ["position", "velocity"],
@@ -128,15 +176,24 @@ elastoplastic_controller:
       not_empty<>: []
     }
   }
-  wrench_deadband: {
-    type: double_array,
-    default_value: [0.0,0.0,0.0,0.0,0.0,0.0],
-    description: "Wrench deadband. [force_deadband(x,y,z), torque_deadband(x,y,z)]",
-    validation: {
-      fixed_size<>: 6,
-      lower_element_bounds<>: 0.0
+  wrench:
+    deadband: {
+      type: double_array,
+      default_value: [0.0,0.0,0.0,0.0,0.0,0.0],
+      description: "Wrench deadband. [force_deadband(x,y,z), torque_deadband(x,y,z)]",
+      validation: {
+        fixed_size<>: 6,
+        lower_element_bounds<>: 0.0
+      }
     }
-  }
+    filter_alfa: {
+      type: double,
+      default_value: 0.05,
+      description: "wrench = alfa * wrench + (1-alfa) * old_wrench",
+      validation: {
+        gt_eq<>: 0
+      }
+    }
   impedance:
     inertia: {
       type: double_array,
@@ -144,10 +201,10 @@ elastoplastic_controller:
       description: "Controller Inertia",
       validation: {
         lower_element_bounds<>: 0,
-        fixed_size<>: 3
+        fixed_size<>: 6
       }
     }
-    lugre:
+    linear:
       sigma_0: {
         type: double,
         description: "bristle stiffness"
@@ -160,20 +217,33 @@ elastoplastic_controller:
         type: double,
         description: "viscous coefficient"
       }
-      z_ss: {
+    angular:
+      sigma_0: {
         type: double,
-        description: "Maximum bristle bending",
-        validation: {
-          gt<>: 0
-        }
+        description: "bristle stiffness"
       }
-      z_ba: {
+      sigma_1: {
         type: double,
-        description: "Plastic threshold",
-        validation: {
-          gt_eq<>: 0
-        }
+        description: "bristle damping"
       }
+      sigma_2: {
+        type: double,
+        description: "viscous coefficient"
+      }
+    z_ss: {
+      type: double,
+      description: "Maximum bristle bending",
+      validation: {
+        gt<>: 0
+      }
+    }
+    z_ba: {
+      type: double,
+      description: "Plastic threshold",
+      validation: {
+        gt_eq<>: 0
+      }
+    }
     tau_w: {
       type: double,
       description: "Time constant of the tracking variable w",
