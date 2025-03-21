@@ -62,7 +62,6 @@ double ElastoplasticModel6D::dalpha(const double z) const
 
 Eigen::Vector6d ElastoplasticModel6D::update(const Eigen::Vector6d& velocity, const Eigen::Vector6d& force, const double period)
 {
-  // fmt::print(fmt::fg(fmt::color::cyan), "v: {}, w: {}, period: {}\n", v, w, period);
   Eigen::Matrix<double, 7, 1> alpha_with_r;
   alpha_with_r << m_state.z, m_state.r;
   m_last_alpha = Eigen::Vector6d::Constant(alpha(alpha_with_r.norm()));
@@ -76,16 +75,6 @@ Eigen::Vector6d ElastoplasticModel6D::update(const Eigen::Vector6d& velocity, co
                         + m_sigma_1 * d_dt.z
                         + m_sigma_2 * velocity;
 
-
-  // fmt::print(fmt::fg(fmt::color::cyan), "\n+----------------------\n"
-  //                                         "Velocity:    {:8.4e} | {:8.4e} | {:8.4e}\n"
-  //                                         "Input Force: {:8.4e} | {:8.4e} | {:8.4e}\n"
-  //                                         "Friction:    {:8.4e} | {:8.4e} | {:8.4e}\n"
-  //                                         "+----------------------\n",
-  //     velocity(0), velocity(1), velocity(2),
-  //     force(0), force(1), force(2),
-  //     m_last_friction_force(0),m_last_friction_force(1),m_last_friction_force(2));
-
   Eigen::Vector6d acc;
   acc = m_model_params.inertia_inv.cwiseProduct(force - m_last_friction_force);
 
@@ -93,7 +82,6 @@ Eigen::Vector6d ElastoplasticModel6D::update(const Eigen::Vector6d& velocity, co
   m_state.z += d_dt.z * period;
   m_state.w += d_dt.w * period;
   m_state.r += d_dt.r * period;
-  // fmt::print(fmt::fg(fmt::color::cyan), "z: {}, w: {}, r: {}\n", m_state.z, m_state.w, m_state.r);
 
   reset_condition(velocity, force, period);
   return acc;

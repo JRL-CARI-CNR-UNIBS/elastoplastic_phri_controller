@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(BUILD_TESTING OFF)
 
+option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" OFF)
+
 find_package(ament_cmake                REQUIRED)
 find_package(controller_interface       REQUIRED)
 find_package(hardware_interface         REQUIRED)
@@ -36,7 +38,6 @@ generate_parameter_library(
   src/${PROJECT_NAME}/elastoplastic_controller_parameters.yaml # path to input yaml file
 )
 
-
 add_library(elastoplastic_controller SHARED
   src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
   src/elastoplastic_lugre_controller/elastoplastic_model_6d.cpp
@@ -46,6 +47,10 @@ add_library(elastoplastic_controller SHARED
 add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
 
 pluginlib_export_plugin_description_file(controller_interface elastoplastic.plugin.xml)
+
+if(USE_LATEST_ROS2_CONTROL)
+  target_compile_definitions(elastoplastic_controller PUBLIC USE_LATEST_ROS2_CONTROL)
+endif()
 
 ament_target_dependencies(elastoplastic_controller PUBLIC
   controller_interface

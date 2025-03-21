@@ -14,7 +14,6 @@
 
 #include <chrono>
 #include <algorithm>
-#include <array>
 
 namespace elastoplastic
 {
@@ -292,7 +291,14 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
     std_msgs::msg::String::SharedPtr rd = std::make_shared<std_msgs::msg::String>();
     rd->data = get_node()->get_parameter("robot_description").as_string();
     configure_after_robot_description_callback(rd);
-  } else {
+  }
+  else
+  {
+#ifdef USE_LATEST_ROS2_CONTROL
+    std_msgs::msg::String::SharedPtr rd = std::make_shared<std_msgs::msg::String>();
+    rd->data = this->get_robot_description();
+    configure_after_robot_description_callback(rd);
+#else
     rclcpp::QoS qos(1);
     qos.transient_local();
     m_sub_robot_description = get_node()->create_subscription<std_msgs::msg::String>(
@@ -301,6 +307,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
         &ElastoplasticController::configure_after_robot_description_callback, this,
         std::placeholders::_1));
     m_robot_description_configuration = RDStatus::EMPTY;
+#endif
   }
 
   std::ranges::fill(m_used_command_interfaces, false);
@@ -1146,10 +1153,12 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
   W.diagonal().head(m_full_nax) = Eigen::Map<Eigen::VectorXd>(
       m_parameters.clik.task.weights.data(),
       m_parameters.clik.task.weights.size());
-  W.diagonal().head<3>() *=
-      (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
+  if (m_mobile_base.enabled)
+  {
+    W.diagonal().head<3>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
+  }
 
-#define USE_SLACK_VARIABLE_
+#define USE_SLACK_VARIABLE
 #ifdef USE_SLACK_VARIABLE
   const unsigned int prb_dim = m_full_nax + k_cartesian_dim;
 #else
@@ -1184,17 +1193,12 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
   CE.leftCols(m_full_nax) << a_data.J_world_tool_in_world * W;
   ce << -xpp_clik;
 
-#ifdef USE_SLACK_VARIABLE
-  G.bottomRightCorner(k_cartesian_dim, k_cartesian_dim).setIdentity();
-  G.bottomRightCorner(k_cartesian_dim, k_cartesian_dim) *= W.diagonal().maxCoeff() * 1.0e2;
-  CE.rightCols(k_cartesian_dim) << - Eigen::MatrixXd::Identity(k_cartesian_dim, k_cartesian_dim);
-#endif
-
   // ***********************
   // ** DISEQ Constraints **
   // ***********************
-  Eigen::MatrixXd CI = Eigen::MatrixXd::Zero(4 * m_full_nax + 2 * m_nax, prb_dim);
-  Eigen::VectorXd ci(4 * m_full_nax + 2 * m_nax);
+  const int n_ineq = 4 * m_full_nax + 2 * m_nax;
+  Eigen::MatrixXd CI = Eigen::MatrixXd::Zero(n_ineq, prb_dim);
+  Eigen::VectorXd ci(n_ineq);
 
   // Inequality order: {velocity[2 * full_nax],
   //                    acceleration [2 * full_nax],
@@ -1223,11 +1227,10 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
   ci.segment(ineq_idxs[1] + m_full_nax + m_mobile_base.nax(), m_nax) = m_limits.acc;
 
   // Positions
-  CI.block(
-      ineq_idxs[2], m_full_nax - m_nax, m_nax,
-      m_nax) << Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt;
-  CI.block(ineq_idxs[2] + m_nax, m_full_nax - m_nax, m_nax, m_nax) << -Eigen::MatrixXd::Identity(
-                                                                      m_nax, m_nax) * 0.5 * m_dt * m_dt;
+  CI.block(ineq_idxs[2], m_full_nax - m_nax, m_nax, m_nax)
+      << Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt;
+  CI.block(ineq_idxs[2] + m_nax, m_full_nax - m_nax, m_nax, m_nax)
+      << -Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt;
 
   ci.segment(
       ineq_idxs[2],
@@ -1259,6 +1262,15 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
         m_parameters.mobile_base.max_acc_yaw;
   }
 
+#ifdef USE_SLACK_VARIABLE
+  G.bottomRightCorner(k_cartesian_dim, k_cartesian_dim).diagonal().setConstant(W.diagonal().maxCoeff() * 1e3);
+  CE.rightCols(k_cartesian_dim).setIdentity();
+  // if(m_mobile_base.enabled)
+  // {
+  // CE.rightCols(m_full_nax).diagonal().head(m_mobile_base.nax()).setZero();
+  // }
+#endif
+
   CI.leftCols(m_full_nax) *= W;
 
   Eigen::VectorXd first_sol(prb_dim);
@@ -1283,10 +1295,22 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 
-  if (ret == std::numeric_limits<double>::infinity()) {
+  if (std::isinf(ret)) {
     RCLCPP_ERROR(get_node()->get_logger(), "Problem unfeasible");
+    RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: " <<
+                                                      "## G ## " << G_for_debug <<
+                                                      "\n## F ##" << F.transpose() <<
+                                                      "\n## CE ## " << CE <<
+                                                      "\n ## ce ## " << ce.transpose() <<
+                                                      "\n## CI ## " << CI <<
+                                                      "\n## ci ##" << ci.transpose()
+                        );
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
+
+#ifdef USE_SLACK_VARIABLE
+  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "slack -->\n" << first_sol.tail(prb_dim - m_full_nax).transpose());
+#endif
 
   Eigen::VectorXd qpp_1(W * first_sol.head(m_full_nax));
   Eigen::VectorXd slack_1(first_sol.tail(k_cartesian_dim));
@@ -1364,28 +1388,28 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
 
   Eigen::VectorXd return_qpp(m_full_nax);
 
-  if (ret != std::numeric_limits<double>::infinity()) {
+  if (!std::isinf(ret)) {
     return_qpp = qpp_1 + W * V_null * second_sol.head(null_space_dim);
   } else {
     RCLCPP_WARN_THROTTLE(this->get_node()->get_logger(), *(this->get_node()->get_clock()), 1, "Discarding second task due to infeasibility");
     return_qpp = qpp_1;
   }
 
-  RCLCPP_DEBUG_STREAM(
-      get_node()->get_logger(), "\n################## Least Squares ######################" <<
-          "\n## W ##\n" << W.diagonal().transpose() <<
-          "\n## first round sol [qpp(" << m_full_nax << "), slack(" << k_cartesian_dim << ")]##\n" << first_sol.transpose() <<
-          "\n## first round ret ##\n" << first_ret <<
-          "\n## second round sol [null(" << null_space_dim << "), slack(" << m_full_nax << ")]##\n" << second_sol.transpose() <<
-          "\n## second round ret ##\n" << ret <<
-          "\n## qpp ## \n" << (return_qpp.head(m_full_nax)).transpose() <<
-          "\n## qpp_2 ## \n" << (W * V_null * second_sol.head(null_space_dim)).transpose() <<
-          //                                                 "\n## J * qpp - xpp[clik] ##\n" << (J_world_tool_in_world * return_qpp.head(m_full_nax) - xpp_clik).transpose() <<
-          //                                                 "\n## Null task: As * qpp - bs ##\n" << (As * return_qpp - bs).transpose() <<
-          //                                                 "\n## Null task 1: As ##\n" << ((As * V_null).transpose() * (As * V_null)).transpose() <<
-          //                                                 "\n## Null task 2: W ##\n" << (V_null.transpose() * W * W * V_null).transpose() <<
-          //                                                 "\n## CI * x + ci (>= 0) ##\n" << (CI * return_qpp + ci).transpose() <<
-          "\n#####################################################");
+  // RCLCPP_DEBUG_STREAM(
+  //     get_node()->get_logger(), "\n################## Least Squares ######################" <<
+  //         "\n## W ##\n" << W.diagonal().transpose() <<
+  //         "\n## first round sol [qpp(" << m_full_nax << "), slack(" << k_cartesian_dim << ")]##\n" << first_sol.transpose() <<
+  //         "\n## first round ret ##\n" << first_ret <<
+  //         "\n## second round sol [null(" << null_space_dim << "), slack(" << m_full_nax << ")]##\n" << second_sol.transpose() <<
+  //         "\n## second round ret ##\n" << ret <<
+  //         "\n## qpp ## \n" << (return_qpp.head(m_full_nax)).transpose() <<
+  //         "\n## qpp_2 ## \n" << (W * V_null * second_sol.head(null_space_dim)).transpose() <<
+  //         //                                                 "\n## J * qpp - xpp[clik] ##\n" << (J_world_tool_in_world * return_qpp.head(m_full_nax) - xpp_clik).transpose() <<
+  //         //                                                 "\n## Null task: As * qpp - bs ##\n" << (As * return_qpp - bs).transpose() <<
+  //         //                                                 "\n## Null task 1: As ##\n" << ((As * V_null).transpose() * (As * V_null)).transpose() <<
+  //         //                                                 "\n## Null task 2: W ##\n" << (V_null.transpose() * W * W * V_null).transpose() <<
+  //         //                                                 "\n## CI * x + ci (>= 0) ##\n" << (CI * return_qpp + ci).transpose() <<
+  //         "\n#####################################################");
 
   return return_qpp;
 }
