@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(BUILD_TESTING OFF)
 
-option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" OFF)
+option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" ON)
 
 find_package(ament_cmake                REQUIRED)
 find_package(controller_interface       REQUIRED)
@@ -43,6 +43,7 @@ add_library(elastoplastic_controller SHARED
   src/elastoplastic_lugre_controller/elastoplastic_model_6d.cpp
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
   include/elastoplastic_lugre_controller/elastoplastic_model_6d.hpp
+  include/elastoplastic_lugre_controller/utils.hpp
 )
 add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
 

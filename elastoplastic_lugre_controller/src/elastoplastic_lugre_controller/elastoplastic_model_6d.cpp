@@ -21,6 +21,9 @@ ElastoplasticModel6D::ElastoplasticModel6D(const ElastoplasticModelData& data)
   m_sigma_1.diagonal().tail<3>() = Eigen::Vector3d::Constant(m_model_params.lugre.angular.sigma_1);
   m_sigma_2.diagonal().head<3>() = Eigen::Vector3d::Constant(m_model_params.lugre.linear.sigma_2);
   m_sigma_2.diagonal().tail<3>() = Eigen::Vector3d::Constant(m_model_params.lugre.angular.sigma_2);
+  std::transform(data.enable_axis.begin(), data.enable_axis.end(), m_enable_axis.begin(),[](const bool b){
+    return static_cast<double>(b);
+  });
 }
 
 double ElastoplasticModel6D::alpha(const double z) const
@@ -62,28 +65,29 @@ double ElastoplasticModel6D::dalpha(const double z) const
 
 Eigen::Vector6d ElastoplasticModel6D::update(const Eigen::Vector6d& velocity, const Eigen::Vector6d& force, const double period)
 {
+  Eigen::Vector6d enabled_velocity = velocity.cwiseProduct(m_enable_axis);
+  Eigen::Vector6d enabled_force = force.cwiseProduct(m_enable_axis);
   Eigen::Matrix<double, 7, 1> alpha_with_r;
   alpha_with_r << m_state.z, m_state.r;
   m_last_alpha = Eigen::Vector6d::Constant(alpha(alpha_with_r.norm()));
   ModelState d_dt;
   d_dt.r = dalpha(m_state.z.norm());
-  Eigen::Vector6d c_v = m_last_alpha.cwiseProduct(m_state.z) * velocity.norm() / m_model_params.lugre.z_ss;
-  d_dt.z = velocity - c_v;
+  Eigen::Vector6d c_v = m_last_alpha.cwiseProduct(m_state.z) * enabled_velocity.norm() / m_model_params.lugre.z_ss;
+  d_dt.z = enabled_velocity - c_v;
   d_dt.w = m_last_alpha.cwiseProduct(m_state.z - m_state.w) / m_model_params.lugre.tau_w;
 
   m_last_friction_force = m_sigma_0 * (m_state.z - m_state.w)
                         + m_sigma_1 * d_dt.z
-                        + m_sigma_2 * velocity;
+                        + m_sigma_2 * enabled_velocity;
 
   Eigen::Vector6d acc;
-  acc = m_model_params.inertia_inv.cwiseProduct(force - m_last_friction_force);
-
+  acc = m_model_params.inertia_inv.cwiseProduct(enabled_force - m_last_friction_force);
 
   m_state.z += d_dt.z * period;
   m_state.w += d_dt.w * period;
   m_state.r += d_dt.r * period;
 
-  reset_condition(velocity, force, period);
+  reset_condition(enabled_velocity, enabled_force, period);
   return acc;
 }
 

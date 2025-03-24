@@ -39,6 +39,7 @@ ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& a_
   data.reset_condition.reset_window_size =
       a_params.impedance.reset_condition.reset_window_size;
   data.reset_condition.reset_threshold = a_params.impedance.reset_condition.reset_threshold;
+  std::copy(a_params.impedance.enable_axis.begin(), a_params.impedance.enable_axis.end(), data.enable_axis.begin());
   return data;
 }
 

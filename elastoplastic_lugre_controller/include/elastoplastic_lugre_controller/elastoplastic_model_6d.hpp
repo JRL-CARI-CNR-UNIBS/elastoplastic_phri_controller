@@ -27,6 +27,7 @@ struct ElastoplasticModelData
     double reset_window_size;
     double reset_threshold;
   } reset_condition;
+  std::array<bool, 6> enable_axis;
 };
 
 class ElastoplasticModel6D
@@ -59,6 +60,8 @@ protected:
 
   Eigen::Vector6d m_last_alpha;
   Eigen::Vector6d m_last_friction_force;
+
+  Eigen::Vector6d m_enable_axis;
 
   struct ModelState{
     Eigen::Vector6d z;

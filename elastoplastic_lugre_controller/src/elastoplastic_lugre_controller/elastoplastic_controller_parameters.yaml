@@ -195,6 +195,14 @@ elastoplastic_controller:
       }
     }
   impedance:
+    enable_axis: {
+      type: bool_array,
+      default_value: [true, true, true, false, false, true],
+      description: "Enable world-referenced axis",
+      validation: {
+        fixed_size<>: 6
+      }
+    }
     inertia: {
       type: double_array,
       default_value: [],
