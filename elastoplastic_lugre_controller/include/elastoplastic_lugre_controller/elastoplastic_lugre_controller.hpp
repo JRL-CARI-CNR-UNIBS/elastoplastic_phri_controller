@@ -127,7 +127,7 @@ private:
   Eigen::VectorXd m_q_prec;
   Eigen::VectorXd m_qp_prec;
   Eigen::VectorXd m_qpp_prec;
-  Eigen::Vector6d m_wrench_in_world_prec;
+  Eigen::Vector6d m_wrench_in_sensor_prec;
 
   Eigen::Affine3d m_T_world_base;
   Eigen::Affine3d m_T_world_tool_initial;
