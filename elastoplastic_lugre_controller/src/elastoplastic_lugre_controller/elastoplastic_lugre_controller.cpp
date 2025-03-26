@@ -737,9 +737,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   full_position_references.tail(m_nax) << joint_position_references;
   full_velocity_references.tail(m_nax) << joint_velocity_references;
 
-  Eigen::Vector6d target_twist_tool_world_in_world = m_chain_world_tool->getJacobian(
-    full_position_references) * full_velocity_references;
-  // Eigen::Vector6d target_twist_tool_world_in_world = m_chain_world_tool->getJacobian(m_q) * full_velocity_references;
+  Eigen::Vector6d target_twist_tool_world_in_world = m_chain_world_tool->getJacobian(full_position_references) * full_velocity_references;
 
   /* FT state */
   std::array<double, 3> ft_force = m_ft_sensor->get_forces();
@@ -874,15 +872,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_qp(idx + (m_full_nax - m_nax)) = std::max(
       -m_limits.vel(idx),
       std::min(m_limits.vel(idx), m_qp(idx + (m_full_nax - m_nax))));
-    if (q != m_q(idx + (m_full_nax - m_nax))) {
-      RCLCPP_WARN(
-        get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld",
-        idx);
+    if (almost_equal(q, m_q(idx + (m_full_nax - m_nax)))) {
+      RCLCPP_WARN(get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld",idx);
     }
-    if (dq != m_qp(idx + (m_full_nax - m_nax))) {
-      RCLCPP_WARN(
-        get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld",
-        idx);
+    if (almost_equal(dq, m_qp(idx + (m_full_nax - m_nax)))) {
+      RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld",idx);
     }
   }
   // END - Saturation
