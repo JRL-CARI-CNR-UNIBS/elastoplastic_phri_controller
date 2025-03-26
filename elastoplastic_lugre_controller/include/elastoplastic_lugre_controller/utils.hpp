@@ -9,13 +9,34 @@ namespace Eigen {
 using Vector6d = Vector<double,6>;
 }
 
-namespace elastoplastic
-{
+namespace elastoplastic {
 
-Eigen::VectorXd base_velocity_from_twist(const Eigen::Vector6d & p_w)
-{
-  return p_w({0, 1, 5});
+/**
+ *  Floating point comparison
+ *  https://www.learncpp.com/cpp-tutorial/relational-operators-and-floating-point-comparisons/
+ */
+template <typename T> constexpr T constAbs(T x) { return (x < 0 ? -x : x); }
+
+// Return true if the difference between a and b is within epsilon percent of the larger of a and b
+constexpr bool approximately_equal_rel(double a, double b, double relEpsilon) {
+  return (constAbs(a - b) <= (std::max(constAbs(a), constAbs(b)) * relEpsilon));
 }
+
+// Return true if the difference between a and b is less than or equal to absEpsilon, or within relEpsilon percent of the larger
+// of a and b
+constexpr bool almost_equal(double a, double b, double absEpsilon = 1e-12, double relEpsilon = 1e-8) {
+  // Check if the numbers are really close -- needed when comparing numbers near zero.
+  if (constAbs(a - b) <= absEpsilon)
+    return true;
+
+  // Otherwise fall back to Knuth's algorithm
+  return approximately_equal_rel(a, b, relEpsilon);
+}
+
+constexpr bool almost_zero(const double a, const double absEpsilon = 1e-12) { return a < absEpsilon; }
+
+
+Eigen::VectorXd base_velocity_from_twist(const Eigen::Vector6d &p_w) { return p_w({0, 1, 5}); }
 
 Eigen::Vector<double, 6> twist_from_base_velocity(const Eigen::Vector3d & p_v)
 {
@@ -43,6 +64,6 @@ ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& a_
   return data;
 }
 
-}
+} // namespace elastoplastic
 
 #endif // ELASTOPLASTIC_LUGRE_CONTROLLER__UTILS_HPP

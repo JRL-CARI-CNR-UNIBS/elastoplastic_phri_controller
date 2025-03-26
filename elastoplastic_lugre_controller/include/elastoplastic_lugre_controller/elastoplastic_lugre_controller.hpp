@@ -145,11 +145,8 @@ private:
 
     std::string ns;
     Eigen::Vector6d velocity_in_base;
-    const size_t nax() const {return enabled ? nax_ : 0;}
-    const std::vector<std::string> base_joint_names()
-    {
-      return enabled ? base_joint_names_ : std::vector<std::string>{};
-    }
+    size_t nax() const { return enabled ? nax_ : 0; }
+    std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
 
   private:
     constexpr static size_t nax_ {3};
@@ -264,14 +261,10 @@ protected:
   void configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 
   Eigen::VectorXd compute_clik(const ClikData& data, bool use_qp = true);
-  Eigen::VectorXd compute_clik_as_qp(const ClikData& data,
-                                     const Eigen::Vector6d& a_position_error,
-                                     const Eigen::Vector6d& a_twist_error,
-                                     const Eigen::Vector6d& a_acc_non_linear);
-  Eigen::VectorXd compute_clik_as_inv(const ClikData& data,
-                                      const Eigen::Vector6d& a_position_error,
-                                      const Eigen::Vector6d& a_twist_error,
-                                      const Eigen::Vector6d& a_acc_non_linear);
+  Eigen::VectorXd compute_clik_as_qp(const ClikData &data, const Eigen::Vector6d &a_position_error,
+                                     const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
+  Eigen::VectorXd compute_clik_as_inv(const ClikData &data, const Eigen::Vector6d &a_position_error,
+                                      const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
 
   void get_target_callback(const geometry_msgs::msg::Twist & msg);
   void get_mobile_base_target_callback(const geometry_msgs::msg::Twist & msg);
