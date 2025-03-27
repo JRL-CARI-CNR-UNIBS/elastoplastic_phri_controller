@@ -31,7 +31,6 @@ find_package(eiquadprog                 REQUIRED)
 find_package(Eigen3 3.4                 REQUIRED)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-add_compile_options(-funroll-loops -Wall -Ofast)
 
 generate_parameter_library(
   elastoplastic_parameters # cmake target name for the parameter library
@@ -82,7 +81,8 @@ target_include_directories(elastoplastic_controller PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
-target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -Wno-pre-c++14-compat)
+ # -ffast-math option is not added due to the std::isinf() function present in the code
+target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -Wno-pre-c++14-compat -funroll-loops -Wall -O3)
 target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
 install(TARGETS elastoplastic_controller elastoplastic_parameters

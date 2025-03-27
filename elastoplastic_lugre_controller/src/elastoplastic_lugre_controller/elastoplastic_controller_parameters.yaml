@@ -1,12 +1,4 @@
 elastoplastic_controller:
-  controller_manager_node: {
-    type: string,
-    default_value: "/controller_manager",
-    description: "Controller manager node on which the controller is loaded",
-    validation: {
-      not_empty<>: []
-    }
-  }
   target_joint_trajectory_topic: {
     type: string,
     default_value: "/joint_trajectory",
@@ -198,7 +190,7 @@ elastoplastic_controller:
     enable_axis: {
       type: bool_array,
       default_value: [true, true, true, false, false, true],
-      description: "Enable world-referenced axis",
+      description: "Enable world-referenced axis, expressed in world frame",
       validation: {
         fixed_size<>: 6
       }
@@ -206,48 +198,48 @@ elastoplastic_controller:
     inertia: {
       type: double_array,
       default_value: [],
-      description: "Controller Inertia",
+      description: "Controller Inertia, in world frame",
       validation: {
-        lower_element_bounds<>: 0,
+        lower_element_bounds<>: 1.0e-9,
         fixed_size<>: 6
       }
     }
     linear:
       sigma_0: {
         type: double,
-        description: "bristle stiffness"
+        description: "bristle stiffness, in world frame"
       }
       sigma_1: {
         type: double,
-        description: "bristle damping"
+        description: "bristle damping, in world frame"
       }
       sigma_2: {
         type: double,
-        description: "viscous coefficient"
+        description: "viscous coefficient, in world frame"
       }
     angular:
       sigma_0: {
         type: double,
-        description: "bristle stiffness"
+        description: "bristle stiffness, in world frame"
       }
       sigma_1: {
         type: double,
-        description: "bristle damping"
+        description: "bristle damping, in world frame"
       }
       sigma_2: {
         type: double,
-        description: "viscous coefficient"
+        description: "viscous coefficient, in world frame"
       }
     z_ss: {
       type: double,
-      description: "Maximum bristle bending",
+      description: "Maximum bristle bending, in world frame",
       validation: {
         gt<>: 0
       }
     }
     z_ba: {
       type: double,
-      description: "Plastic threshold",
+      description: "Plastic threshold, in world frame",
       validation: {
         gt_eq<>: 0
       }
