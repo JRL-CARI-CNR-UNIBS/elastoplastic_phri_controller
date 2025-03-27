@@ -19,11 +19,6 @@ namespace elastoplastic
 
 using namespace std::chrono_literals;
 
-Eigen::MatrixXd & regularize(Eigen::MatrixXd & m)
-{
-  m += Eigen::MatrixXd::Identity(m.rows(), m.cols()) * 10e-6 * m.trace() / m.cols();
-  return m;
-}
 
 controller_interface::CallbackReturn ElastoplasticController::on_init()
 {
@@ -707,10 +702,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     target_twist_base_world_in_world = move_from_base_to_world(target_twist_base_world_in_base);
 
     Eigen::Affine3d T_target_world_base;
-    T_target_world_base = rdyn::spatialIntegration(
-      m_T_world_base,
-      target_twist_base_world_in_world,
-      m_dt);
+    T_target_world_base = rdyn::spatialIntegration(m_T_world_base, target_twist_base_world_in_world, m_dt);
     mobile_base_pose_in_world <<
       T_target_world_base.translation().head<2>(),
       Eigen::AngleAxisd(T_target_world_base.linear()).angle();
@@ -757,31 +749,26 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ************
   // ** Update **
   // ************
-  Eigen::Vector6d cart_vel_error_tool_target_in_world = twist_tool_world_in_world - target_twist_tool_world_in_world;
-
   Eigen::Affine3d T_base_tool = m_chain_base_tool->getTransformation(m_q.tail(m_nax));
   Eigen::Affine3d T_base_sensor = m_chain_base_sensor->getTransformation(m_q.tail(m_nax));
   Eigen::Affine3d T_tool_sensor = T_base_tool.inverse() * T_base_sensor;
 
   // Wrench deadband
-  std::transform(wrench_sensor_in_sensor.begin(),
-                 wrench_sensor_in_sensor.end(),
-                 m_parameters.wrench.deadband.begin(),
-                 wrench_sensor_in_sensor.begin(),
-                 [](const double w, const double deadband)
-                 {
-                     return std::abs(w) > deadband ? w: 0.0;
+  std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_parameters.wrench.deadband.begin(),
+                 wrench_sensor_in_sensor.begin(), [](const double w, const double deadband) {
+                   return std::abs(w) > deadband ? sgn(w) * (std::abs(w) - deadband) : 0.0;
                  });
 
   // Exponential filter
   std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_wrench_in_sensor_prec.begin(),
-                 wrench_sensor_in_sensor.begin(), [this](const double w, const double w_old) {
-                   return filters::exponentialSmoothing(w, w_old, m_parameters.wrench.filter_alfa);
+                 wrench_sensor_in_sensor.begin(), [this](const double w, const double w_prec) {
+                   return filters::exponentialSmoothing(w, w_prec, m_parameters.wrench.filter_alfa);
                  });
   m_wrench_in_sensor_prec = wrench_sensor_in_sensor;
 
   Eigen::Vector6d wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor, T_tool_sensor);
 
+  Eigen::Vector6d cart_vel_error_tool_target_in_world = twist_tool_world_in_world - target_twist_tool_world_in_world;
   Eigen::Vector6d cart_vel_error_tool_target_in_tool =
     rdyn::spatialRotation(cart_vel_error_tool_target_in_world, T_world_tool.linear().transpose());
 
@@ -847,18 +834,15 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   m_qp += qepp * m_dt;
 
   // BEGIN - Saturation
-  if(m_q(0) >= m_parameters.mobile_base.max_vel.linear[0])
-  {
+  if (m_q(0) >= m_parameters.mobile_base.max_vel.linear[0]) {
     m_q(0) = m_parameters.mobile_base.max_vel.linear[0];
     RCLCPP_WARN(this->get_node()->get_logger(), "Saturation of VELOCITY on base linear direction X");
   }
-  if(m_q(1) >= m_parameters.mobile_base.max_vel.linear[1])
-  {
+  if (m_q(1) >= m_parameters.mobile_base.max_vel.linear[1]) {
     m_q(1) = m_parameters.mobile_base.max_vel.linear[1];
     RCLCPP_WARN(this->get_node()->get_logger(), "Saturation of VELOCITY on base linear direction Y");
   }
-  if(m_q(2) >= m_parameters.mobile_base.max_vel.angular)
-  {
+  if (m_q(2) >= m_parameters.mobile_base.max_vel.angular) {
     m_q(2) = m_parameters.mobile_base.max_vel.angular;
     RCLCPP_WARN(this->get_node()->get_logger(), "Saturation of VELOCITY on base angular direction Z");
   }
@@ -866,17 +850,15 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   for (size_t idx = 0; idx < m_nax; ++idx) {
     double q = m_q(idx + (m_full_nax - m_nax));
     double dq = m_qp(idx + (m_full_nax - m_nax));
-    m_q(idx + (m_full_nax - m_nax)) = std::max(
-      m_limits.pos_lower(idx),
-      std::min(m_limits.pos_upper(idx), m_q(idx + (m_full_nax - m_nax))));
-    m_qp(idx + (m_full_nax - m_nax)) = std::max(
-      -m_limits.vel(idx),
-      std::min(m_limits.vel(idx), m_qp(idx + (m_full_nax - m_nax))));
-    if (almost_equal(q, m_q(idx + (m_full_nax - m_nax)))) {
-      RCLCPP_WARN(get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld",idx);
+    m_q(idx + (m_full_nax - m_nax)) =
+      std::max(m_limits.pos_lower(idx), std::min(m_limits.pos_upper(idx), m_q(idx + (m_full_nax - m_nax))));
+    m_qp(idx + (m_full_nax - m_nax)) =
+      std::max(-m_limits.vel(idx), std::min(m_limits.vel(idx), m_qp(idx + (m_full_nax - m_nax))));
+    if (!almost_equal(q, m_q(idx + (m_full_nax - m_nax)))) {
+      RCLCPP_WARN(get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld", idx);
     }
-    if (almost_equal(dq, m_qp(idx + (m_full_nax - m_nax)))) {
-      RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld",idx);
+    if (!almost_equal(dq, m_qp(idx + (m_full_nax - m_nax)))) {
+      RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld", idx);
     }
   }
   // END - Saturation
@@ -901,23 +883,20 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     throw std::runtime_error("Controller crashed");
   }
 
-  Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
   if (m_mobile_base.enabled) {
+    Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
     qp_base_in_world = twist_from_base_velocity(m_qp.head<3>());
-  }
 
-  Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(
-    qp_base_in_world,
-    m_T_world_base.linear().transpose());
-  qp_base_in_base =
-    qp_base_in_base.unaryExpr([this](double vel) { return std::abs(vel) < this->k_velocity_tollerance ? 0.0 : vel; });
-  m_mobile_base.velocity_in_base = qp_base_in_base;
-  geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(qp_base_in_base);
-  if (m_mobile_base.enabled) {
+    Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(qp_base_in_world, m_T_world_base.linear().transpose());
+    qp_base_in_base =
+      qp_base_in_base.unaryExpr([this](double vel) { return std::abs(vel) < this->k_velocity_tollerance ? 0.0 : vel; });
+    m_mobile_base.velocity_in_base = qp_base_in_base;
+    geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(qp_base_in_base);
+
     m_pub_cmd_vel->publish(cmd_vel);
-  }
 
-  m_T_world_base = rdyn::spatialIntegration(m_T_world_base, qp_base_in_world, m_dt);
+    m_T_world_base = rdyn::spatialIntegration(m_T_world_base, qp_base_in_world, m_dt);
+  }
 
   m_q_prec = m_q;
   m_qp_prec = m_qp;
@@ -1109,10 +1088,10 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
    * ** QP **
    * ********
    *
-   *    min       1/2 * ||W*qpp||^2
+   *    min       1/2 * ||W*qpp||^2 + ||s||^2
    * [qpp, s]
    *
-   * s.t.      J * qpp = xpp_clik
+   * s.t.      J * qpp = xpp_clik + s
    *           qpp_min <= qpp <= qpp_max
    *
    *
@@ -1361,12 +1340,12 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
     return_qpp = qpp_1;
   }
 
-  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\n################## Clik Data ####################"
-                                                  << "\njoint position reference:\n"
-                                                  << a_data.position_references.transpose() << "\njoint velocity reference:\n"
-                                                  << a_data.velocity_references.transpose() << "\nq:\n"
-                                                  << m_q.transpose() << "\nqp:\n"
-                                                  << m_qp.transpose());
+  // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\n################## Clik Data ####################"
+  //                                                 << "\njoint position reference:\n"
+  //                                                 << a_data.position_references.transpose() << "\njoint velocity reference:\n"
+  //                                                 << a_data.velocity_references.transpose() << "\nq:\n"
+  //                                                 << m_q.transpose() << "\nqp:\n"
+  //                                                 << m_qp.transpose());
   RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\n################## Least Squares ######################"
                                                   << "\n## W ##\n"
                                                   << W.diagonal().transpose() << "\n## first round sol [qpp(" << m_full_nax
@@ -1379,6 +1358,10 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
                                                   << (return_qpp.head(m_full_nax)).transpose() << "\n## qpp_2 ## \n"
                                                   << (W * V_null * second_sol.head(null_space_dim)).transpose()
                                                   << "\n#####################################################");
+  // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
+  // << "## G ## " << G_for_debug << "\n## F ##" << F.transpose() << "\n## CE ## "
+  // << CE << "\n ## ce ## " << ce.transpose() << "\n## CI ## " << CI << "\n## ci ##"
+  // << ci.transpose());
 
   return return_qpp;
 }

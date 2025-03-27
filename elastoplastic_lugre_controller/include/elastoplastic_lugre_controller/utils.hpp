@@ -11,6 +11,9 @@ using Vector6d = Vector<double,6>;
 
 namespace elastoplastic {
 
+#define K_ABS_EPSILON 1e-12
+#define K_REL_EPSILON 1e-8
+
 /**
  *  Floating point comparison
  *  https://www.learncpp.com/cpp-tutorial/relational-operators-and-floating-point-comparisons/
@@ -24,7 +27,7 @@ constexpr bool approximately_equal_rel(double a, double b, double relEpsilon) {
 
 // Return true if the difference between a and b is less than or equal to absEpsilon, or within relEpsilon percent of the larger
 // of a and b
-constexpr bool almost_equal(double a, double b, double absEpsilon = 1e-12, double relEpsilon = 1e-8) {
+constexpr bool almost_equal(double a, double b, double absEpsilon = K_ABS_EPSILON, double relEpsilon = K_REL_EPSILON) {
   // Check if the numbers are really close -- needed when comparing numbers near zero.
   if (constAbs(a - b) <= absEpsilon)
     return true;
@@ -33,13 +36,18 @@ constexpr bool almost_equal(double a, double b, double absEpsilon = 1e-12, doubl
   return approximately_equal_rel(a, b, relEpsilon);
 }
 
-constexpr bool almost_zero(const double a, const double absEpsilon = 1e-12) { return a < absEpsilon; }
+constexpr bool almost_zero(const double a, const double absEpsilon = K_ABS_EPSILON) { return a < absEpsilon; }
 
+template <typename T> int sgn(T val) { return (T(0) < val) - (val < T(0)); }
 
-Eigen::VectorXd base_velocity_from_twist(const Eigen::Vector6d &p_w) { return p_w({0, 1, 5}); }
+Eigen::MatrixXd& regularize(Eigen::MatrixXd& m) {
+  m += Eigen::MatrixXd::Identity(m.rows(), m.cols()) * K_REL_EPSILON * m.trace() / m.cols();
+  return m;
+}
 
-Eigen::Vector<double, 6> twist_from_base_velocity(const Eigen::Vector3d & p_v)
-{
+Eigen::VectorXd base_velocity_from_twist(const Eigen::Vector6d& p_w) { return p_w({0, 1, 5}); }
+
+Eigen::Vector<double, 6> twist_from_base_velocity(const Eigen::Vector3d& p_v) {
   return Eigen::Vector6d {p_v(0), p_v(1), 0, 0, 0, p_v(2)};
 }
 
