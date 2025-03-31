@@ -323,6 +323,21 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
 
   m_kp_last_task = m_parameters.clik.task.last.kp;
   m_kv_last_task = m_parameters.clik.task.last.kv;
+  m_saturation_relax_weight = {.max = 1.0,
+                               .slope = 20,
+                               .inflection = {
+                                 0.9 * m_parameters.mobile_base.max_vel.linear[0],
+                                 0.9 * m_parameters.mobile_base.max_vel.linear[1],
+                                 0.9 * m_parameters.mobile_base.max_vel.angular,
+                               }};
+
+  if (m_mobile_base.enabled) {
+    // TODO: Mobile base limits!!
+    m_mobile_base.vel_limits = {m_parameters.mobile_base.max_vel.linear[0], m_parameters.mobile_base.max_vel.linear[1],
+                                m_parameters.mobile_base.max_vel.angular};
+    m_mobile_base.acc_limits = {m_parameters.mobile_base.max_acc_x, m_parameters.mobile_base.max_acc_y,
+                                m_parameters.mobile_base.max_acc_yaw};
+  }
 
   // The parameter update_rate, if not defined, is provided by the controller_manager
   auto update_rate = this->get_node()->get_parameter("update_rate").as_int();
@@ -660,7 +675,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   nav_msgs::msg::Odometry odom_msg = *(m_rt_buffer_base_odom.readFromRT());
   if (rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time > std::chrono::duration<double>(m_dt) ||
       rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time < std::chrono::seconds(0)) {
-    twist_base_world_in_base = m_mobile_base.velocity_in_base;
+    twist_base_world_in_base = twist_from_base_velocity(m_mobile_base.velocity_in_base);
   } else {
     Eigen::fromMsg(odom_msg.twist.twist, twist_base_world_in_base);
   }
@@ -742,7 +757,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       "Force sensor contains NaN values. Full measure discarded and replaced with zero");
     wrench_sensor_in_sensor.setZero();
   }
-  Eigen::Vector6d wrench_sensor_in_sensor2 = wrench_sensor_in_sensor;
 
   Eigen::VectorXd q_start = m_q;
   Eigen::VectorXd qp_start = m_qp;
@@ -803,8 +817,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   if (qepp.hasNaN()) {
     RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\ncart_vel_error_tool_target_in_world\n"
-                                                    << cart_vel_error_tool_target_in_world << "\nwrench_sensor_in_sensor\n"
-                                                    << wrench_sensor_in_sensor2 << "\ncart_acc_tool_target_in_world\n"
+                                                    << cart_vel_error_tool_target_in_world << "\nwrench_tool_in_world\n"
+                                                    << wrench_tool_in_world << "\nwrench_tool_in_tool\n"
+                                                    << wrench_tool_in_tool << "\nwrench_sensor_in_sensor\n"
+                                                    << wrench_sensor_in_sensor << "\ncart_acc_tool_target_in_world\n"
                                                     << cart_acc_tool_target_in_world);
     this->on_deactivate(rclcpp_lifecycle::State());
     throw std::runtime_error("Controller crashed");
@@ -835,27 +851,29 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   m_q += m_qp * m_dt + 0.5 * qepp * std::pow(m_dt, 2);
   m_qp += qepp * m_dt;
 
-  // BEGIN - Saturation
+  if (m_mobile_base.enabled) {
+    Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
+    qp_base_in_world = twist_from_base_velocity(m_qp.head<3>());
 
-  if (std::abs(m_qp(0)) > m_parameters.mobile_base.max_vel.linear[0]) {
-    RCLCPP_WARN_STREAM(this->get_node()->get_logger(), "Saturation of VELOCITY on base linear direction X: "
-                                                         << m_q(0) << " truncated to "
-                                                         << sgn(m_q(0)) * m_parameters.mobile_base.max_vel.linear[0]);
-    m_qp(0) = sgn(m_qp(0)) * m_parameters.mobile_base.max_vel.linear[0];
-  }
-  if (std::abs(m_qp(1)) > m_parameters.mobile_base.max_vel.linear[1]) {
-    RCLCPP_WARN_STREAM(this->get_node()->get_logger(), "Saturation of VELOCITY on base linear direction Y: "
-                                                         << m_q(1) << " truncated to "
-                                                         << sgn(m_q(1)) * m_parameters.mobile_base.max_vel.linear[1]);
-    m_qp(1) = sgn(m_qp(1)) * m_parameters.mobile_base.max_vel.linear[1];
-  }
-  if (std::abs(m_qp(2)) > m_parameters.mobile_base.max_vel.angular) {
-    RCLCPP_WARN_STREAM(this->get_node()->get_logger(), "Saturation of VELOCITY on base angular direction Z: "
-                                                         << m_q(2) << " truncated to "
-                                                         << sgn(m_q(2)) * m_parameters.mobile_base.max_vel.angular);
-    m_qp(2) = sgn(m_qp(2)) * m_parameters.mobile_base.max_vel.angular;
+    Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(qp_base_in_world, m_T_world_base.linear().transpose());
+    qp_base_in_base =
+      qp_base_in_base.unaryExpr([this](double vel) { return std::abs(vel) < this->k_velocity_tollerance ? 0.0 : vel; });
+    m_mobile_base.velocity_in_base = base_velocity_from_twist(qp_base_in_base);
+
+    // BEGIN - Check Saturation Base
+    // If the QP works, this shouldn't be necessary
+    for (size_t idx = 0; idx < m_mobile_base.nax(); ++idx) {
+      if (std::abs(m_mobile_base.velocity_in_base(idx)) > m_mobile_base.vel_limits(idx)) {
+        RCLCPP_WARN_STREAM(this->get_node()->get_logger(),
+                           "Saturation of Velocity on base linear direction "
+                             << idx << ": " << m_mobile_base.velocity_in_base(idx) << " should be "
+                             << sgn(m_mobile_base.velocity_in_base(idx)) * m_mobile_base.vel_limits(idx));
+      }
+    }
+    // END - Check Saturation Base
   }
 
+  // BEGIN - Saturation Manipulator
   for (size_t idx = 0; idx < m_nax; ++idx) {
     double q = m_q(idx + (m_full_nax - m_nax));
     double dq = m_qp(idx + (m_full_nax - m_nax));
@@ -870,7 +888,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld", idx);
     }
   }
-  // END - Saturation
+  // END - Saturation Manipulator
 
   // ***********
   // ** Write **
@@ -893,18 +911,12 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   }
 
   if (m_mobile_base.enabled) {
-    Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
-    qp_base_in_world = twist_from_base_velocity(m_qp.head<3>());
-
-    Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(qp_base_in_world, m_T_world_base.linear().transpose());
-    qp_base_in_base =
-      qp_base_in_base.unaryExpr([this](double vel) { return std::abs(vel) < this->k_velocity_tollerance ? 0.0 : vel; });
-    m_mobile_base.velocity_in_base = qp_base_in_base;
-    geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(qp_base_in_base);
+    geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(twist_from_base_velocity(m_mobile_base.velocity_in_base));
 
     m_pub_cmd_vel->publish(cmd_vel);
 
-    m_T_world_base = rdyn::spatialIntegration(m_T_world_base, qp_base_in_world, m_dt);
+    Eigen::Vector6d base_twist_in_world = twist_from_base_velocity(m_qp.head<3>());
+    m_T_world_base = rdyn::spatialIntegration(m_T_world_base, base_twist_in_world, m_dt);
   }
 
   m_q_prec = m_q;
@@ -1065,6 +1077,7 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data, bo
 
 }
 
+
 Eigen::VectorXd ElastoplasticController::compute_clik_as_inv(const ClikData &a_data, const Eigen::Vector6d &a_position_error,
                                                              const Eigen::Vector6d &a_twist_error,
                                                              const Eigen::Vector6d &a_acc_non_linear) {
@@ -1080,12 +1093,12 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_inv(const ClikData &a_d
   Q_half.diagonal() = Eigen::Map<Eigen::VectorXd>(
                           m_parameters.clik.task.weights.data(), m_parameters.clik.task.weights.size())
                           .cwiseSqrt();
-  Q_half.diagonal().head<3>() *=
-      (1 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
+  Q_half.diagonal().head<3>() *= (1 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
   Eigen::JacobiSVD<Eigen::Matrix<double, 6, -1>> svd_q(a_data.J_world_tool_in_world * Q_half,
                                                        Eigen::ComputeThinU | Eigen::ComputeThinV);
   return gradientW + Q_half * svd_q.solve(correction);
 }
+
 
 Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_data, const Eigen::Vector6d &a_position_error,
                                                             const Eigen::Vector6d &a_twist_error,
@@ -1128,7 +1141,11 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
       m_parameters.clik.task.weights.size());
   if (m_mobile_base.enabled)
   {
-    W.diagonal().head<3>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
+    W.diagonal().head<2>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
+    // W.diagonal().head<3>() *=
+    // (1 + m_elastoplastic_model->alpha() *
+    // relax_weights({a_data.next_twist_tool_world_in_world(0), a_data.next_twist_tool_world_in_world(1),
+    // a_data.next_twist_tool_world_in_world(Eigen::last)}));
   }
 
 #define USE_SLACK_VARIABLE
@@ -1172,9 +1189,11 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   Eigen::MatrixXd CI = Eigen::MatrixXd::Zero(n_ineq, prb_dim);
   Eigen::VectorXd ci(n_ineq);
 
-  // Inequality order: {velocity[2 * full_nax],
-  //                    acceleration [2 * full_nax],
-  //                    position [2 * nax]}
+  // Inequality dimensions: {velocity     [2 * full_nax],
+  //                         acceleration [2 * full_nax],
+  //                         position     [2 * nax]}
+  // Limits order: {x > x_min,
+  //                x < x_max}, x = {qp, qpp, q}
   std::vector<size_t> ineq_idxs {0, 2*m_full_nax, 4*m_full_nax};
 
   // Velocity
@@ -1185,7 +1204,7 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
                                                          m_full_nax) *
                                                          m_dt;
 
-  ci.segment(ineq_idxs[0] + m_mobile_base.nax(), m_nax)              = (m_qp.tail(m_nax) + m_limits.vel);
+  ci.segment(ineq_idxs[0] + m_mobile_base.nax(), m_nax) = (m_qp.tail(m_nax) + m_limits.vel);
   ci.segment(ineq_idxs[0] + m_full_nax + m_mobile_base.nax(), m_nax) = (m_limits.vel - m_qp.tail(m_nax));
 
   // Acceleration
@@ -1211,31 +1230,25 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
       ineq_idxs[2] + m_nax,
       m_nax) = m_limits.pos_upper - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
 
+  // Move base limits to world
   if(m_mobile_base.enabled)
   {
     // Velocity
-    ci.segment<3>(ineq_idxs[0]) <<
-        (m_qp(0) + m_parameters.mobile_base.max_vel.linear[0]),
-        (m_qp(1) + m_parameters.mobile_base.max_vel.linear[1]),
-        (m_qp(2) + m_parameters.mobile_base.max_vel.angular  );
-    ci.segment<3>(ineq_idxs[0] + m_full_nax) <<
-        (m_parameters.mobile_base.max_vel.linear[0] - m_qp(0)),
-        (m_parameters.mobile_base.max_vel.linear[1] - m_qp(1)),
-        (m_parameters.mobile_base.max_vel.angular - m_qp(2));
+    Eigen::Vector6d max_vel_base_in_world = twist_from_base_velocity(m_mobile_base.vel_limits);
+    Eigen::Vector6d max_vel_base_in_base = rdyn::spatialRotation(max_vel_base_in_world, m_T_world_base.linear().transpose());
+    Eigen::Vector3d max_vel_base = base_velocity_from_twist(max_vel_base_in_base);
+    ci.segment<3>(ineq_idxs[0]) << m_qp.head<3>() + max_vel_base;
+    ci.segment<3>(ineq_idxs[0] + m_full_nax) << max_vel_base - m_qp.head<3>();
 
     // Acceleration
-    ci.segment<3>(ineq_idxs[1]) <<
-        m_parameters.mobile_base.max_acc_x,
-        m_parameters.mobile_base.max_acc_y,
-        m_parameters.mobile_base.max_acc_yaw;
-    ci.segment<3>(ineq_idxs[1] + m_full_nax) <<
-        m_parameters.mobile_base.max_acc_x,
-        m_parameters.mobile_base.max_acc_y,
-        m_parameters.mobile_base.max_acc_yaw;
+    Eigen::Vector6d max_acc_base_in_world = twist_from_base_velocity(m_mobile_base.acc_limits);
+    Eigen::Vector6d max_acc_base = rdyn::spatialRotation(max_acc_base_in_world, m_T_world_base.linear().transpose());
+    ci.segment<3>(ineq_idxs[1]) << base_velocity_from_twist(max_acc_base);
+    ci.segment<3>(ineq_idxs[1] + m_full_nax) << base_velocity_from_twist(max_acc_base);
   }
 
 #ifdef USE_SLACK_VARIABLE
-  G.bottomRightCorner(k_cartesian_dim, k_cartesian_dim).diagonal().setConstant(W.diagonal().maxCoeff() * 1e3);
+  G.bottomRightCorner(k_cartesian_dim, k_cartesian_dim).diagonal().setConstant(W.diagonal().maxCoeff() * k_slack_gain);
   CE.rightCols(k_cartesian_dim).setIdentity();
 #endif
 
@@ -1378,6 +1391,12 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   // << ci.transpose());
 
   return return_qpp;
+}
+
+
+double ElastoplasticController::relax_weights(const Eigen::Array3d& a_twist) {
+  SatRelWeights& s = m_saturation_relax_weight;
+  return (s.max / (1 + Eigen::exp(-s.slope * (a_twist - s.inflection)))).maxCoeff();
 }
 
 

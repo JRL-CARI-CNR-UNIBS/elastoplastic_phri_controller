@@ -97,6 +97,7 @@ private:
   constexpr static double k_velocity_tollerance = 1e-5;
   constexpr static double k_minimum_sampling_time = 1e-4;
   constexpr static unsigned int k_cartesian_dim = 6;
+  constexpr static double k_slack_gain = 1e2;
 
   enum class RDStatus
   {
@@ -144,9 +145,11 @@ private:
     bool enabled {true};
 
     std::string ns;
-    Eigen::Vector6d velocity_in_base;
+    Eigen::Vector3d velocity_in_base;
     size_t nax() const { return enabled ? nax_ : 0; }
     std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
+    Eigen::Vector3d vel_limits;
+    Eigen::Vector3d acc_limits;
 
   private:
     constexpr static size_t nax_ {3};
@@ -188,6 +191,11 @@ private:
     Eigen::Matrix6Xd& J_world_tool_in_world;
   };
 
+  struct SatRelWeights {
+    double max;
+    double slope;
+    Eigen::Array3d inflection;
+  } m_saturation_relax_weight;
 
   //  std::array<Eigen::MatrixXd, 6> update_hessian(
   //    const Eigen::Matrix6Xd & jacobian,
@@ -196,7 +204,7 @@ private:
   // tf2_ros::Buffer::SharedPtr m_tf_buffer;
   // std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
 
-  //cppoptlib::Problem prb;
+  // cppoptlib::Problem prb;
 
   // std::array<Eigen::MatrixXd, 6> m_hessian;
   // struct BFGSData
@@ -206,7 +214,6 @@ private:
   // } bfgs_prev;
 
 public:
-
   ElastoplasticController() {}
 
   controller_interface::InterfaceConfiguration command_interface_configuration() const override;
@@ -271,6 +278,7 @@ protected:
   void get_odometry_callback(const nav_msgs::msg::Odometry & msg);
   void get_localization_callback(const geometry_msgs::msg::PoseWithCovarianceStamped & msg);
 
+  double relax_weights(const Eigen::Array3d& twist);
 };
 
 }
