@@ -70,6 +70,12 @@ elastoplastic_controller:
       description: "Use mobile base",
       read_only: true
     }
+    enable_z_rotation: {
+      type: bool,
+      default_value: true,
+      description: "Enable rotation around Z axis of the base",
+      read_only: true
+    }
     input_target_topic: {
       type: string,
       default_value: "/input_cmd_vel",
@@ -198,38 +204,33 @@ elastoplastic_controller:
     inertia: {
       type: double_array,
       default_value: [],
-      description: "Controller Inertia, in world frame",
+      description: "Controller Inertia, in tool frame",
       validation: {
         lower_element_bounds<>: 1.0e-9,
         fixed_size<>: 6
       }
     }
-    linear:
-      sigma_0: {
-        type: double,
-        description: "bristle stiffness, in world frame"
+    sigma_0: {
+      type: double_array,
+      description: "bristle stiffness, in tool frame",
+      validation: {
+        fixed_size<>: 6
       }
-      sigma_1: {
-        type: double,
-        description: "bristle damping, in world frame"
+    }
+    sigma_1: {
+      type: double_array,
+      description: "bristle damping, in tool frame",
+      validation: {
+        fixed_size<>: 6
       }
-      sigma_2: {
-        type: double,
-        description: "viscous coefficient, in world frame"
+    }
+    sigma_2: {
+      type: double_array,
+      description: "viscous coefficient, in tool frame",
+      validation: {
+        fixed_size<>: 6
       }
-    angular:
-      sigma_0: {
-        type: double,
-        description: "bristle stiffness, in world frame"
-      }
-      sigma_1: {
-        type: double,
-        description: "bristle damping, in world frame"
-      }
-      sigma_2: {
-        type: double,
-        description: "viscous coefficient, in world frame"
-      }
+    }
     z_ss: {
       type: double,
       description: "Maximum bristle bending, in world frame",

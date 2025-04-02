@@ -7,23 +7,26 @@
 
 #include "Eigen/Core"
 
-#include "rclcpp/rclcpp.hpp"
-#include "rclcpp_lifecycle/lifecycle_publisher.hpp"
-#include "realtime_tools/realtime_buffer.hpp"
 #include "controller_interface/chainable_controller_interface.hpp"
-#include "hardware_interface/types/hardware_interface_type_values.hpp"
-#include "std_msgs/msg/string.hpp"
-#include "std_msgs/msg/float64_multi_array.hpp"
-#include "sensor_msgs/msg/joint_state.hpp"
-#include "semantic_components/force_torque_sensor.hpp"
+#include "eiquadprog/eiquadprog-fast.hpp"
+#include "geometry_msgs/msg/pose.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 #include "geometry_msgs/msg/twist_with_covariance.hpp"
 #include "geometry_msgs/msg/wrench.hpp"
 #include "geometry_msgs/msg/wrench_stamped.hpp"
-#include "geometry_msgs/msg/pose.hpp"
-#include "geometry_msgs/msg/pose_stamped.hpp"
-#include "geometry_msgs/msg/twist.hpp"
+#include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_lifecycle/lifecycle_publisher.hpp"
+#include "realtime_tools/realtime_buffer.hpp"
+#include "semantic_components/force_torque_sensor.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
+#include "std_msgs/msg/float64.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
+#include "std_msgs/msg/string.hpp"
+
 
 // #include "derivatives.hpp"
 
@@ -64,40 +67,32 @@ private:
 
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
 
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_z;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_w;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr
-      m_pub_friction_in_world;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr
-      m_pub_wrench_in_world;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr
-      m_pub_wrench_in_tool;
+  // Debug publishers
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_friction_in_world;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_world;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_tool;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cart_vel_error;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr
-      m_pub_delta_acceleration;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_delta_acceleration;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_delta_velocity;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_delta_pose;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
-      m_clik_components_pub;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
-      m_clik_correction_pub;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_xp_pub;
-  rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr
-      m_pub_joint_reference;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr
-      m_pub_fk_world_tool;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr
-      m_pub_fk_base_tool;
-
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_xp_pub;
+  rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr m_pub_joint_reference;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_fk_world_tool;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_fk_base_tool;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_next_pose;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_z;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_w;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_components_pub;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_correction_pub;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_weights;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr m_pub_alfa;
 
-  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_next_pose;
-
-  constexpr static double k_position_tollerance = 1e-4;
-  constexpr static double k_velocity_tollerance = 1e-5;
-  constexpr static double k_minimum_sampling_time = 1e-4;
-  constexpr static unsigned int k_cartesian_dim = 6;
-  constexpr static double k_slack_gain = 1e2;
+  constexpr static double M_POSITION_TOLLERANCE = 1e-4;
+  constexpr static double M_VELOCITY_TOLLERANCE = 1e-5;
+  constexpr static double M_MINIMUM_SAMPLING_TIME = 1e-4;
+  constexpr static unsigned int M_CARTESIAN_DIM = 6;
+  constexpr static double M_SLACK_GAIN = 1e2;
 
   enum class RDStatus
   {
@@ -124,6 +119,8 @@ private:
   double m_dt;
 
   double m_kp_last_task, m_kv_last_task;
+
+  Eigen::MatrixXd m_W; // Weight matrix for CLIK
 
   Eigen::VectorXd m_q_prec;
   Eigen::VectorXd m_qp_prec;
@@ -197,6 +194,8 @@ private:
     Eigen::Array3d inflection;
   } m_saturation_relax_weight;
 
+  eiquadprog::solvers::EiquadprogFast m_eiquadprog;
+
   //  std::array<Eigen::MatrixXd, 6> update_hessian(
   //    const Eigen::Matrix6Xd & jacobian,
   //    const Eigen::VectorXd & q);
@@ -267,7 +266,7 @@ protected:
 
   void configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 
-  Eigen::VectorXd compute_clik(const ClikData& data, bool use_qp = true);
+  Eigen::VectorXd compute_clik(const ClikData& data, const bool use_qp = true);
   Eigen::VectorXd compute_clik_as_qp(const ClikData &data, const Eigen::Vector6d &a_position_error,
                                      const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
   Eigen::VectorXd compute_clik_as_inv(const ClikData &data, const Eigen::Vector6d &a_position_error,

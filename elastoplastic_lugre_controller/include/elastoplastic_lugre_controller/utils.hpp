@@ -11,8 +11,8 @@ using Vector6d = Vector<double,6>;
 
 namespace elastoplastic {
 
-#define K_ABS_EPSILON 1e-12
-#define K_REL_EPSILON 1e-8
+constexpr static double K_ABS_EPSILON{1e-12};
+constexpr static double K_REL_EPSILON{1e-8};
 
 /**
  *  Floating point comparison
@@ -54,14 +54,11 @@ Eigen::Vector<double, 6> twist_from_base_velocity(const Eigen::Vector3d& p_v) {
 ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& a_params)
 {
   ElastoplasticModelData data;
-  std::vector<double> inertia = a_params.impedance.inertia;
-  data.inertia_inv = Eigen::Map<Eigen::Vector6d>(inertia.data(), 6).cwiseInverse();
-  data.lugre.linear.sigma_0 = a_params.impedance.linear.sigma_0;
-  data.lugre.linear.sigma_1 = a_params.impedance.linear.sigma_1;
-  data.lugre.linear.sigma_2 = a_params.impedance.linear.sigma_2;
-  data.lugre.angular.sigma_0 = a_params.impedance.angular.sigma_0;
-  data.lugre.angular.sigma_1 = a_params.impedance.angular.sigma_1;
-  data.lugre.angular.sigma_2 = a_params.impedance.angular.sigma_2;
+  // std::vector<double> inertia = a_params.impedance.inertia;
+  data.inertia_inv = Eigen::Vector6d(a_params.impedance.inertia.data()).cwiseInverse();
+  data.lugre.sigma_0 = a_params.impedance.sigma_0;
+  data.lugre.sigma_1 = a_params.impedance.sigma_1;
+  data.lugre.sigma_2 = a_params.impedance.sigma_2;
   data.lugre.z_ba = a_params.impedance.z_ba;
   data.lugre.z_ss = a_params.impedance.z_ss;
   data.lugre.tau_w = a_params.impedance.tau_w;

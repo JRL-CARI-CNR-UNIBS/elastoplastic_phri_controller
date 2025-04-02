@@ -73,7 +73,6 @@ target_link_libraries(elastoplastic_controller
   PUBLIC rdyn_core::rdyn_core_compiled
   PUBLIC Eigen3::Eigen
   PUBLIC fmt::fmt
-  #PUBLIC eigen_matrix_utils::eigen_matrix_utils
   PUBLIC eiquadprog::eiquadprog
 )
 

@@ -15,12 +15,9 @@ ElastoplasticModel6D::ElastoplasticModel6D(const ElastoplasticModelData& data)
   m_sigma_0.setZero();
   m_sigma_1.setZero();
   m_sigma_2.setZero();
-  m_sigma_0.diagonal().head<3>() = Eigen::Vector3d::Constant(m_model_params.lugre.linear.sigma_0);
-  m_sigma_0.diagonal().tail<3>() = Eigen::Vector3d::Constant(m_model_params.lugre.angular.sigma_0);
-  m_sigma_1.diagonal().head<3>() = Eigen::Vector3d::Constant(m_model_params.lugre.linear.sigma_1);
-  m_sigma_1.diagonal().tail<3>() = Eigen::Vector3d::Constant(m_model_params.lugre.angular.sigma_1);
-  m_sigma_2.diagonal().head<3>() = Eigen::Vector3d::Constant(m_model_params.lugre.linear.sigma_2);
-  m_sigma_2.diagonal().tail<3>() = Eigen::Vector3d::Constant(m_model_params.lugre.angular.sigma_2);
+  m_sigma_0.diagonal() = Eigen::Vector6d(m_model_params.lugre.sigma_0.data());
+  m_sigma_1.diagonal() = Eigen::Vector6d(m_model_params.lugre.sigma_1.data());
+  m_sigma_2.diagonal() = Eigen::Vector6d(m_model_params.lugre.sigma_2.data());
   std::transform(data.enable_axis.begin(), data.enable_axis.end(), m_enable_axis.begin(),[](const bool b){
     return static_cast<double>(b);
   });
@@ -63,10 +60,22 @@ double ElastoplasticModel6D::dalpha(const double z) const
   }
 };
 
-Eigen::Vector6d ElastoplasticModel6D::update(const Eigen::Vector6d& velocity, const Eigen::Vector6d& force, const double period)
-{
-  Eigen::Vector6d enabled_velocity = velocity.cwiseProduct(m_enable_axis);
-  Eigen::Vector6d enabled_force = force.cwiseProduct(m_enable_axis);
+// Eigen::Matrix6d Elastoplastic
+
+Eigen::Vector6d ElastoplasticModel6D::update(const Eigen::Vector6d& velocity_in_b, const Eigen::Vector6d& force_in_b,
+                                             const Eigen::Affine3d& T_a_b, const double period) {
+
+  Eigen::Vector6d enabled_velocity = velocity_in_b.cwiseProduct(m_enable_axis);
+  Eigen::Vector6d enabled_force = force_in_b.cwiseProduct(m_enable_axis);
+
+  // Impedance coefficients are expressed in frame a
+  // Change reference frame from a to b
+  Eigen::Matrix6d T6; // [[T, 0], [0, T]]
+  T6 << T_a_b.linear(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Zero(), T_a_b.linear();
+  Eigen::Matrix6d sigma_0 = T6 * m_sigma_0 * T6.transpose();
+  Eigen::Matrix6d sigma_1 = T6 * m_sigma_1 * T6.transpose();
+  Eigen::Matrix6d sigma_2 = T6 * m_sigma_2 * T6.transpose();
+
   Eigen::Matrix<double, 7, 1> alpha_with_r;
   alpha_with_r << m_state.z, m_state.r;
   m_last_alpha = Eigen::Vector6d::Constant(alpha(alpha_with_r.norm()));
@@ -76,9 +85,7 @@ Eigen::Vector6d ElastoplasticModel6D::update(const Eigen::Vector6d& velocity, co
   d_dt.z = enabled_velocity - c_v;
   d_dt.w = m_last_alpha.cwiseProduct(m_state.z - m_state.w) / m_model_params.lugre.tau_w;
 
-  m_last_friction_force = m_sigma_0 * (m_state.z - m_state.w)
-                        + m_sigma_1 * d_dt.z
-                        + m_sigma_2 * enabled_velocity;
+  m_last_friction_force = sigma_0 * (m_state.z - m_state.w) + sigma_1 * d_dt.z + sigma_2 * enabled_velocity;
 
   Eigen::Vector6d acc;
   acc = m_model_params.inertia_inv.cwiseProduct(enabled_force - m_last_friction_force);

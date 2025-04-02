@@ -1,11 +1,13 @@
 #ifndef ELASTOPLASTIC_MODEL_6D_H
 #define ELASTOPLASTIC_MODEL_6D_H
 
-#include <eigen3/Eigen/Core>
+#include "Eigen/Dense"
+#include "Eigen/Geometry"
 #include <deque>
 
 namespace Eigen {
 using Vector6d = Matrix<double, 6, 1>;
+using Matrix6d = Matrix<double, 6, 6>;
 }
 
 namespace elastoplastic {
@@ -14,11 +16,9 @@ struct ElastoplasticModelData
 {
   Eigen::Vector6d inertia_inv;
   struct {
-    struct Impedance {
-        double sigma_0;
-        double sigma_1;
-        double sigma_2;
-    } linear, angular;
+    std::vector<double> sigma_0;
+    std::vector<double> sigma_1;
+    std::vector<double> sigma_2;
     double z_ss;
     double z_ba;
     double tau_w;
@@ -43,7 +43,7 @@ public:
     m_state.clear();
   }
 
-  Eigen::Vector6d update(const Eigen::Vector6d& v, const Eigen::Vector6d& f, const double period);
+  Eigen::Vector6d update(const Eigen::Vector6d& v, const Eigen::Vector6d& f, const Eigen::Affine3d& T_a_b, const double period);
 
   const Eigen::Vector6d& z() const {return m_state.z;}
   const Eigen::Vector6d& w() const {return m_state.w;}
@@ -56,7 +56,7 @@ protected:
   bool reset_condition(const Eigen::Vector6d& v, const Eigen::Vector6d& f, const double period);
 
   const ElastoplasticModelData m_model_params;
-  Eigen::Matrix<double, 6, 6> m_sigma_0, m_sigma_1, m_sigma_2;
+  Eigen::Matrix6d m_sigma_0, m_sigma_1, m_sigma_2;
 
   Eigen::Vector6d m_last_alpha;
   Eigen::Vector6d m_last_friction_force;
