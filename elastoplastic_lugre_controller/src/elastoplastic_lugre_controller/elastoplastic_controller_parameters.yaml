@@ -267,6 +267,34 @@ elastoplastic_controller:
           gt_eq<>: 0,
         }
       }
+    logistic:
+      max: {
+        type: double,
+        description: "Max value of the logistic. Default (and preferred value): 1",
+        default_value: 1.0,
+        read_only: true,
+        validation: {
+          gt<>: 0.0
+        }
+      }
+      slope: {
+        type: double,
+        description: "Slope of the logistic",
+        default_value: 15.0,
+        read_only: true,
+        validation: {
+          gt<>: 0.0
+        }
+      }
+      inflection: {
+        type: double,
+        description: "Coefficient for inflection point of the logistic. The actual point is computed as (inflection * max_vel_iaxis)",
+        default_value: 0.8,
+        read_only: true,
+        validation: {
+          gt<>: 0.0
+        }
+      }
   clik:
     kp: {
       type: double,

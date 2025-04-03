@@ -1,6 +1,7 @@
 #ifndef ELASTOPLASTIC_LUGRE_CONTROLLER_HPP
 #define ELASTOPLASTIC_LUGRE_CONTROLLER_HPP
 
+#include "elastoplastic_lugre_controller/utils.hpp"
 #include "elastoplastic_model_6d.hpp"
 #include "elastoplastic_parameters.hpp"
 #include "rdyn_core/primitives.h"
@@ -188,11 +189,7 @@ private:
     Eigen::Matrix6Xd& J_world_tool_in_world;
   };
 
-  struct SatRelWeights {
-    double max;
-    double slope;
-    Eigen::Array3d inflection;
-  } m_saturation_relax_weight;
+  utils::Logistic m_logistic;
 
   eiquadprog::solvers::EiquadprogFast m_eiquadprog;
 
@@ -276,8 +273,6 @@ protected:
   void get_mobile_base_target_callback(const geometry_msgs::msg::Twist & msg);
   void get_odometry_callback(const nav_msgs::msg::Odometry & msg);
   void get_localization_callback(const geometry_msgs::msg::PoseWithCovarianceStamped & msg);
-
-  double relax_weights(const Eigen::Array3d& twist);
 };
 
 }

@@ -9,10 +9,19 @@ namespace Eigen {
 using Vector6d = Vector<double,6>;
 }
 
-namespace elastoplastic {
+namespace elastoplastic::utils {
 
 constexpr static double K_ABS_EPSILON{1e-12};
 constexpr static double K_REL_EPSILON{1e-8};
+
+struct Logistic {
+  double max;
+  double slope;
+  Eigen::Array3d inflection;
+
+  double get(const Eigen::Array3d& v) { return (max / (1 + Eigen::exp(slope * (v.abs() - inflection)))).minCoeff(); }
+};
+
 
 /**
  *  Floating point comparison
@@ -38,18 +47,23 @@ constexpr bool almost_equal(double a, double b, double absEpsilon = K_ABS_EPSILO
 
 constexpr bool almost_zero(const double a, const double absEpsilon = K_ABS_EPSILON) { return a < absEpsilon; }
 
+
 template <typename T> int sgn(T val) { return (T(0) < val) - (val < T(0)); }
+
 
 Eigen::MatrixXd& regularize(Eigen::MatrixXd& m) {
   m += Eigen::MatrixXd::Identity(m.rows(), m.cols()) * K_REL_EPSILON * m.trace() / m.cols();
   return m;
 }
 
+
 Eigen::VectorXd base_velocity_from_twist(const Eigen::Vector6d& p_w) { return p_w({0, 1, 5}); }
+
 
 Eigen::Vector<double, 6> twist_from_base_velocity(const Eigen::Vector3d& p_v) {
   return Eigen::Vector6d {p_v(0), p_v(1), 0, 0, 0, p_v(2)};
 }
+
 
 ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& a_params)
 {
@@ -69,6 +83,6 @@ ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& a_
   return data;
 }
 
-} // namespace elastoplastic
+} // namespace elastoplastic::utils
 
 #endif // ELASTOPLASTIC_LUGRE_CONTROLLER__UTILS_HPP

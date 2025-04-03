@@ -81,7 +81,7 @@ target_include_directories(elastoplastic_controller PUBLIC
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
  # -ffast-math option is not added due to the std::isinf() function present in the code
-target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -Wno-pre-c++14-compat -funroll-loops -Wall -O3)
+target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -funroll-loops -Wall -O3)
 target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
 install(TARGETS elastoplastic_controller elastoplastic_parameters
