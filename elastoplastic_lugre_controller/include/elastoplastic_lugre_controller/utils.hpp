@@ -20,6 +20,18 @@ struct Logistic {
   Eigen::Array3d inflection;
 
   double get(const Eigen::Array3d& v) { return (max / (1 + Eigen::exp(slope * (v.abs() - inflection)))).minCoeff(); }
+  // double get(const Eigen::Array3d& v) {
+  //   double z_ss = (inflection + slope).minCoeff();
+  //   double z_ba = (inflection - slope).maxCoeff();
+  //   double z = v.maxCoeff();
+  //   if (std::abs(z) < z_ba) {
+  //     return 0.0;
+  //   } else if (std::abs(z) >= z_ss) {
+  //     return 0.0;
+  //   } else {
+  //     return 0.5 * std::cos(M_PI * ((z - (z_ba + z_ss) / 2) / (z_ss - z_ba)));
+  //   }
+  // }
 };
 
 

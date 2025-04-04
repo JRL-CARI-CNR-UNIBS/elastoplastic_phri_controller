@@ -190,6 +190,7 @@ private:
   };
 
   utils::Logistic m_logistic;
+  double m_logis_prec;
 
   eiquadprog::solvers::EiquadprogFast m_eiquadprog;
 

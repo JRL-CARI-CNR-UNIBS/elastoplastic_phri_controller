@@ -1137,7 +1137,8 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   m_W.diagonal().head(m_full_nax) =
     Eigen::Map<Eigen::VectorXd>(m_parameters.clik.task.weights.data(), m_parameters.clik.task.weights.size());
   if (m_mobile_base.enabled) {
-    auto logis = m_logistic.get(m_mobile_base.velocity_in_base);
+    auto logis = filters::exponentialSmoothing(m_logistic.get(m_mobile_base.velocity_in_base), m_logis_prec, 0.1);
+    m_logis_prec = logis;
     // m_W.diagonal().head<2>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
     m_W.diagonal().head<2>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha() * logis);
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "logis: " << logis);
