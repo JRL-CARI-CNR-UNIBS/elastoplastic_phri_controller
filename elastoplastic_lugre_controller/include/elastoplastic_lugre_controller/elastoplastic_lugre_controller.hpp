@@ -187,6 +187,8 @@ private:
                       next_T_world_tool;
     Eigen::Vector6d&  acc_tool_target_in_world;
     Eigen::Matrix6Xd& J_world_tool_in_world;
+    Eigen::Affine3d& target_T_world_tool;
+    Eigen::Vector6d& target_twist_tool_world_in_world;
   };
 
   utils::Logistic m_logistic;
@@ -194,21 +196,15 @@ private:
 
   eiquadprog::solvers::EiquadprogFast m_eiquadprog;
 
-  //  std::array<Eigen::MatrixXd, 6> update_hessian(
-  //    const Eigen::Matrix6Xd & jacobian,
-  //    const Eigen::VectorXd & q);
+  Eigen::Vector6d m_computed_target_acc_tool_world_in_world;
+  Eigen::Vector6d m_computed_target_twist_tool_world_in_world;
+  Eigen::Affine3d m_computed_target_T_world_tool;
 
-  // tf2_ros::Buffer::SharedPtr m_tf_buffer;
-  // std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
+  Eigen::Vector6d m_future_computed_target_acc_tool_world_in_world;
+  Eigen::Vector6d m_future_computed_target_twist_tool_world_in_world;
+  Eigen::Affine3d m_future_computed_target_T_world_tool;
 
-  // cppoptlib::Problem prb;
-
-  // std::array<Eigen::MatrixXd, 6> m_hessian;
-  // struct BFGSData
-  // {
-  //   Eigen::Matrix6Xd jacobian_p;
-  //   std::array<Eigen::MatrixXd, 6> hessian_p;
-  // } bfgs_prev;
+  bool ever_been_in_plastic{false};
 
 public:
   ElastoplasticController() {}
