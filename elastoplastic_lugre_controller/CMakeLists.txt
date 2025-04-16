@@ -20,6 +20,7 @@ find_package(rclcpp_lifecycle           REQUIRED)
 find_package(sensor_msgs                REQUIRED)
 find_package(nav_msgs                   REQUIRED)
 find_package(geometry_msgs              REQUIRED)
+find_package(moveit_msgs            REQUIRED)
 find_package(tf2                        REQUIRED)
 find_package(tf2_eigen                  REQUIRED)
 find_package(urdfdom                    REQUIRED)
@@ -43,6 +44,12 @@ add_library(elastoplastic_controller SHARED
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
   include/elastoplastic_lugre_controller/elastoplastic_model_6d.hpp
   include/elastoplastic_lugre_controller/utils.hpp
+  # Cartesian interpolator
+  src/${PROJECT_NAME}/interpolation/interpolator.cpp
+  include/${PROJECT_NAME}/interpolation/interpolator.hpp
+  include/${PROJECT_NAME}/interpolation/interpolation_data_types.hpp
+  include/${PROJECT_NAME}/interpolation/interpolation.hpp
+  include/${PROJECT_NAME}/interpolation/operators.hpp
 )
 add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
 
@@ -62,6 +69,7 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   sensor_msgs
   nav_msgs
   geometry_msgs
+  moveit_msgs
   tf2
   tf2_eigen
   urdfdom

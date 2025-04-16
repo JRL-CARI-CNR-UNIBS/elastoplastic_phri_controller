@@ -1,6 +1,7 @@
 #ifndef ELASTOPLASTIC_LUGRE_CONTROLLER_HPP
 #define ELASTOPLASTIC_LUGRE_CONTROLLER_HPP
 
+#include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 #include "elastoplastic_model_6d.hpp"
 #include "elastoplastic_parameters.hpp"
@@ -18,6 +19,7 @@
 #include "geometry_msgs/msg/wrench.hpp"
 #include "geometry_msgs/msg/wrench_stamped.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
+#include "moveit_msgs/msg/cartesian_trajectory.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_publisher.hpp"
@@ -78,10 +80,12 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_delta_pose;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_xp_pub;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_interp_twist_pub;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr m_pub_joint_reference;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_fk_world_tool;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_fk_base_tool;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_next_pose;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_interp_pose_pub;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_z;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_w;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_components_pub;
@@ -95,12 +99,7 @@ private:
   constexpr static unsigned int M_CARTESIAN_DIM = 6;
   constexpr static double M_SLACK_GAIN = 1e2;
 
-  enum class RDStatus
-  {
-    OK,
-    ERROR,
-    EMPTY
-  } m_robot_description_configuration {ElastoplasticController::RDStatus::EMPTY};
+  enum class RDStatus { OK, ERROR, EMPTY } m_robot_description_configuration{ElastoplasticController::RDStatus::EMPTY};
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
 
   rdyn::ChainPtr m_chain_base_tool;
@@ -138,8 +137,7 @@ private:
   std::array<bool, 2> m_used_command_interfaces;
 
 
-  struct FloatBaseData
-  {
+  struct FloatBaseData {
     bool enabled {true};
 
     std::string ns;
@@ -161,8 +159,7 @@ private:
   std::vector<std::string> m_command_interfaces_names;
 
 
-  struct Limits
-  {
+  struct Limits {
     Eigen::VectorXd pos_upper;
     Eigen::VectorXd pos_lower;
     Eigen::VectorXd vel;
@@ -171,8 +168,7 @@ private:
 
   std::unique_ptr<ElastoplasticModel6D> m_elastoplastic_model;
 
-  struct IntegralState
-  {
+  struct IntegralState {
     Eigen::Vector6d position;
     Eigen::Vector6d velocity;
     void clear() {position.setZero(); velocity.setZero();}
@@ -195,6 +191,9 @@ private:
   double m_logis_prec;
 
   eiquadprog::solvers::EiquadprogFast m_eiquadprog;
+
+  utils::interpolation::Interpolator m_interpolator;
+  rclcpp::Subscription<moveit_msgs::msg::CartesianTrajectory>::SharedPtr m_carteisan_trj_sub;
 
   Eigen::Vector6d m_computed_target_acc_tool_world_in_world;
   Eigen::Vector6d m_computed_target_twist_tool_world_in_world;
