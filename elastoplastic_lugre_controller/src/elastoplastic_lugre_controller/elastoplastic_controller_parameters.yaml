@@ -6,6 +6,13 @@ elastoplastic_controller:
       not_empty<>: []
     }
   }
+  cartesian_trajectory_topic: {
+    type: string,
+    default_value: "/cartesian_trajectory",
+    validation: {
+      not_empty<>: []
+    }
+  }
   robot_description_topic: {
     type: string,
     default_value: "/robot_description",
