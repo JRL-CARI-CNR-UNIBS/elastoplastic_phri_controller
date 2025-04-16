@@ -702,66 +702,46 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   Eigen::Affine3d T_world_tool = m_chain_world_tool->getTransformation(m_q);
   Eigen::Vector6d twist_tool_world_in_world = m_chain_world_tool->getJacobian(m_q) * m_qp;
-
-  /* Target */
-  // // Target base
-  // Eigen::Vector6d target_twist_base_world_in_world;
-  // Eigen::Vector3d mobile_base_pose_in_world;
-  // if(m_mobile_base.enabled)
-  // {
-  //   Eigen::Vector6d target_twist_base_world_in_base;
-  //   Eigen::fromMsg(*(m_rt_buffer_mobile_base_target.readFromRT()), target_twist_base_world_in_base);
-  //   target_twist_base_world_in_world = move_from_base_to_world(target_twist_base_world_in_base);
-
-  //   Eigen::Affine3d T_target_world_base;
-  //   T_target_world_base = rdyn::spatialIntegration(m_T_world_base, target_twist_base_world_in_world, m_dt);
-  //   mobile_base_pose_in_world <<
-  //     T_target_world_base.translation().head<2>(),
-  //     Eigen::AngleAxisd(T_target_world_base.linear()).angle();
-  // }
-  // else
-  // {
-  //   mobile_base_pose_in_world.setZero();
-  //   target_twist_base_world_in_world.setZero();
-  // }
-
-  // // Target manipulator
-  // Eigen::VectorXd joint_position_references(m_nax);
-  // joint_position_references = Eigen::Map<Eigen::VectorXd>(
-  //   reference_interfaces_.data(), m_parameters.joints.size());
-  // Eigen::VectorXd joint_velocity_references(m_nax);
-  // joint_velocity_references =
-  //   Eigen::Map<Eigen::VectorXd>(std::next(reference_interfaces_.data(), m_nax), m_nax);
   Eigen::VectorXd full_position_references(m_full_nax), full_velocity_references(m_full_nax);
-  // if (m_mobile_base.enabled)
-  // {
-  //   full_position_references.head(m_mobile_base.nax()) << mobile_base_pose_in_world;
-  //   full_velocity_references.head(m_mobile_base.nax()) << utils::base_velocity_from_twist(target_twist_base_world_in_world);
-  // }
-  // full_position_references.tail(m_nax) << joint_position_references;
-  // full_velocity_references.tail(m_nax) << joint_velocity_references;
 
-  // Eigen::Vector6d target_twist_tool_world_in_world = m_chain_world_tool->getJacobian(full_position_references) *
-  // full_velocity_references;
+#define USE_CARTESIAN_REFERENCE
+#ifndef USE_CARTESIAN_REFERENCE
+  /* Joint Reference */
+  // Target base
+  Eigen::Vector6d target_twist_base_world_in_world;
+  Eigen::Vector3d mobile_base_pose_in_world;
+  if (m_mobile_base.enabled) {
+    Eigen::Vector6d target_twist_base_world_in_base;
+    Eigen::fromMsg(*(m_rt_buffer_mobile_base_target.readFromRT()), target_twist_base_world_in_base);
+    target_twist_base_world_in_world = move_from_base_to_world(target_twist_base_world_in_base);
 
-  /* FT state */
-  std::array<double, 3> ft_force = m_ft_sensor->get_forces();
-  std::array<double, 3> ft_torque = m_ft_sensor->get_torques();
-  Eigen::Vector6d wrench_sensor_in_sensor(ft_force[0], ft_force[1], ft_force[2], ft_torque[0], ft_torque[1], ft_torque[2]);
-
-  if (wrench_sensor_in_sensor.hasNaN()) {
-    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
-                         "Force sensor contains NaN values. Full measure discarded and replaced with zero");
-    wrench_sensor_in_sensor.setZero();
-  } else if (wrench_sensor_in_sensor.cwiseAbs().maxCoeff() > 1e20) {
-    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
-                         "Force sensor contains overflowed values. Full measure discarded and replaced with zero");
-    wrench_sensor_in_sensor.setZero();
+    Eigen::Affine3d T_target_world_base;
+    T_target_world_base = rdyn::spatialIntegration(m_T_world_base, target_twist_base_world_in_world, m_dt);
+    mobile_base_pose_in_world << T_target_world_base.translation().head<2>(),
+      Eigen::AngleAxisd(T_target_world_base.linear()).angle();
+  } else {
+    mobile_base_pose_in_world.setZero();
+    target_twist_base_world_in_world.setZero();
   }
-  Eigen::VectorXd q_start = m_q;
-  Eigen::VectorXd qp_start = m_qp;
 
-  // Cartesian interpolation
+  // Target manipulator
+  Eigen::VectorXd joint_position_references(m_nax);
+  joint_position_references = Eigen::Map<Eigen::VectorXd>(reference_interfaces_.data(), m_parameters.joints.size());
+  Eigen::VectorXd joint_velocity_references(m_nax);
+  joint_velocity_references = Eigen::Map<Eigen::VectorXd>(std::next(reference_interfaces_.data(), m_nax), m_nax);
+  if (m_mobile_base.enabled) {
+    full_position_references.head(m_mobile_base.nax()) << mobile_base_pose_in_world;
+    full_velocity_references.head(m_mobile_base.nax()) << utils::base_velocity_from_twist(target_twist_base_world_in_world);
+  }
+  full_position_references.tail(m_nax) << joint_position_references;
+  full_velocity_references.tail(m_nax) << joint_velocity_references;
+
+  Eigen::Vector6d target_twist_tool_world_in_world =
+    m_chain_world_tool->getJacobian(full_position_references) * full_velocity_references;
+
+#else
+
+  /* Cartesian reference */
   full_position_references = m_q;
   full_velocity_references.setZero();
   if (!m_interpolator.is_plan_started() && m_interpolator.is_ready()) {
@@ -783,6 +763,26 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   if (m_mobile_base.enabled) {
     full_velocity_references.head<3>() = utils::base_velocity_from_twist(target_twist_tool_world_in_world);
   }
+
+#endif
+
+  /* FT state */
+  std::array<double, 3> ft_force = m_ft_sensor->get_forces();
+  std::array<double, 3> ft_torque = m_ft_sensor->get_torques();
+  Eigen::Vector6d wrench_sensor_in_sensor(ft_force[0], ft_force[1], ft_force[2], ft_torque[0], ft_torque[1], ft_torque[2]);
+
+  if (wrench_sensor_in_sensor.hasNaN()) {
+    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
+                         "Force sensor contains NaN values. Full measure discarded and replaced with zero");
+    wrench_sensor_in_sensor.setZero();
+  } else if (wrench_sensor_in_sensor.cwiseAbs().maxCoeff() > 1e20) {
+    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
+                         "Force sensor contains overflowed values. Full measure discarded and replaced with zero");
+    wrench_sensor_in_sensor.setZero();
+  }
+  Eigen::VectorXd q_start = m_q;
+  Eigen::VectorXd qp_start = m_qp;
+
 
   // ************
   // ** Update **
