@@ -3,8 +3,8 @@
 
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
-#include "elastoplastic_model_6d.hpp"
 #include "elastoplastic_parameters.hpp"
+#include "elastoplastic_variable_model.hpp"
 #include "rdyn_core/primitives.h"
 
 #include "Eigen/Core"
@@ -69,6 +69,7 @@ private:
   rclcpp::Time m_last_localization_msg_time;
 
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_pub_timing;
 
   // Debug publishers
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_friction_in_world;
@@ -118,17 +119,17 @@ private:
 
   double m_dt;
 
-  double m_kp_last_task, m_kv_last_task;
+  double m_kp_joint_task, m_kv_joint_task;
 
   Eigen::MatrixXd m_W; // Weight matrix for CLIK
 
+  Eigen::VectorXd m_start_q;
   Eigen::VectorXd m_q_prec;
   Eigen::VectorXd m_qp_prec;
   Eigen::VectorXd m_qpp_prec;
   Eigen::Vector6d m_wrench_in_sensor_prec;
 
   Eigen::Affine3d m_T_world_base;
-  Eigen::Affine3d m_T_world_tool_initial;
 
   // Required both for states and at least one for command
   const std::vector<std::string> m_allowed_interface_types {
@@ -166,7 +167,7 @@ private:
     Eigen::VectorXd acc;
   } m_limits;
 
-  std::unique_ptr<ElastoplasticModel6D> m_elastoplastic_model;
+  std::unique_ptr<ElastoplasticModel> m_elastoplastic_model;
 
   struct IntegralState {
     Eigen::Vector6d position;

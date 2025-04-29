@@ -217,63 +217,48 @@ elastoplastic_controller:
         fixed_size<>: 6
       }
     }
-    sigma_0: {
+    k: {
       type: double_array,
       description: "bristle stiffness, in tool frame",
       validation: {
         fixed_size<>: 6
       }
     }
-    sigma_1: {
+    d: {
       type: double_array,
       description: "bristle damping, in tool frame",
       validation: {
         fixed_size<>: 6
       }
     }
-    sigma_2: {
-      type: double_array,
-      description: "viscous coefficient, in tool frame",
-      validation: {
-        fixed_size<>: 6
-      }
-    }
-    z_ss: {
+    z_max: {
       type: double,
       description: "Maximum bristle bending, in world frame",
       validation: {
         gt<>: 0
       }
     }
-    z_ba: {
+    z_start: {
       type: double,
       description: "Plastic threshold, in world frame",
       validation: {
         gt_eq<>: 0
       }
     }
-    tau_w: {
+    z_kmax: {
       type: double,
-      description: "Time constant of the tracking variable w",
+      description: "Plastic threshold, in world frame",
       validation: {
-        gt_eq<>: 0,
+        gt_eq<>: 0
       }
     }
-    reset_condition:
-      reset_window_size: {
-        type: int,
-        description: "Reset window size in ms",
-        validation: {
-          gt<>: 0,
-        }
+    leak_coefficient: {
+      type: double,
+      description: "Leak coefficient for the pseudo-tank",
+      validation: {
+        gt_eq<>: 0
       }
-      reset_threshold: {
-        type: double,
-        description: "Reset Threshold",
-        validation: {
-          gt_eq<>: 0,
-        }
-      }
+    }
     logistic:
       max: {
         type: double,
@@ -322,13 +307,13 @@ elastoplastic_controller:
         type: double,
         description: "Weight on alpha to change between base/arm priority"
       }
-      last:
-        kp: {
-          type: double,
-        }
-        kv: {
-          type: double,
-        }
+    joint_task:
+      kp: {
+        type: double,
+      }
+      kv: {
+        type: double,
+      }
   debug:
     log: {
       type: bool,

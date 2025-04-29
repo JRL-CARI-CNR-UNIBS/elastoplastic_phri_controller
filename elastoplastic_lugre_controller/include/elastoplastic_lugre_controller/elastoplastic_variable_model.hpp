@@ -1,0 +1,86 @@
+#ifndef ELASTOPLASTIC_CONTROLLER__ELASTOPLASTIC_VARIABLE_MODEL
+#define ELASTOPLASTIC_CONTROLLER__ELASTOPLASTIC_VARIABLE_MODEL
+
+#include "Eigen/Dense"
+#include "elastoplastic_parameters.hpp"
+
+#ifdef BUILD_TESTING
+#include "gtest/gtest.h"
+#endif
+
+namespace Eigen {
+using Vector6d = Matrix<double, 6, 1>;
+using Matrix6d = Matrix<double, 6, 6>;
+} // namespace Eigen
+
+namespace elastoplastic {
+struct ElastoplasticModelData {
+  Eigen::Matrix6d inertia_inv;
+  Eigen::Matrix6d k;
+  Eigen::Matrix6d d;
+
+  // z_start < z_kmax <= z_max
+  double z_max;
+  double z_kmax;
+  double z_start;
+
+  double leak_coefficient;
+
+  std::vector<bool> enable_axis;
+  ElastoplasticModelData() : z_max(0), z_kmax(0), z_start(0), leak_coefficient(0) {
+    inertia_inv.setZero();
+    k.setZero();
+    d.setZero();
+    enable_axis.resize(6);
+    std::fill(enable_axis.begin(), enable_axis.end(), true);
+  }
+};
+
+class ElastoplasticModel {
+private:
+  Eigen::Matrix6d m_inertia_inv;
+  Eigen::Matrix6d m_k;
+  Eigen::Matrix6d m_var_k;
+  Eigen::Matrix6d m_d;
+  double m_z_max;
+  double m_z_kmax;
+  double m_z_start;
+
+  double m_z;
+
+  double m_leak_coefficient;
+
+  Eigen::Vector6d m_enable_axis;
+
+  Eigen::Vector6d m_last_friction;
+
+  Eigen::Matrix6d compute_k(const double z) const;
+  double compute_zp(const double z, const double u, const double dt) const;
+  Eigen::Matrix6d compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_a_b) const;
+
+#ifdef BUILD_TESTING
+  FRIEND_TEST(ElastoplasticModelTest, privateComputeK);
+  FRIEND_TEST(ElastoplasticModelTest, privateComputeZp);
+  FRIEND_TEST(ElastoplasticModelTest, withSmallForceNoRef);
+  FRIEND_TEST(ElastoplasticModelTest, withHighForceNoRef);
+#endif
+
+public:
+  double alpha(const double z) const;
+  double alpha() const;
+  void clear();
+  double z() const;
+  Eigen::Vector6d friction_force() const;
+
+  Eigen::Vector6d compute_impedance(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
+                                    const Eigen::Affine3d& T_a_b) const;
+  std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d> update(const Eigen::Vector6d& x, const Eigen::Vector6d& v,
+                                                                       const Eigen::Vector6d& f, const Eigen::Affine3d T_a_b,
+                                                                       const double period);
+  ElastoplasticModel(const ElastoplasticModelData& data);
+  ElastoplasticModel() = delete;
+};
+
+} // namespace elastoplastic
+
+#endif
