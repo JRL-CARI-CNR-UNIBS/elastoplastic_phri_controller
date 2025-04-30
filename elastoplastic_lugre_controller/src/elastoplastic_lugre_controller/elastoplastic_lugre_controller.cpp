@@ -787,8 +787,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::VectorXd q_start = m_q;
   Eigen::VectorXd qp_start = m_qp;
 
-  m_computed_target_T_world_tool = m_future_computed_target_T_world_tool;
-  m_computed_target_twist_tool_world_in_world = m_future_computed_target_twist_tool_world_in_world;
+  target_T_world_tool = m_computed_target_T_world_tool = m_future_computed_target_T_world_tool;
+  target_twist_tool_world_in_world = m_computed_target_twist_tool_world_in_world =
+    m_future_computed_target_twist_tool_world_in_world;
   m_computed_target_acc_tool_world_in_world = m_future_computed_target_acc_tool_world_in_world;
 
 
@@ -813,10 +814,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   m_wrench_in_sensor_prec = wrench_sensor_in_sensor;
 
   Eigen::Vector6d cart_vel_error_tool_target_in_world;
-  if (!ever_been_in_plastic)
-    cart_vel_error_tool_target_in_world = twist_tool_world_in_world - target_twist_tool_world_in_world;
-  else
-    cart_vel_error_tool_target_in_world = twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world;
+  cart_vel_error_tool_target_in_world = twist_tool_world_in_world - target_twist_tool_world_in_world;
 
   Eigen::Vector6d wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor, T_tool_sensor);
   Eigen::Vector6d wrench_tool_in_world = rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear());
@@ -1197,34 +1195,41 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   Eigen::MatrixXd G(prb_dim, prb_dim);
   Eigen::VectorXd F(prb_dim);
 
-  Eigen::VectorXd xpp_clik = (-a_acc_non_linear + a_data.acc_tool_target_in_world + m_parameters.clik.kv * (a_twist_error) +
-                              m_parameters.clik.kp * (a_position_error));
+  Eigen::VectorXd xpp_clik = (-a_acc_non_linear + m_computed_target_acc_tool_world_in_world +
+                              m_parameters.clik.kv * (a_twist_error) + m_parameters.clik.kp * (a_position_error));
+  // Eigen::Vector6d y_clik =
+  // (-a_acc_non_linear + m_parameters.clik.kv * (a_twist_error) + m_parameters.clik.kp * (a_position_error));
 
-  G.setIdentity();
-  G.topLeftCorner(m_full_nax, m_full_nax) =
+  // Eigen::MatrixXd J_aug(M_CARTESIAN_DIM, prb_dim);
+  // J_aug << a_data.J_world_tool_in_world * m_W, -Eigen::Matrix6d::Identity();
+
+  G.setZero();
+  G.topLeftCorner(m_full_nax, m_full_nax) +=
     m_W.transpose() * a_data.J_world_tool_in_world.transpose() * a_data.J_world_tool_in_world * m_W;
+  // G = J_aug.transpose() * J_aug;
 
   F.setZero();
   F.head(m_full_nax) = -xpp_clik.transpose() * a_data.J_world_tool_in_world * m_W;
+  // F = -y_clik.transpose() * J_aug;
 
   // Minimize joint acceleration and weighting
   G.topLeftCorner(m_full_nax, m_full_nax) += Eigen::MatrixXd::Identity(prb_dim, prb_dim);
 
-
-  // TASK 1 Cartesian: Minimize the difference of the next reference pos with the actual pos
-  // G.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>();
-  // F.tail<M_CARTESIAN_DIM>() += a_data.acc_tool_target_in_world.transpose();
-
-  // TASK 2 Cartesian: Minimize difference between the real target and the computed one
+  // Task Cartesian: Minimize difference between the real target acceleration and the computed one
   G.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() +=
-    Eigen::Matrix<double, M_CARTESIAN_DIM, M_CARTESIAN_DIM>::Identity() * std::pow(m_dt, 4.0);
+    Eigen::Matrix6d::Identity() * Eigen::Matrix6d::Constant(m_W.maxCoeff());
+  F.tail<M_CARTESIAN_DIM>() += -a_data.acc_tool_target_in_world.transpose() * Eigen::Matrix6d::Constant(m_W.maxCoeff());
+
+  // TASK Cartesian: Minimize difference between the real target and the computed one
+  G.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() +=
+    Eigen::Matrix<double, M_CARTESIAN_DIM, M_CARTESIAN_DIM>::Identity() * std::pow(m_dt, 4.0) * 0.25;
   Eigen::Vector6d target_pose, computed_target_pose;
   target_pose << a_data.target_T_world_tool.translation(), a_data.target_T_world_tool.linear().eulerAngles(2, 1, 0);
   computed_target_pose << m_computed_target_T_world_tool.translation(),
     m_computed_target_T_world_tool.linear().eulerAngles(2, 1, 0);
-  F.tail<M_CARTESIAN_DIM>() += target_pose.transpose() * std::pow(m_dt, 2) +
-                               computed_target_pose.transpose() * std::pow(m_dt, 2) +
-                               m_computed_target_twist_tool_world_in_world.transpose() * std::pow(m_dt, 3);
+  F.tail<M_CARTESIAN_DIM>() += 0.5 * target_pose.transpose() * std::pow(m_dt, 2) +
+                               0.5 * computed_target_pose.transpose() * std::pow(m_dt, 2) +
+                               0.5 * m_computed_target_twist_tool_world_in_world.transpose() * std::pow(m_dt, 3);
 
   // ********************
   // ** EQ Constraints **
@@ -1423,6 +1428,8 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
                                 "Discarding second task due to infeasibility. Solver status: " << solver_status_2);
     return_qpp = qpp_1;
   }
+
+  RCLCPP_DEBUG(get_node()->get_logger(), "Controller tick");
 
   return return_qpp;
 }
