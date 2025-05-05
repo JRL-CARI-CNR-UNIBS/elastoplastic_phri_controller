@@ -893,8 +893,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // }
 
   // Ik integration
-  m_q += m_qp * m_dt + 0.5 * qepp * std::pow(m_dt, 2);
+  // m_q += m_qp * m_dt + 0.5 * qepp * std::pow(m_dt, 2);
   m_qp += qepp * m_dt;
+  m_q += m_qp * m_dt; // Symplectic Euler
 
   if (m_mobile_base.enabled) {
     Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
@@ -975,7 +976,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   if (m_parameters.debug.pub) {
     auto time_now = this->get_node()->get_clock()->now();
     std_msgs::msg::Float64MultiArray msg_z;
-    msg_z.data.resize(6);
     // msg_z.data = std::vector<double>(m_elastoplastic_model->z().data(), m_elastoplastic_model->z().data() +
     // m_elastoplastic_model->z().size());
     msg_z.data.push_back(m_elastoplastic_model->z());
@@ -1226,7 +1226,7 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
 
   double hweight{1};
   auto push_task = [&G, &F](Eigen::MatrixXd& Gtin, Eigen::VectorXd& Ftin, double& hweightin) -> void {
-    constexpr double step{1e-3};
+    constexpr double step{1e-1};
     G += Gtin * hweightin;
     F += Ftin * hweightin;
     Gtin.setZero();
@@ -1237,10 +1237,6 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   /**********************
    ** Task Definitions **
    **********************/
-
-  // Task Cartesian: Minimize difference between the real target acceleration and the computed one
-  Gt.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() += Eigen::Matrix6d::Identity();
-  Ft.tail<M_CARTESIAN_DIM>() += -a_data.acc_tool_target_in_world.transpose();
 
   // Task Cartesian: Minimize difference between the real target and the computed one
   Gt.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() +=
@@ -1253,12 +1249,16 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
     0.5 * (target_pose.transpose() * std::pow(m_dt, 2) - computed_target_pose.transpose() * std::pow(m_dt, 2) +
            m_computed_target_twist_tool_world_in_world.transpose() * std::pow(m_dt, 3));
 
+  // Task Cartesian: Minimize difference between the real target acceleration and the computed one
+  Gt.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() += Eigen::Matrix6d::Identity();
+  Ft.tail<M_CARTESIAN_DIM>() += -a_data.acc_tool_target_in_world.transpose();
+
   // Task Cartesian: Minimize difference between the real target twist and the computed one
   Gt.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() +=
     Eigen::Matrix<double, M_CARTESIAN_DIM, M_CARTESIAN_DIM>::Identity() * std::pow(m_dt, 2.0);
   Ft.tail<M_CARTESIAN_DIM>() +=
     m_dt * (m_computed_target_twist_tool_world_in_world.transpose() - a_data.target_twist_tool_world_in_world.transpose());
-  push_task(Gt, Ft, hweight);
+  // push_task(Gt, Ft, hweight);
 
   // Task: CLIK
   Eigen::VectorXd xpp_clik = (a_acc_non_linear - a_data.acc_tool_target_in_world -
@@ -1290,8 +1290,6 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   // No equality constraints: https://github.com/liuq/QuadProgpp/issues/3
   CE = Eigen::MatrixXd::Identity(1, prb_dim) * utils::K_ABS_EPSILON;
   ce.setConstant(utils::K_ABS_EPSILON);
-  // CE.leftCols(m_full_nax) << a_data.J_world_tool_in_world * m_W;
-  // ce << xpp_clik;
 
   // Disable rotation around Z-base axis
   // if (is_z_enabled) {
@@ -1425,6 +1423,9 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   As += At;
   bs += bt;
 
+  // Task: Minimize acceleration
+  // As +=
+
   Eigen::JacobiSVD<Eigen::MatrixXd> J_svd(a_data.J_world_tool_in_world * m_W, Eigen::ComputeFullV);
   const unsigned int null_space_dim = m_full_nax - J_svd.nonzeroSingularValues();
   const unsigned int prb_dim_2 = null_space_dim + m_full_nax;
@@ -1435,14 +1436,17 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   Eigen::VectorXd ce2(m_full_nax), ci2(ci);
 
   V_null << J_svd.matrixV().rightCols(null_space_dim);
+
   G2.setZero();
   G2.topLeftCorner(null_space_dim, null_space_dim) << V_null.transpose() * V_null;
   G2.bottomRightCorner(m_full_nax, m_full_nax).setIdentity();
   F2.setZero();
   F2.head(null_space_dim) = qpp_1.transpose() * V_null;
+
   CE2.leftCols(null_space_dim) << As * m_W * V_null;
   CE2.rightCols(m_full_nax) = -m_W;
   ce2 << -bs + As * qpp_1;
+
   CI2.setZero();
   CI2.leftCols(null_space_dim) << m_W * V_null * m_dt, -m_W * V_null * m_dt, m_W * V_null, -m_W * V_null,
     m_W.bottomRightCorner(m_nax, m_nax) *
