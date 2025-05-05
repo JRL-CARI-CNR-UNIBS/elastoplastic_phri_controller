@@ -94,6 +94,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_components_pub;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_correction_pub;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_weights;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_result;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr m_pub_alfa;
 
   constexpr static double M_POSITION_TOLLERANCE = 1e-4;
