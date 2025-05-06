@@ -1205,17 +1205,6 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   auto t_start_qp = get_node()->get_clock()->now();
   const unsigned int prb_dim = m_full_nax + M_CARTESIAN_DIM;
 
-  m_W.diagonal().head(m_full_nax) =
-    Eigen::Map<Eigen::VectorXd>(m_parameters.clik.task.weights.data(), m_parameters.clik.task.weights.size());
-  if (m_mobile_base.enabled) {
-    // auto logis = filters::exponentialSmoothing(m_logistic.get(m_mobile_base.velocity_in_base), m_logis_prec, 0.1);
-    // m_logis_prec = logis;
-    auto logis = 1;
-    // m_W.diagonal().head<2>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
-    m_W.diagonal().head<2>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha() * logis);
-    // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "logis: " << logis);
-  }
-
   // Weighted Least Squares
   Eigen::MatrixXd G(prb_dim, prb_dim), Gt(prb_dim, prb_dim);
   Eigen::VectorXd F(prb_dim), Ft(prb_dim);
@@ -1238,6 +1227,29 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
    ** Task Definitions **
    **********************/
 
+  // Task: CLIK
+  Eigen::VectorXd xpp_clik = (a_acc_non_linear - a_data.acc_tool_target_in_world);
+  // Eigen::Vector6d y_clik =
+  // (-a_acc_non_linear + m_parameters.clik.kv * (a_twist_error) + m_parameters.clik.kp * (a_position_error));
+
+  // Eigen::MatrixXd J_aug(M_CARTESIAN_DIM, prb_dim);
+  // J_aug << a_data.J_world_tool_in_world * m_W, -Eigen::Matrix6d::Identity();
+
+  Gt.topLeftCorner(m_full_nax, m_full_nax) = a_data.J_world_tool_in_world.transpose() * a_data.J_world_tool_in_world;
+  // G = J_aug.transpose() * J_aug;
+  Ft.head(m_full_nax) = xpp_clik.transpose() * a_data.J_world_tool_in_world;
+  // F = -y_clik.transpose() * J_aug;
+  push_task(Gt, Ft, hweight);
+
+  // Task: CLIK step k+1
+  // J(q_k+1) ~ J(q_k + qp_k * dt) : First order hold
+  // Eigen::Matrix6Xd Jkp1 = m_chain_world_tool->getJacobian(m_q + m_qp * m_dt);
+  // Gt.topLeftCorner(m_full_nax, m_full_nax) = Jkp1.transpose() * Jkp1;
+  // Ft.head(m_full_nax) = m_chain_world_tool->getDTwistNonLinearPartTool(m_q + m_qp * m_dt, m_qp).transpose() +
+  // a_data.J_world_tool_in_world.transpose();
+  // Gt.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() = -Eigen::Matrix6d::Identity();
+  // push_task(Gt, Ft, hweight);
+
   // Task Cartesian: Minimize difference between the real target and the computed one
   Gt.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() +=
     Eigen::Matrix<double, M_CARTESIAN_DIM, M_CARTESIAN_DIM>::Identity() * std::pow(m_dt, 4.0) * 0.25;
@@ -1251,33 +1263,36 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
 
   // Task Cartesian: Minimize difference between the real target acceleration and the computed one
   Gt.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() += Eigen::Matrix6d::Identity();
-  Ft.tail<M_CARTESIAN_DIM>() += -a_data.acc_tool_target_in_world.transpose();
+  Ft.tail<M_CARTESIAN_DIM>() += -a_data.acc_tool_target_in_world.transpose() -
+                                m_parameters.clik.kv * (a_twist_error).transpose() -
+                                m_parameters.clik.kp * (a_position_error).transpose();
 
   // Task Cartesian: Minimize difference between the real target twist and the computed one
   Gt.bottomRightCorner<M_CARTESIAN_DIM, M_CARTESIAN_DIM>() +=
     Eigen::Matrix<double, M_CARTESIAN_DIM, M_CARTESIAN_DIM>::Identity() * std::pow(m_dt, 2.0);
   Ft.tail<M_CARTESIAN_DIM>() +=
     m_dt * (m_computed_target_twist_tool_world_in_world.transpose() - a_data.target_twist_tool_world_in_world.transpose());
-  // push_task(Gt, Ft, hweight);
-
-  // Task: CLIK
-  Eigen::VectorXd xpp_clik = (a_acc_non_linear - a_data.acc_tool_target_in_world -
-                              m_parameters.clik.kv * (a_twist_error)-m_parameters.clik.kp * (a_position_error));
-  // Eigen::Vector6d y_clik =
-  // (-a_acc_non_linear + m_parameters.clik.kv * (a_twist_error) + m_parameters.clik.kp * (a_position_error));
-
-  // Eigen::MatrixXd J_aug(M_CARTESIAN_DIM, prb_dim);
-  // J_aug << a_data.J_world_tool_in_world * m_W, -Eigen::Matrix6d::Identity();
-
-  Gt.topLeftCorner(m_full_nax, m_full_nax) =
-    m_W.transpose() * a_data.J_world_tool_in_world.transpose() * a_data.J_world_tool_in_world * m_W;
-  // G = J_aug.transpose() * J_aug;
-  Ft.head(m_full_nax) = xpp_clik.transpose() * a_data.J_world_tool_in_world * m_W;
-  // F = -y_clik.transpose() * J_aug;
   push_task(Gt, Ft, hweight);
 
+  m_W = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * 0.01 * 1 / prb_dim * G.trace();
+  // m_W.diagonal().head(m_full_nax) =
+  // Eigen::Map<Eigen::VectorXd>(m_parameters.clik.task.weights.data(), m_parameters.clik.task.weights.size());
+  if (m_mobile_base.enabled) {
+    // auto logis = filters::exponentialSmoothing(m_logistic.get(m_mobile_base.velocity_in_base), m_logis_prec, 0.1);
+    // m_logis_prec = logis;
+    // m_W.diagonal()(m_nax) *= 1e-3;
+    m_W.diagonal()(2) *= 1e-6;
+    m_W.diagonal().head<2>() *= 1e-3;
+    auto logis = 1;
+    // m_W.diagonal().head<2>() *= (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha());
+    double weight_coeff = (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha() * logis);
+    m_W.diagonal().head<2>() *= weight_coeff;
+    m_W.diagonal()(m_nax) /= weight_coeff;
+    // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "logis: " << logis);
+  }
+
   // Task: Minimize joint acceleration and weighting
-  Gt.topLeftCorner(m_full_nax, m_full_nax) = Eigen::MatrixXd::Identity(prb_dim, prb_dim);
+  Gt.topLeftCorner(m_full_nax, m_full_nax) = m_W.transpose() * m_W;
   Ft.setZero();
   push_task(Gt, Ft, hweight);
 
@@ -1356,7 +1371,7 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
     ci.segment<3>(ineq_idxs[1] + m_full_nax) << utils::base_velocity_from_twist(max_acc_base_in_base);
   }
 
-  CI.leftCols(m_full_nax) *= m_W;
+  // CI.leftCols(m_full_nax) *= m_W;
 
   Eigen::VectorXd first_sol(prb_dim);
   Eigen::MatrixXd G_for_debug(G); // G is copied since will be modified by the solver
@@ -1397,7 +1412,7 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 
-  Eigen::VectorXd qpp_1(m_W * first_sol.head(m_full_nax));
+  Eigen::VectorXd qpp_1(first_sol.head(m_full_nax));
   // Eigen::VectorXd slack_1(first_sol.tail(M_CARTESIAN_DIM));
   m_future_computed_target_acc_tool_world_in_world = first_sol.tail<M_CARTESIAN_DIM>();
   m_future_computed_target_twist_tool_world_in_world =
@@ -1426,7 +1441,7 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   // Task: Minimize acceleration
   // As +=
 
-  Eigen::JacobiSVD<Eigen::MatrixXd> J_svd(a_data.J_world_tool_in_world * m_W, Eigen::ComputeFullV);
+  Eigen::JacobiSVD<Eigen::MatrixXd> J_svd(a_data.J_world_tool_in_world, Eigen::ComputeFullV);
   const unsigned int null_space_dim = m_full_nax - J_svd.nonzeroSingularValues();
   const unsigned int prb_dim_2 = null_space_dim + m_full_nax;
   Eigen::MatrixXd V_null(m_full_nax, null_space_dim);
@@ -1443,20 +1458,18 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   F2.setZero();
   F2.head(null_space_dim) = qpp_1.transpose() * V_null;
 
-  CE2.leftCols(null_space_dim) << As * m_W * V_null;
-  CE2.rightCols(m_full_nax) = -m_W;
+  CE2.leftCols(null_space_dim) << As * V_null;
+  CE2.rightCols(m_full_nax).setIdentity();
   ce2 << -bs + As * qpp_1;
 
   CI2.setZero();
-  CI2.leftCols(null_space_dim) << m_W * V_null * m_dt, -m_W * V_null * m_dt, m_W * V_null, -m_W * V_null,
-    m_W.bottomRightCorner(m_nax, m_nax) *
-      (Eigen::MatrixXd(m_nax, m_full_nax) << Eigen::MatrixXd::Zero(m_nax, m_mobile_base.nax()),
-       Eigen::MatrixXd::Identity(m_nax, m_nax))
+  CI2.leftCols(null_space_dim) << V_null * m_dt, -V_null * m_dt, V_null, -V_null,
+    (Eigen::MatrixXd(m_nax, m_full_nax) << Eigen::MatrixXd::Zero(m_nax, m_mobile_base.nax()),
+     Eigen::MatrixXd::Identity(m_nax, m_nax))
         .finished() *
       V_null * 0.5 * m_dt * m_dt,
-    -m_W.bottomRightCorner(m_nax, m_nax) *
-      (Eigen::MatrixXd(m_nax, m_full_nax) << Eigen::MatrixXd::Zero(m_nax, m_mobile_base.nax()),
-       Eigen::MatrixXd::Identity(m_nax, m_nax))
+    -(Eigen::MatrixXd(m_nax, m_full_nax) << Eigen::MatrixXd::Zero(m_nax, m_mobile_base.nax()),
+      Eigen::MatrixXd::Identity(m_nax, m_nax))
         .finished() *
       V_null * 0.5 * m_dt * m_dt;
 
@@ -1476,7 +1489,7 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   Eigen::VectorXd return_qpp(m_full_nax);
 
   if (solver_status_2 == eiquadprog::solvers::EiquadprogFast_status::EIQUADPROG_FAST_OPTIMAL) {
-    return_qpp = qpp_1 + m_W * V_null * second_sol.head(null_space_dim);
+    return_qpp = qpp_1 + V_null * second_sol.head(null_space_dim);
   } else {
     RCLCPP_WARN_STREAM_THROTTLE(this->get_node()->get_logger(), *this->get_node()->get_clock(), 1,
                                 "Discarding second task due to infeasibility. Solver status: " << solver_status_2);
@@ -1484,7 +1497,7 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   }
 
   auto t_end_qp = get_node()->get_clock()->now();
-  RCLCPP_DEBUG(get_node()->get_logger(), "HQP computation time: %ld", (t_end_qp - t_start_qp).nanoseconds());
+  // RCLCPP_DEBUG(get_node()->get_logger(), "HQP computation time: %ld", (t_end_qp - t_start_qp).nanoseconds());
 
   return return_qpp;
 }
