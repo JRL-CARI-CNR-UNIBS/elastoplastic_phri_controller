@@ -59,8 +59,8 @@ Interpolator Interpolator::clone_with_transform(const geometry_msgs::msg::Transf
   return Interpolator(new_plan);
 }
 
-Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& t_t, Eigen::Vector6d& o_twist,
-                                                            Eigen::Affine3d& o_pose) {
+Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& t_t, Eigen::Vector6d& o_acc,
+                                                            Eigen::Vector6d& o_twist, Eigen::Affine3d& o_pose) {
   if(m_state == State::Empty || m_state == State::Available)
   {
     return InterpolationResult::InterpolatorNotStarted;
@@ -107,9 +107,10 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
 //  double ds = 0.00; //formula vel
 //  double s = 0.0; // formula pos;
 
-  o_twist.head<3>() = (  3 * (2*p0 + delta_time*v0 - 2*p1 + delta_time*v1)    * std::pow(s,2)/delta_time
-                          + 2 * (-3*p0 + 3*p1 - 2*delta_time*v0 - delta_time*v1) * s/delta_time
-                          + v0);
+  o_acc.head<3>() = 6 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * s / std::pow(delta_time, 2) +
+                    2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) / std::pow(delta_time, 2);
+  o_twist.head<3>() = (3 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * std::pow(s, 2) / delta_time +
+                       2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) * s / delta_time + v0);
   o_pose.translation() =   (  2*p0 + delta_time*v0 - 2*p1 + delta_time*v1) * std::pow(s,3)
                       + (- 3*p0 + 3*p1 - 2*delta_time*v0 - delta_time*v1) * std::pow(s,2)
                       +                                    delta_time*v0 * s
@@ -122,6 +123,7 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   Eigen::AngleAxisd axang = Eigen::AngleAxisd(qi.inverse() * qe);
   o_pose.linear() = qres.toRotationMatrix();
   o_twist.tail<3>() = axang.axis() * axang.angle() / delta_time;
+  o_acc.tail<3>().setZero();
 
 
   /* Lie Spline ?? */

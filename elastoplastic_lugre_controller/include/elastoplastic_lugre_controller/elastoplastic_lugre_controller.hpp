@@ -179,16 +179,16 @@ private:
   } m_delta_elastoplastic_in_world;
 
   struct ClikData {
-    Eigen::VectorXd&  position_references,
-                      velocity_references;
-    Eigen::Vector6d&  twist_tool_world_in_world,
-                      next_twist_tool_world_in_world;
-    Eigen::Affine3d&  T_world_tool,
-                      next_T_world_tool;
-    Eigen::Vector6d&  acc_tool_target_in_world;
-    Eigen::Matrix6Xd& J_world_tool_in_world;
-    Eigen::Affine3d& target_T_world_tool;
-    Eigen::Vector6d& target_twist_tool_world_in_world;
+    const Eigen::VectorXd &position_references, velocity_references;
+    const Eigen::Vector6d& twist_tool_world_in_world;
+    //, next_twist_tool_world_in_world;
+    const Eigen::Affine3d& T_world_tool;
+    //, next_T_world_tool;
+    const Eigen::Vector6d& target_acc_tool_target_in_world;
+    const Eigen::Matrix6Xd& J_world_tool_in_world;
+    const Eigen::Affine3d& target_T_world_tool;
+    const Eigen::Vector6d& target_twist_tool_world_in_world;
+    const Eigen::Vector6d& wrench_tool_in_world;
   };
 
   utils::Logistic m_logistic;

@@ -70,10 +70,14 @@ public:
   double alpha() const;
   void clear();
   double z() const;
+  Eigen::Matrix6d get_inertia_inv() const { return m_inertia_inv; }
+  Eigen::Vector6d get_enabled_axis() const { return m_enable_axis; }
   Eigen::Vector6d friction_force() const;
 
   Eigen::Vector6d compute_impedance(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
                                     const Eigen::Affine3d& T_a_b) const;
+  std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> compute_variable_matricies(const Eigen::Affine3d& T_a_b) const;
+  void update_z(const double uin, const double period);
   std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d> update(const Eigen::Vector6d& x, const Eigen::Vector6d& v,
                                                                        const Eigen::Vector6d& f, const Eigen::Affine3d T_a_b,
                                                                        const double period);

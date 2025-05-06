@@ -50,7 +50,8 @@ public:
 
   Interpolator clone_with_transform(const geometry_msgs::msg::TransformStamped& t_tf);
 
-  InterpolationResult interpolate(const rclcpp::Time& t_t, Eigen::Vector6d& o_twist, Eigen::Affine3d& o_pose);
+  InterpolationResult interpolate(const rclcpp::Time& t_t, Eigen::Vector6d& o_acc, Eigen::Vector6d& o_twist,
+                                  Eigen::Affine3d& o_pose);
 
 private:
   Trajectory m_plan;
