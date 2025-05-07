@@ -1329,8 +1329,8 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   Eigen::MatrixXd CE(1, prb_dim); //(M_CARTESIAN_DIM + is_z_enabled, prb_dim);
   Eigen::VectorXd ce(1);          //(M_CARTESIAN_DIM + is_z_enabled);
   // No equality constraints: https://github.com/liuq/QuadProgpp/issues/3
-  CE = Eigen::MatrixXd::Identity(1, prb_dim) * utils::K_ABS_EPSILON;
-  ce.setConstant(utils::K_ABS_EPSILON);
+  CE = Eigen::MatrixXd::Ones(1, prb_dim) * std::numeric_limits<double>::epsilon();
+  ce.setConstant(std::numeric_limits<double>::epsilon());
 
   // Disable rotation around Z-base axis
   // if (is_z_enabled) {
