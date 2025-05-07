@@ -151,6 +151,7 @@ inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Par
   data.z_start = params.impedance.z_start;
   data.z_kmax = params.impedance.z_kmax;
   data.enable_axis = params.impedance.enable_axis;
+  data.leak_coefficient = params.impedance.leak_coefficient;
   return data;
 }
 
