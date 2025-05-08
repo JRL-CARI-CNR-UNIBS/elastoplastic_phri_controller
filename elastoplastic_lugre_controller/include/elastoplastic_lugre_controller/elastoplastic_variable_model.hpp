@@ -27,7 +27,7 @@ struct ElastoplasticModelData {
   double leak_coefficient;
 
   std::vector<bool> enable_axis;
-  ElastoplasticModelData() : z_max(0), z_kmax(0), z_start(0), leak_coefficient(0) {
+  ElastoplasticModelData() : z_max(0.0), z_kmax(0.0), z_start(0.0), leak_coefficient(0.0) {
     inertia_inv.setZero();
     k.setZero();
     d.setZero();
@@ -77,7 +77,7 @@ public:
   Eigen::Vector6d compute_impedance(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
                                     const Eigen::Affine3d& T_a_b) const;
   std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> compute_variable_matricies(const Eigen::Affine3d& T_a_b) const;
-  void update_z(const double uin, const double period);
+  double update_z(const double uin, const double period);
   std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d> update(const Eigen::Vector6d& x, const Eigen::Vector6d& v,
                                                                        const Eigen::Vector6d& f, const Eigen::Affine3d T_a_b,
                                                                        const double period);

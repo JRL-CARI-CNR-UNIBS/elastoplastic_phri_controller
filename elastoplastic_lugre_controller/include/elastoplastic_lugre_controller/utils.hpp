@@ -60,8 +60,20 @@ template <typename T> int sgn(T val) { return (T(0) < val) - (val < T(0)); }
 inline Eigen::Vector3d base_velocity_from_twist(const Eigen::Vector6d& p_w) { return p_w({0, 1, 5}); }
 
 
-inline Eigen::Vector<double, 6> twist_from_base_velocity(const Eigen::Vector3d& p_v) {
+inline Eigen::Vector6d twist_from_base_velocity(const Eigen::Vector3d& p_v) {
   return Eigen::Vector6d {p_v(0), p_v(1), 0, 0, 0, p_v(2)};
+}
+
+/**
+ * @brief Convert from Rototranslation matrix to 6d vector. Angular convention: rotation vector (= angle * axis)
+ * @param m
+ * @return
+ */
+inline Eigen::Vector6d vector_from_affine(const Eigen::Affine3d& m) {
+  Eigen::AngleAxisd aa(m.linear());
+  Eigen::Vector6d v;
+  v << m.translation(), aa.angle() * aa.axis();
+  return v;
 }
 
 /**

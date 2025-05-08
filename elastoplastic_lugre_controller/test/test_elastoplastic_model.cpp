@@ -172,6 +172,23 @@ TEST(ElastoplasticModelTest, withHighForceNoRef) {
   EXPECT_GE(model.z(), data.z_max * 0.99);
   EXPECT_LE(model.z(), data.z_max);
   EXPECT_TRUE((model.compute_k(model.z()).diagonal().array() <= data.k.diagonal().array()).all());
+
+  v.setZero();
+  f.setZero();
+  double z_prev = model.z();
+  double z_second_phase = model.z();
+  for (size_t idx = 0; idx < steps; ++idx) {
+    std::tie(x_out, v_out, a_out) = model.update(x, v, f, Eigen::Affine3d::Identity(), period);
+    ASSERT_TRUE(a_out.isZero()) << "acceleration: " << a_out.transpose();
+    ASSERT_LT(model.compute_zp(model.z(), f.dot(v), period), 0) << "z: " << model.z();
+    ASSERT_TRUE(model.z() >= 0 && model.z() <= z_prev);
+    ASSERT_TRUE(x.isApprox(x_out));
+    ASSERT_TRUE(v.isApprox(v_out));
+    x = x_out;
+    v = v_out;
+    z_prev = model.z();
+  }
+  EXPECT_LE(model.z(), z_second_phase);
 }
 
 TEST(ElastoplasticModelTest, noForcewithRef) {
