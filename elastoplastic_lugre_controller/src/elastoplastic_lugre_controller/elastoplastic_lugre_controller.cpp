@@ -1089,7 +1089,6 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
     double weight_coeff = (1.0 + m_parameters.clik.alpha_gain * m_elastoplastic_model->alpha() * logis);
     m_W.diagonal().head<2>() /= weight_coeff;
     // m_W.diagonal().tail(m_nax) *= weight_coeff;
-    // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "logis: " << logis);
   }
   task_minimize_joint_acc.A().leftCols(m_full_nax) = m_W;
   task_minimize_joint_acc.b().setZero();
@@ -1111,38 +1110,29 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
   // ***********************
   // ** DISEQ Constraints **
   // ***********************
-  const int n_ineq = 4 * m_full_nax + 2 * m_nax;
-  Eigen::MatrixXd CI = Eigen::MatrixXd::Zero(n_ineq, prb_dim);
-  Eigen::VectorXd ci(n_ineq);
-
-  // Inequality dimensions: {velocity     [2 * full_nax],
-  //                         acceleration [2 * full_nax],
-  //                         position     [2 * nax]}
-  // Limits order: {x > x_min,
-  //                x < x_max}, x = {qp, qpp, q}
-  std::vector<size_t> ineq_idxs{0, 2 * m_full_nax, 4 * m_full_nax};
+  elastoplastic::InequalityConstraint ineq_qpp_max(prb_dim, m_full_nax), ineq_qpp_min(prb_dim, m_full_nax),
+    ineq_qp_max(prb_dim, m_full_nax), ineq_qp_min(prb_dim, m_full_nax), ineq_q_max(prb_dim, m_nax), ineq_q_min(prb_dim, m_nax);
 
   // Velocity
-  CI.block(0, 0, m_full_nax, m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
-  CI.block(m_full_nax, 0, m_full_nax, m_full_nax) << -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
+  ineq_qp_min.CI().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
+  ineq_qp_min.ci().segment(m_mobile_base.nax(), m_nax) = (m_qp.tail(m_nax) + m_limits.vel);
 
-  ci.segment(ineq_idxs[0] + m_mobile_base.nax(), m_nax) = (m_qp.tail(m_nax) + m_limits.vel);
-  ci.segment(ineq_idxs[0] + m_full_nax + m_mobile_base.nax(), m_nax) = (m_limits.vel - m_qp.tail(m_nax));
+  ineq_qp_max.CI().leftCols(m_full_nax) << -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
+  ineq_qp_max.ci().segment(m_mobile_base.nax(), m_nax) = (m_limits.vel - m_qp.tail(m_nax));
 
   // Acceleration
-  CI.block(ineq_idxs[1], 0, m_full_nax, m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
-  CI.block(ineq_idxs[1] + m_full_nax, 0, m_full_nax, m_full_nax) << -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
+  ineq_qpp_min.CI().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
+  ineq_qpp_min.ci().segment(m_mobile_base.nax(), m_nax) = m_limits.acc;
 
-  ci.segment(ineq_idxs[1] + m_mobile_base.nax(), m_nax) = m_limits.acc;
-  ci.segment(ineq_idxs[1] + m_full_nax + m_mobile_base.nax(), m_nax) = m_limits.acc;
+  ineq_qpp_max.CI().leftCols(m_full_nax) << -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
+  ineq_qpp_max.ci().segment(m_mobile_base.nax(), m_nax) = m_limits.acc;
 
   // Positions
-  CI.block(ineq_idxs[2], m_full_nax - m_nax, m_nax, m_nax) << Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt;
-  CI.block(ineq_idxs[2] + m_nax, m_full_nax - m_nax, m_nax, m_nax)
-    << -Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt;
+  ineq_q_min.CI().block(0, m_mobile_base.nax(), m_nax, m_nax) << Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt;
+  ineq_q_min.ci().head(m_nax) = (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt) - m_limits.pos_lower;
 
-  ci.segment(ineq_idxs[2], m_nax) = (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt) - m_limits.pos_lower;
-  ci.segment(ineq_idxs[2] + m_nax, m_nax) = m_limits.pos_upper - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
+  ineq_q_max.CI().block(0, m_mobile_base.nax(), m_nax, m_nax) << -Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt;
+  ineq_q_max.ci().head(m_nax) = m_limits.pos_upper - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
 
   // Move base limits to world
   if (m_mobile_base.enabled) {
@@ -1150,46 +1140,46 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
     Eigen::Vector6d max_vel_base_in_world = utils::twist_from_base_velocity(m_mobile_base.vel_limits);
     Eigen::Vector6d max_vel_base_in_base = rdyn::spatialRotation(max_vel_base_in_world, m_T_world_base.linear().transpose());
     Eigen::Vector3d max_vel_base = utils::base_velocity_from_twist(max_vel_base_in_base);
-    ci.segment<3>(ineq_idxs[0]) << m_qp.head<3>() + max_vel_base;
-    ci.segment<3>(ineq_idxs[0] + m_full_nax) << max_vel_base - m_qp.head<3>();
+    ineq_qp_min.ci().head<3>() << m_qp.head<3>() + max_vel_base;
+    ineq_qp_max.ci().head<3>() << max_vel_base - m_qp.head<3>();
 
     // Acceleration
     Eigen::Vector6d max_acc_base_in_world = utils::twist_from_base_velocity(m_mobile_base.acc_limits);
     Eigen::Vector6d max_acc_base_in_base = rdyn::spatialRotation(max_acc_base_in_world, m_T_world_base.linear().transpose());
-    ci.segment<3>(ineq_idxs[1]) << utils::base_velocity_from_twist(max_acc_base_in_base);
-    ci.segment<3>(ineq_idxs[1] + m_full_nax) << utils::base_velocity_from_twist(max_acc_base_in_base);
+    Eigen::Vector3d max_acc_base = utils::base_velocity_from_twist(max_acc_base_in_base);
+    ineq_qpp_min.ci().head<3>() << max_acc_base;
+    ineq_qpp_max.ci().head<3>() << max_acc_base;
   }
 
+  elastoplastic::InequalitySet ineq_set(prb_dim);
+  ineq_set.push_constraint(ineq_q_min);
+  ineq_set.push_constraint(ineq_q_max);
+  ineq_set.push_constraint(ineq_qp_min);
+  ineq_set.push_constraint(ineq_qp_max);
+  ineq_set.push_constraint(ineq_qpp_min);
+  ineq_set.push_constraint(ineq_qpp_max);
+  ineq_set.compute_set();
+
   Eigen::VectorXd first_sol(prb_dim);
-  m_eiquadprog.reset(CE.cols(), CE.rows(), CI.rows());
+  m_eiquadprog.reset(CE.cols(), CE.rows(), ineq_set.size());
   // Attentione: eiquadprog-fast non richiede di trasporre le matrici dei vincoli, al contrario di eiquadprog
   eiquadprog::solvers::EiquadprogFast_status solver_status =
-    m_eiquadprog.solve_quadprog(sot.G(), sot.F(), CE, ce, CI, ci, first_sol);
+    m_eiquadprog.solve_quadprog(sot.G(), sot.F(), CE, ce, ineq_set.CI(), ineq_set.ci(), first_sol);
 
   if (solver_status != eiquadprog::solvers::EiquadprogFast_status::EIQUADPROG_FAST_OPTIMAL) {
     RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << solver_status);
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
                                                     << "\nacc_non_linear:\n"
-                                                    << a_acc_non_linear
-                                                    // << "\na_data.acc_tool_target_in_world:\n"
-                                                    // << a_data.acc_tool_target_in_world
-                                                    // << "\na_twist_error:\n"
-                                                    // << a_twist_error << "\nposition_error:\n"
-                                                    // << a_position_error
-                                                    // << "\nT_next_world_tool\n"
-                                                    // << a_data.next_T_world_tool.matrix()
-                                                    << "\nT_world_tool\n"
-                                                    << a_data.T_world_tool.matrix()
-                                                    // << "\nnext_twist_tool_world_in_world\n"
-                                                    // << a_data.next_twist_tool_world_in_world
-                                                    << "\ntwist_tool_world_in_world\n"
+                                                    << a_acc_non_linear << "\nT_world_tool\n"
+                                                    << a_data.T_world_tool.matrix() << "\ntwist_tool_world_in_world\n"
                                                     << a_data.twist_tool_world_in_world
                                                     << "\nm_delta_elastoplastic_in_world.velocity\n"
-                                                    << m_delta_elastoplastic_in_world.velocity << "\ndt\n");
+                                                    << m_delta_elastoplastic_in_world.velocity);
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
                                                     << "## m_W ## " << m_W.diagonal() << "## G ## " << sot.G() << "\n## F ##"
                                                     << sot.F().transpose() << "\n## CE ## " << CE << "\n ## ce ## "
-                                                    << ce.transpose() << "\n## CI ## " << CI << "\n## ci ##" << ci.transpose());
+                                                    << ce.transpose() << "\n## CI ## " << ineq_set.CI() << "\n## ci ##"
+                                                    << ineq_set.ci().transpose());
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 
@@ -1201,7 +1191,8 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
                                                     << first_sol.transpose() << "\n## first round ret ##\n"
                                                     << solver_status << "## G ## " << sot.G() << "\n## F ##"
                                                     << sot.F().transpose() << "\n## CE ## " << CE << "\n ## ce ## "
-                                                    << ce.transpose() << "\n## CI ## " << CI << "\n## ci ##" << ci.transpose());
+                                                    << ce.transpose() << "\n## CI ## " << ineq_set.CI() << "\n## ci ##"
+                                                    << ineq_set.ci().transpose());
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 

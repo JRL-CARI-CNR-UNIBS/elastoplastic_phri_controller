@@ -1,7 +1,8 @@
 #ifndef ELASTOPLASTIC_CONTORLLER__SOT_HPP
 #define ELASTOPLASTIC_CONTORLLER__SOT_HPP
 
-#include "Eigen/Core"
+#include "Eigen/Dense"
+#include <numeric>
 
 namespace elastoplastic {
 
@@ -25,6 +26,7 @@ public:
   Eigen::VectorXd& b() { return m_bd; }
   Eigen::MatrixXd G() const { return m_Gt; }
   Eigen::VectorXd F() const { return m_Ft; }
+  Eigen::VectorXd value(const Eigen::VectorXd& x) { return m_Ad * x + m_bd; }
   void update_task(void) {
     m_Gt = m_Ad.transpose() * m_Ad;
     m_Ft = m_bd.transpose() * m_Ad;
@@ -57,6 +59,65 @@ public:
     m_G = Eigen::MatrixXd::Zero(m_prb_dim, m_prb_dim);
     m_F = Eigen::VectorXd::Zero(m_prb_dim);
     m_level = 0;
+  }
+};
+
+class InequalityConstraint {
+private:
+  Eigen::MatrixXd m_CI;
+  Eigen::VectorXd m_ci;
+  const size_t m_prb_size;
+  const size_t m_constr_size;
+
+public:
+  InequalityConstraint(const size_t problem_size, const size_t constr_size)
+      : m_CI(constr_size, problem_size), m_ci(constr_size), m_prb_size(problem_size), m_constr_size(constr_size) {
+    m_CI.setZero();
+    m_ci.setZero();
+  }
+
+  Eigen::MatrixXd CI() const { return m_CI; }
+  Eigen::VectorXd ci() const { return m_ci; }
+  size_t size() const { return m_constr_size; }
+  size_t problem_size() const { return m_prb_size; }
+};
+
+class InequalitySet {
+private:
+  std::vector<std::reference_wrapper<const InequalityConstraint>> m_neq;
+  const size_t m_prb_size;
+  Eigen::MatrixXd m_CI;
+  Eigen::VectorXd m_ci;
+  void reset(const size_t dim) {
+    m_CI.resize(dim, m_prb_size);
+    m_ci.resize(dim);
+    m_CI.setZero();
+    m_ci.setZero();
+  }
+
+public:
+  InequalitySet(const size_t problem_size) : m_prb_size(problem_size), m_CI(0, problem_size), m_ci(0) {}
+  Eigen::MatrixXd CI() const { return m_CI; }
+  Eigen::VectorXd ci() const { return m_ci; }
+  size_t size() const { return m_ci.size(); }
+  size_t problem_size() const { return m_prb_size; }
+  void clear() {
+    reset(0);
+    m_neq.clear();
+  }
+
+  void push_constraint(const InequalityConstraint& ic) { m_neq.push_back(ic); }
+  void compute_set() {
+    size_t neq_size =
+      std::accumulate(m_neq.begin(), m_neq.end(), 0,
+                      [](const size_t acc, const InequalityConstraint& ineq) -> size_t { return acc + ineq.size(); });
+    this->reset(neq_size);
+    m_CI(Eigen::seqN(0, m_neq.at(0).get().size()), Eigen::all) << m_neq.at(0).get().CI();
+    m_ci.segment(0, m_neq.at(0).get().size()) << m_neq.at(0).get().ci();
+    for (size_t idx = 1; idx < m_neq.size(); ++idx) {
+      m_CI(Eigen::seqN(m_neq.at(idx - 1).get().size(), m_neq.at(idx).get().size()), Eigen::all) << m_neq.at(idx).get().CI();
+      m_ci.segment(m_neq.at(idx - 1).get().size(), m_neq.at(idx).get().size()) << m_neq.at(idx).get().ci();
+    }
   }
 };
 
