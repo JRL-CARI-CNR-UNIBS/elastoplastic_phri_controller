@@ -288,25 +288,10 @@ elastoplastic_controller:
         }
       }
   clik:
-    kp: {
+    alpha_gain: {
       type: double,
-      description: "CLIK position gain"
+      description: "Weight on alpha to change between base/arm priority",
     }
-    kv: {
-      type: double,
-      description: "CLIK velocity gain"
-    }
-    task:
-      weights: {
-        type: double_array,
-        validation: {
-          not_empty<>: []
-        }
-      }
-      alpha_gain: {
-        type: double,
-        description: "Weight on alpha to change between base/arm priority"
-      }
     joint_task:
       kp: {
         type: double,

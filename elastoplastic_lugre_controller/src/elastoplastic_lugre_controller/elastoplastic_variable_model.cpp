@@ -1,6 +1,8 @@
 #include "elastoplastic_lugre_controller/elastoplastic_variable_model.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 
+#include "fmt/format.h"
+
 namespace elastoplastic {
 ElastoplasticModel::ElastoplasticModel(const ElastoplasticModelData& data)
     : m_inertia_inv(data.inertia_inv), m_k(data.k), m_d(data.d), m_z_max(data.z_max), m_z_kmax(data.z_kmax),
@@ -33,7 +35,8 @@ Eigen::Vector6d ElastoplasticModel::friction_force() const { return m_last_frict
 double ElastoplasticModel::z() const { return m_z; }
 
 double ElastoplasticModel::compute_zp(const double z, const double u, const double dt) const {
-  double leak = z > m_z_kmax ? 1 : 0;
+  // double leak = z > m_z_kmax ? 1.0 : 0.0;
+  double leak = 1.0;
   double zp = u * (1 - z / m_z_max * utils::sgn(u)) - leak * m_leak_coefficient * z;
   if (z < m_z_max && z + zp * dt > m_z_max) {
     zp = (m_z_max - z) / dt;
@@ -68,9 +71,12 @@ Eigen::Vector6d ElastoplasticModel::compute_impedance(const Eigen::Vector6d& x, 
   return m_inertia_inv * (fe - k_in_base * x - d_in_base * v);
 }
 
-void ElastoplasticModel::update_z(const double uin, const double period) {
-  m_z = utils::rk4([this, &period](const double& xin, const double& uin) -> double { return this->compute_zp(xin, uin, period); },
-                   m_z, uin, period);
+double ElastoplasticModel::update_z(const double uin, const double period) {
+  double ret_zp = this->compute_zp(m_z, uin, period);
+  m_z =
+    utils::rk4([this, &period](const double& xin, const double& puin) -> double { return this->compute_zp(xin, puin, period); },
+               m_z, uin, period);
+  return ret_zp;
 }
 
 std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d>

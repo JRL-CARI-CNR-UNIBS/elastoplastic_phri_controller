@@ -263,7 +263,7 @@ protected:
 
   void configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 
-  Eigen::VectorXd compute_clik(const ClikData& data, const bool use_qp = true);
+  Eigen::VectorXd compute_clik(const ClikData& data);
   Eigen::VectorXd compute_clik_as_qp(const ClikData &data, const Eigen::Vector6d &a_position_error,
                                      const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
   Eigen::VectorXd compute_clik_as_inv(const ClikData &data, const Eigen::Vector6d &a_position_error,
