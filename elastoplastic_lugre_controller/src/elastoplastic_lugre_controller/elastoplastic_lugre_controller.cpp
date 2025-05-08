@@ -189,11 +189,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
   m_qp_prec.resize(m_full_nax);
   m_qpp_prec.resize(m_full_nax);
 
-  if (m_parameters.clik.task.weights.size() != m_full_nax) {
-    RCLCPP_ERROR(get_node()->get_logger(), "weights size is not %ld", m_full_nax);
-    return controller_interface::CallbackReturn::FAILURE;
-  }
-
   if (std::ranges::min(m_parameters.impedance.inertia) < 0) {
     RCLCPP_ERROR(get_node()->get_logger(), "Inertia has negative values!");
     return controller_interface::CallbackReturn::FAILURE;
@@ -1130,107 +1125,82 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   auto t_start_qp = get_node()->get_clock()->now();
   const unsigned int prb_dim = m_full_nax + M_CARTESIAN_DIM;
 
-  // Weighted Least Squares
-  Eigen::MatrixXd G(prb_dim, prb_dim), Gt(prb_dim, prb_dim);
-  Eigen::VectorXd F(prb_dim), Ft(prb_dim);
-  G.setZero();
-  F.setZero();
-  Gt.setZero();
-  Ft.setZero();
-
-  double hweight{1};
-  auto push_task = [](Eigen::MatrixXd& pG, Eigen::VectorXd& pF, Eigen::MatrixXd& Gtin, Eigen::VectorXd& Ftin,
-                      double& hweightin) -> void {
-    constexpr double step{1e-3};
-    pG += Gtin * hweightin;
-    pF += Ftin * hweightin;
-    Gtin.setZero();
-    Ftin.setZero();
-    hweightin *= step;
-  };
+  elastoplastic::Task task_cart_acc(prb_dim, M_CARTESIAN_DIM), task_cart_vel(prb_dim, M_CARTESIAN_DIM),
+    task_cart_pos(prb_dim, M_CARTESIAN_DIM), task_admittance(prb_dim, M_CARTESIAN_DIM), task_joint_pos(prb_dim, m_full_nax),
+    task_joint_vel(prb_dim, m_full_nax), task_minimize_joint_acc(prb_dim, m_full_nax),
+    task_minimize_cart_acc(prb_dim, M_CARTESIAN_DIM);
 
   /**********************
    ** Task Definitions **
    **********************/
 
-  Eigen::MatrixXd Ad;
-  Eigen::VectorXd bd;
-  auto clear_helper_mat = [&prb_dim](Eigen::MatrixXd& pAd, Eigen::VectorXd& pbd, const size_t dim1) {
-    pAd = Eigen::MatrixXd::Zero(dim1, prb_dim);
-    pbd = Eigen::VectorXd::Zero(dim1);
-  };
-
   // Task Cartesian: Minimize difference between the real target acceleration and the computed one
-  clear_helper_mat(Ad, bd, M_CARTESIAN_DIM);
-  Ad.rightCols(M_CARTESIAN_DIM).setIdentity();
-  bd.tail<M_CARTESIAN_DIM>() = -a_data.target_acc_tool_target_in_world;
-  Gt += Ad.transpose() * Ad;
-  Ft += bd.transpose() * Ad;
-  // push_task(G, F, Gt, Ft, hweight);
+  task_cart_acc.A().rightCols(M_CARTESIAN_DIM).setIdentity();
+  task_cart_acc.b() = -a_data.target_acc_tool_target_in_world;
 
   // Task Cartesian : Minimize cartesian distance from reference twist
-  Ad.bottomRightCorner(M_CARTESIAN_DIM, M_CARTESIAN_DIM) = Eigen::Matrix6d::Identity() * m_dt;
-  bd.tail<M_CARTESIAN_DIM>() = (a_data.twist_tool_world_in_world - a_data.target_twist_tool_world_in_world);
-  Gt += Ad.transpose() * Ad;
-  Ft += bd.transpose() * Ad;
+  task_cart_vel.A().rightCols(M_CARTESIAN_DIM) = Eigen::Matrix6d::Identity() * m_dt;
+  task_cart_vel.b() = (a_data.twist_tool_world_in_world - a_data.target_twist_tool_world_in_world);
 
   // Task Cartesian : Minimize difference between the real target and the computed one
-  Ad.rightCols(M_CARTESIAN_DIM) = Eigen::Matrix6d::Identity() * 0.5 * std::pow(m_dt, 2);
   Eigen::Vector6d ref_perr;
   rdyn::getFrameDistanceQuat(m_computed_target_T_world_tool, a_data.target_T_world_tool, ref_perr);
-  bd.tail<M_CARTESIAN_DIM>() << ref_perr + m_computed_target_twist_tool_world_in_world * m_dt;
-  Gt += Ad.transpose() * Ad;
-  Ft += bd.transpose() * Ad;
-  // push_task(G, F, Gt, Ft, hweight);
+  task_cart_pos.A().rightCols(M_CARTESIAN_DIM) = Eigen::Matrix6d::Identity() * 0.5 * std::pow(m_dt, 2);
+  task_cart_pos.b() << ref_perr + m_computed_target_twist_tool_world_in_world * m_dt;
 
   // Task Cartesian (on plastic return): Minimize acceleration
-  // Ad.rightCols(M_CARTESIAN_DIM).setIdentity();
-  // push_task(G, F, Gt, Ft, hweight);
+  task_minimize_cart_acc.A().rightCols(M_CARTESIAN_DIM).setIdentity();
+  task_minimize_cart_acc.b().setZero();
 
   // TODO: Rinforza la traiettoria cartesiana per evitare che questo task la modifichi, soprattutto quando l'elasticità si abbassa
   // Task: Admittance
-  clear_helper_mat(Ad, bd, M_CARTESIAN_DIM);
   auto [K, D] = m_elastoplastic_model->compute_variable_matricies(a_data.T_world_tool);
   auto invM = m_elastoplastic_model->get_inertia_inv();
-  Ad << a_data.J_world_tool_in_world, -(Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2));
-  bd << a_acc_non_linear - invM * D * (a_twist_error)-invM * K * a_data.twist_tool_world_in_world * m_dt -
-          invM * K * (a_position_error) - (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
-  Gt = Ad.transpose() * Ad;
-  Ft = bd.transpose() * Ad;
-  push_task(G, F, Gt, Ft, hweight);
+  task_admittance.A() << a_data.J_world_tool_in_world,
+    -(Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2));
+  task_admittance.b() << a_acc_non_linear - invM * D * (a_twist_error)-invM * K * a_data.twist_tool_world_in_world * m_dt -
+                           invM * K * (a_position_error) -
+                           (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
 
-  m_W = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * 1 / prb_dim * G.trace();
+  // Task: Minimize joint acceleration and weighting
+  m_W = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
+  //*1 / prb_dim* G.trace();
   if (m_mobile_base.enabled) {
     // auto logis = filters::exponentialSmoothing(m_logistic.get(m_mobile_base.velocity_in_base), m_logis_prec, 0.1);
     // m_logis_prec = logis;
     m_W.diagonal()(2) *= 1e6;
     m_W.diagonal().head<2>() *= 1e3;
     auto logis = 1;
-    double weight_coeff = (1.0 + m_parameters.clik.task.alpha_gain * m_elastoplastic_model->alpha() * logis);
+    double weight_coeff = (1.0 + m_parameters.clik.alpha_gain * m_elastoplastic_model->alpha() * logis);
     m_W.diagonal().head<2>() /= weight_coeff;
     // m_W.diagonal().tail(m_nax) *= weight_coeff;
     // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "logis: " << logis);
   }
-
-  // Task: Minimize joint acceleration and weighting
-  clear_helper_mat(Ad, bd, M_CARTESIAN_DIM);
-  Gt.topLeftCorner(m_full_nax, m_full_nax) = m_W.transpose() * m_W;
-  Ft.setZero();
-  push_task(G, F, Gt, Ft, hweight);
+  task_minimize_joint_acc.A().leftCols(m_full_nax) = m_W;
+  task_minimize_joint_acc.b().setZero();
 
   // Task: Joint Velocity
-  clear_helper_mat(Ad, bd, m_full_nax);
-  Ad.topLeftCorner(m_full_nax, m_full_nax) += -m_kv_joint_task * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
-  bd.head(m_full_nax) += -m_kv_joint_task * (a_data.velocity_references - m_qp);
+  task_joint_vel.A().leftCols(m_full_nax) += -m_kv_joint_task * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
+  task_joint_vel.b() += m_kv_joint_task * (a_data.velocity_references - m_qp);
 
   // Task: Joint Position
-  Ad.topLeftCorner(m_full_nax, m_full_nax) +=
+  task_joint_pos.A().leftCols(m_full_nax) +=
     -m_kp_joint_task * 0.5 * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * std::pow(m_dt, 2);
-  bd.head(m_full_nax) += -m_kp_joint_task * (a_data.position_references - (m_q + m_qp * m_dt));
+  task_joint_pos.b() += m_kp_joint_task * (a_data.position_references - (m_q + m_qp * m_dt));
 
-  Gt.topLeftCorner(m_full_nax, m_full_nax) += Ad.transpose() * Ad;
-  Ft.head(m_full_nax) += -bd.transpose() * Ad;
-  push_task(G, F, Gt, Ft, hweight);
+  elastoplastic::Stack sot(prb_dim);
+  sot.push_task(task_cart_acc);
+  sot.push_task(task_cart_vel);
+  sot.push_task(task_cart_pos);
+  sot.new_level();
+  // sot.push_task(task_minimize_cart_acc);
+  // sot.new_level();
+  sot.push_task(task_admittance);
+  sot.new_level();
+  sot.push_task(task_minimize_joint_acc);
+  sot.new_level();
+  sot.push_task(task_joint_vel);
+  sot.push_task(task_joint_pos);
 
   // ********************
   // ** EQ Constraints **
@@ -1294,10 +1264,10 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
   }
 
   Eigen::VectorXd first_sol(prb_dim);
-  Eigen::MatrixXd G_for_debug(G); // G is copied since will be modified by the solver
   m_eiquadprog.reset(CE.cols(), CE.rows(), CI.rows());
   // Attentione: eiquadprog-fast non richiede di trasporre le matrici dei vincoli, al contrario di eiquadprog
-  eiquadprog::solvers::EiquadprogFast_status solver_status = m_eiquadprog.solve_quadprog(G, F, CE, ce, CI, ci, first_sol);
+  eiquadprog::solvers::EiquadprogFast_status solver_status =
+    m_eiquadprog.solve_quadprog(sot.G(), sot.F(), CE, ce, CI, ci, first_sol);
 
 
   if (solver_status != eiquadprog::solvers::EiquadprogFast_status::EIQUADPROG_FAST_OPTIMAL) {
@@ -1321,9 +1291,9 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
                                                     << "\nm_delta_elastoplastic_in_world.velocity\n"
                                                     << m_delta_elastoplastic_in_world.velocity << "\ndt\n");
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
-                                                    << "## m_W ## " << m_W.diagonal() << "## G ## " << G_for_debug << "\n## F ##"
-                                                    << F.transpose() << "\n## CE ## " << CE << "\n ## ce ## " << ce.transpose()
-                                                    << "\n## CI ## " << CI << "\n## ci ##" << ci.transpose());
+                                                    << "## m_W ## " << m_W.diagonal() << "## G ## " << sot.G() << "\n## F ##"
+                                                    << sot.F().transpose() << "\n## CE ## " << CE << "\n ## ce ## "
+                                                    << ce.transpose() << "\n## CI ## " << CI << "\n## ci ##" << ci.transpose());
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 
@@ -1333,9 +1303,9 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData &a_da
                                                     << "\n## first round sol [qpp(" << m_full_nax << "), slack("
                                                     << prb_dim - m_full_nax << ")]##\n"
                                                     << first_sol.transpose() << "\n## first round ret ##\n"
-                                                    << solver_status << "## G ## " << G_for_debug << "\n## F ##" << F.transpose()
-                                                    << "\n## CE ## " << CE << "\n ## ce ## " << ce.transpose() << "\n## CI ## "
-                                                    << CI << "\n## ci ##" << ci.transpose());
+                                                    << solver_status << "## G ## " << sot.G() << "\n## F ##"
+                                                    << sot.F().transpose() << "\n## CE ## " << CE << "\n ## ce ## "
+                                                    << ce.transpose() << "\n## CI ## " << CI << "\n## ci ##" << ci.transpose());
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 
