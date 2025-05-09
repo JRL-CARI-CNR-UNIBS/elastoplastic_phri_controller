@@ -34,6 +34,8 @@ Eigen::Vector6d ElastoplasticModel::friction_force() const { return m_last_frict
 
 double ElastoplasticModel::z() const { return m_z; }
 
+bool ElastoplasticModel::is_plastic() const { return m_z > m_z_kmax; }
+
 double ElastoplasticModel::compute_zp(const double z, const double u, const double dt) const {
   // double leak = z > m_z_kmax ? 1.0 : 0.0;
   double leak = 1.0;

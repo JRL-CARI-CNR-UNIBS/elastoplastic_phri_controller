@@ -7,7 +7,8 @@
 #include "elastoplastic_variable_model.hpp"
 #include "rdyn_core/primitives.h"
 
-#include "Eigen/Core"
+#include "Eigen/Dense"
+#include "Eigen/Geometry"
 
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "eiquadprog/eiquadprog-fast.hpp"
@@ -143,9 +144,8 @@ private:
 
   struct FloatBaseData {
     bool enabled {true};
-
-    std::string ns;
     Eigen::Vector3d velocity_in_base;
+    Eigen::Vector6d twist_in_base() { return utils::twist_from_base_velocity(velocity_in_base); }
     size_t nax() const { return enabled ? nax_ : 0; }
     std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
     Eigen::Vector3d vel_limits;
@@ -202,12 +202,6 @@ private:
   Eigen::Vector6d m_computed_target_acc_tool_world_in_world;
   Eigen::Vector6d m_computed_target_twist_tool_world_in_world;
   Eigen::Affine3d m_computed_target_T_world_tool;
-
-  Eigen::Vector6d m_future_computed_target_acc_tool_world_in_world;
-  Eigen::Vector6d m_future_computed_target_twist_tool_world_in_world;
-  Eigen::Affine3d m_future_computed_target_T_world_tool;
-
-  bool ever_been_in_plastic{false};
 
 public:
   ElastoplasticController() {}

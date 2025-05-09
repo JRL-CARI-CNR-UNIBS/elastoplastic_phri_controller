@@ -259,6 +259,11 @@ elastoplastic_controller:
         gt_eq<>: 0
       }
     }
+    plastic_restoration: {
+      type: bool,
+      description: "Allow restoration from plastic error once the system return elastic",
+      default_value: true
+    }
     logistic:
       max: {
         type: double,
