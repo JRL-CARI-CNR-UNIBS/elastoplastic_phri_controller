@@ -701,14 +701,14 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // Update computed trajectory
   m_computed_target_twist_tool_world_in_world =
     m_computed_target_twist_tool_world_in_world + m_computed_target_acc_tool_world_in_world * m_dt;
-  if (m_elastoplastic_model->is_plastic()) {
-    m_computed_target_T_world_tool = T_world_tool;
-  } else {
-    m_computed_target_T_world_tool =
-      rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
-  }
+  // if (m_elastoplastic_model->is_plastic()) {
+  // m_computed_target_T_world_tool = T_world_tool;
+  // } else {
   // m_computed_target_T_world_tool =
-  //   rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
+  // rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
+  // }
+  m_computed_target_T_world_tool =
+    rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
 
   // ************
   // ** Update **
@@ -954,7 +954,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     geometry_msgs::msg::PoseStamped interp_msg;
     interp_msg.pose = tf2::toMsg(reference_target_T_world_tool);
     interp_msg.header.stamp = time_now;
-    interp_msg.header.frame_id = m_parameters.frames.base;
+    interp_msg.header.frame_id = m_parameters.frames.map;
     m_interp_pose_pub->publish(interp_msg);
 
     geometry_msgs::msg::Twist target_twist_msg;
@@ -1002,6 +1002,7 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
   elastoplastic::Task task_joint_vel(prb_dim, m_full_nax);
   elastoplastic::Task task_minimize_joint_acc(prb_dim, m_full_nax);
   elastoplastic::Task task_minimize_cart_acc(prb_dim, M_CARTESIAN_DIM);
+  elastoplastic::Task task_cart_keep_pose(prb_dim, M_CARTESIAN_DIM);
 
   /**********************
    ** Task Definitions **
@@ -1025,8 +1026,12 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
   task_minimize_cart_acc.A().rightCols(M_CARTESIAN_DIM).setIdentity();
   task_minimize_cart_acc.b().setZero();
 
-  // TODO: Rinforza la traiettoria cartesiana per evitare che questo task la modifichi, soprattutto quando l'elasticità si abbassa
-  // Task: Admittance
+  // Task Cartesian (on plastic return): Minimize deviation from actual pose
+  task_cart_keep_pose.A().rightCols(M_CARTESIAN_DIM) = Eigen::Matrix6d::Identity() * 0.5 * std::pow(m_dt, 2);
+  task_cart_keep_pose.b() << utils::vector_from_affine(a_data.T_world_tool) + m_computed_target_twist_tool_world_in_world * m_dt;
+
+  // TODO: Rinforza la traiettoria cartesiana per evitare che questo task la modifichi, soprattutto quando l'elasticità si
+  // abbassa Task: Admittance
   auto [K, D] = m_elastoplastic_model->compute_variable_matricies(a_data.T_world_tool);
   auto invM = m_elastoplastic_model->get_inertia_inv();
   task_admittance.A() << a_data.J_world_tool_in_world,
@@ -1045,9 +1050,10 @@ Eigen::VectorXd ElastoplasticController::compute_clik_as_qp(const ClikData& a_da
   task_joint_pos.b() += m_kp_joint_task * (a_data.position_references - (m_q + m_qp * m_dt));
 
   elastoplastic::Stack sot(prb_dim);
-  // if (m_elastoplastic_model->alpha() >= 1) {
-  // sot.push_task(task_minimize_cart_acc);
-  // }
+  if (m_elastoplastic_model->is_plastic()) {
+    sot.push_task(task_cart_keep_pose);
+    sot.new_level();
+  }
   sot.push_task(task_cart_acc);
   sot.push_task(task_cart_vel);
   sot.push_task(task_cart_pos);
