@@ -259,6 +259,11 @@ elastoplastic_controller:
         gt_eq<>: 0
       }
     }
+    plastic_restoration: {
+      type: bool,
+      description: "Allow restoration from plastic error once the system return elastic",
+      default_value: true
+    }
     logistic:
       max: {
         type: double,
@@ -290,7 +295,7 @@ elastoplastic_controller:
   clik:
     alpha_gain: {
       type: double,
-      description: "Weight on alpha to change between base/arm priority",
+      description: "Weight on alpha to change between base/arm priority"
     }
     joint_task:
       kp: {

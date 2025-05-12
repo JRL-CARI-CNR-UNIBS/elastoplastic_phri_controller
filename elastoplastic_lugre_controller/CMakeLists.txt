@@ -51,6 +51,8 @@ add_library(elastoplastic_controller SHARED
 
   include/elastoplastic_lugre_controller/elastoplastic_variable_model.hpp
   src/elastoplastic_lugre_controller/elastoplastic_variable_model.cpp
+
+  include/elastoplastic_lugre_controller/sot.hpp
 )
 add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
 
