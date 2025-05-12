@@ -454,6 +454,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_qp.head<3>().setZero();
   m_q.head<3>().setZero(); // Updated on first cycle
   tf2::fromMsg(m_rt_buffer_base_pose_in_world.readFromRT()->pose.pose, m_T_world_base);
+  if (m_mobile_base.enabled) {
+    m_q.head<2>() = m_T_world_base.translation().head<2>();
+    m_q(2) = utils::vector_from_affine(m_T_world_base)(5);
+  }
 
   m_mobile_base.velocity_in_base.setZero();
 
