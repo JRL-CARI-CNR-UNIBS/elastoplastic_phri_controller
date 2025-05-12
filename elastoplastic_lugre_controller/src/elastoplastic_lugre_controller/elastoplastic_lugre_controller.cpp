@@ -457,7 +457,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
   m_mobile_base.velocity_in_base.setZero();
 
-  m_start_q = m_q;
+  m_initial_q = m_q;
 
   // For debug purposes
   m_q_prec.setZero();
@@ -645,7 +645,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
 #else
 
-  full_position_references.tail(m_nax) = m_start_q.tail(m_nax);
+  full_position_references.tail(m_nax) = m_initial_q.tail(m_nax);
   full_velocity_references.setZero();
 
   /* Cartesian reference */
@@ -663,12 +663,12 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     if (status != utils::interpolation::Interpolator::InterpolationResult::OK) {
       reference_target_acc_tool_world_in_world.setZero();
       reference_target_twist_tool_world_in_world.setZero();
-      reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_start_q);
+      reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_initial_q);
     }
   } else {
     reference_target_acc_tool_world_in_world.setZero();
     reference_target_twist_tool_world_in_world.setZero();
-    reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_start_q);
+    reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_initial_q);
   }
   if (m_mobile_base.enabled) {
     full_velocity_references.head<3>() = utils::base_velocity_from_twist(reference_target_twist_tool_world_in_world);
@@ -740,8 +740,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                      .T_world_tool = T_world_tool,
                      .target_acc_tool_target_in_world = reference_target_acc_tool_world_in_world,
                      .J_world_tool_in_world = J_world_tool_in_world,
-                     .target_T_world_tool = m_computed_target_T_world_tool,
-                     .target_twist_tool_world_in_world = m_computed_target_twist_tool_world_in_world,
+                     .target_T_world_tool = reference_target_T_world_tool,
+                     .target_twist_tool_world_in_world = reference_target_twist_tool_world_in_world,
                      .wrench_tool_in_world = wrench_tool_in_world};
 
   double P_in = (wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis())).transpose() *
@@ -974,8 +974,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
 Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
   Eigen::Vector6d pose_error_tool_world_in_world;
-  rdyn::getFrameDistanceQuat(a_data.target_T_world_tool, a_data.T_world_tool, pose_error_tool_world_in_world);
-  Eigen::Vector6d velocity_error_tool_world_in_world = a_data.target_twist_tool_world_in_world - a_data.twist_tool_world_in_world;
+  rdyn::getFrameDistanceQuat(m_computed_target_T_world_tool, a_data.T_world_tool, pose_error_tool_world_in_world);
+  Eigen::Vector6d velocity_error_tool_world_in_world =
+    m_computed_target_twist_tool_world_in_world - a_data.twist_tool_world_in_world;
   Eigen::Vector6d acc_non_linear_in_world = m_chain_world_tool->getDTwistNonLinearPartTool(m_q, m_qp);
 
   return compute_clik_as_qp(a_data, pose_error_tool_world_in_world, velocity_error_tool_world_in_world, acc_non_linear_in_world);

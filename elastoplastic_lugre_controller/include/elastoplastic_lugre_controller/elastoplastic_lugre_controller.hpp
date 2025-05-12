@@ -126,8 +126,8 @@ private:
   double m_kp_joint_task, m_kv_joint_task;
 
   Eigen::MatrixXd m_W; // Weight matrix for CLIK
-
-  Eigen::VectorXd m_start_q;
+  
+  Eigen::VectorXd m_initial_q;
   Eigen::VectorXd m_q_prec;
   Eigen::VectorXd m_qp_prec;
   Eigen::VectorXd m_qpp_prec;
