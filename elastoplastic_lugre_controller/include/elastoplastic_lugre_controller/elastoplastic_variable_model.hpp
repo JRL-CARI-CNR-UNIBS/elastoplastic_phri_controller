@@ -52,8 +52,6 @@ private:
 
   Eigen::Vector6d m_enable_axis;
 
-  Eigen::Vector6d m_last_friction;
-
   Eigen::Matrix6d compute_k(const double z) const;
   double compute_zp(const double z, const double u, const double dt) const;
   Eigen::Matrix6d compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_a_b) const;
@@ -73,7 +71,6 @@ public:
   bool is_plastic() const;
   Eigen::Matrix6d get_inertia_inv() const { return m_inertia_inv; }
   Eigen::Vector6d get_enabled_axis() const { return m_enable_axis; }
-  Eigen::Vector6d friction_force() const;
 
   Eigen::Vector6d compute_impedance(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
                                     const Eigen::Affine3d& T_a_b) const;

@@ -27,10 +27,7 @@ double ElastoplasticModel::alpha() const { return alpha(m_z); }
 
 void ElastoplasticModel::clear() {
   m_z = 0;
-  m_last_friction.setZero();
 }
-
-Eigen::Vector6d ElastoplasticModel::friction_force() const { return m_last_friction; }
 
 double ElastoplasticModel::z() const { return m_z; }
 
