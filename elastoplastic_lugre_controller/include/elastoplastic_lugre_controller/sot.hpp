@@ -9,18 +9,14 @@ namespace elastoplastic {
 class Task {
 private:
   const size_t m_prb_dim, m_task_dim;
-  Eigen::MatrixXd m_Gt;
-  Eigen::VectorXd m_Ft;
   Eigen::MatrixXd m_Ad;
   Eigen::VectorXd m_bd;
   Eigen::MatrixXd m_W;
 
 public:
   Task(const size_t problem_size, const size_t task_size)
-      : m_prb_dim(problem_size), m_task_dim(task_size), m_Gt(problem_size, problem_size), m_Ft(problem_size),
-        m_Ad(task_size, problem_size), m_bd(task_size), m_W(task_size, task_size) {
-    m_Gt.setZero();
-    m_Ft.setZero();
+      : m_prb_dim(problem_size), m_task_dim(task_size), m_Ad(task_size, problem_size), m_bd(task_size),
+        m_W(task_size, task_size) {
     m_Ad.setZero();
     m_bd.setZero();
     m_W.setIdentity();
@@ -28,13 +24,14 @@ public:
 
   Eigen::MatrixXd& A() { return m_Ad; }
   Eigen::VectorXd& b() { return m_bd; }
+  const Eigen::MatrixXd& A() const { return m_Ad; }
+  const Eigen::VectorXd& b() const { return m_bd; }
   Eigen::MatrixXd& W() { return m_W; }
-  Eigen::MatrixXd G() const { return m_Gt; }
-  Eigen::VectorXd F() const { return m_Ft; }
   Eigen::VectorXd value(const Eigen::VectorXd& x) { return m_Ad * x + m_bd; }
-  void update_task(void) {
-    m_Gt = m_Ad.transpose() * m_W * m_Ad;
-    m_Ft = m_bd.transpose() * m_W * m_Ad;
+  std::pair<Eigen::MatrixXd, Eigen::VectorXd> update_task(void) {
+    Eigen::MatrixXd Gt = m_Ad.transpose() * m_W * m_Ad;
+    Eigen::VectorXd Ft = m_bd.transpose() * m_W * m_Ad;
+    return std::make_pair(Gt, Ft);
   }
   size_t size() const { return m_task_dim; }
   size_t problem_size() const { return m_prb_dim; }
@@ -59,9 +56,9 @@ public:
   double level_step() const { return m_level_step; }
   int new_level(void) { return ++m_level; }
   void push_task(Task& t, const double relative_task_weight = 1.0) {
-    t.update_task();
-    m_G += t.G() * relative_task_weight * std::pow(m_level_step, m_level);
-    m_F += t.F() * relative_task_weight * std::pow(m_level_step, m_level);
+    auto [G, F] = t.update_task();
+    m_G += G * relative_task_weight * std::pow(m_level_step, m_level);
+    m_F += F * relative_task_weight * std::pow(m_level_step, m_level);
   }
   void clear(void) {
     m_G = Eigen::MatrixXd::Zero(m_prb_dim, m_prb_dim);
@@ -69,6 +66,46 @@ public:
     m_level = 0;
   }
 };
+
+using EqualityConstraint = Task;
+class EqualitySet {
+private:
+  std::vector<std::reference_wrapper<const EqualityConstraint>> m_eq;
+  const size_t m_prb_size;
+  Eigen::MatrixXd m_CE;
+  Eigen::VectorXd m_ce;
+  void reset(const size_t dim) {
+    m_CE.resize(dim, m_prb_size);
+    m_ce.resize(dim);
+    m_CE.setZero();
+    m_ce.setZero();
+  }
+
+public:
+  EqualitySet(const size_t problem_size) : m_prb_size(problem_size), m_CE(0, problem_size), m_ce(0) {}
+  Eigen::MatrixXd CE() const { return m_CE; }
+  Eigen::VectorXd ce() const { return m_ce; }
+  size_t size() const { return m_ce.size(); }
+  size_t problem_size() const { return m_prb_size; }
+  void clear() {
+    reset(0);
+    m_eq.clear();
+  }
+
+  void push_constraint(const Task& ec) { m_eq.push_back(ec); }
+  void compute_set() {
+    size_t eq_size = std::accumulate(m_eq.begin(), m_eq.end(), 0,
+                                     [](const size_t acc, const EqualityConstraint& eq) -> size_t { return acc + eq.size(); });
+    this->reset(eq_size);
+    m_CE(Eigen::seqN(0, m_eq.at(0).get().size()), Eigen::all) << m_eq.at(0).get().A();
+    m_ce.segment(0, m_eq.at(0).get().size()) << m_eq.at(0).get().b();
+    for (size_t idx = 1; idx < m_eq.size(); ++idx) {
+      m_CE(Eigen::seqN(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()), Eigen::all) << m_eq.at(idx).get().A();
+      m_ce.segment(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()) << m_eq.at(idx).get().b();
+    }
+  }
+};
+
 
 class InequalityConstraint {
 private:

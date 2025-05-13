@@ -89,8 +89,9 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_result;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr m_pub_alfa;
 
-  constexpr static double M_MINIMUM_SAMPLING_TIME = 1e-4;
-  constexpr static unsigned int M_CARTESIAN_DIM = 6;
+  constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
+  constexpr static unsigned int M_SE3{6};
+  constexpr static unsigned int M_SE2{3};
 
   enum class RDStatus { OK, ERROR, EMPTY } m_robot_description_configuration{ElastoplasticController::RDStatus::EMPTY};
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
