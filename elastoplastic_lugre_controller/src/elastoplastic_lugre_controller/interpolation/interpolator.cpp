@@ -59,6 +59,27 @@ Interpolator Interpolator::clone_with_transform(const geometry_msgs::msg::Transf
   return Interpolator(new_plan);
 }
 
+// ----------------------------------------------------------------------------
+// Cubic interpolation: returns θ(s) = as + bs² + cs³
+// with a,b,c from eqs. (7a)–(7c), using Θ = log(CsᵀCf), Θ̇ = A(Θ) ωf
+Eigen::Vector3d interpolateRotationVector(const Eigen::Matrix3d& Cs, const Eigen::Matrix3d& Cf, const Eigen::Vector3d& ws,
+                                          const Eigen::Vector3d& wf, double s, double T) {
+  // total rotation vector Θ = log(Csᵀ Cf)           (5d, 7b–c)
+  Eigen::Vector3d theta = so3Log(Cs.transpose() * Cf);
+
+  // Θ̇ = A(Θ) wf                                  (5e)
+  Eigen::Vector3d theta_dot = left_jacobian(theta) * wf;
+
+  // cubic coefficients                            (7a–7c)
+  Eigen::Vector3d a = ws;
+  Eigen::Vector3d b = (3.0 * theta - 2.0 * T * ws - T * theta_dot) / (T * T);
+  Eigen::Vector3d c = (-2.0 * theta + T * ws + T * theta_dot) / (T * T * T);
+
+  // evaluate θ(s)
+  return a * s + b * s * s + c * s * s * s;
+}
+
+
 Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& t_t, Eigen::Vector6d& o_acc,
                                                             Eigen::Vector6d& o_twist, Eigen::Affine3d& o_pose) {
   if(m_state == State::Empty || m_state == State::Available)
@@ -117,12 +138,18 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
                       +                                    p0;
 
   /* Slerp */
-  Eigen::Quaterniond qi(m_plan.pose.at(idx - 1).linear());
-  Eigen::Quaterniond qe(m_plan.pose.at(idx).linear());
-  Eigen::Quaterniond qres = qi.slerp(s, qe);
-  Eigen::AngleAxisd axang = Eigen::AngleAxisd(qi.inverse() * qe);
-  o_pose.linear() = qres.toRotationMatrix();
-  o_twist.tail<3>() = axang.axis() * axang.angle() / delta_time;
+  // Eigen::Quaterniond qi(m_plan.pose.at(idx - 1).linear());
+  // Eigen::Quaterniond qe(m_plan.pose.at(idx).linear());
+  // Eigen::Quaterniond qres = qi.slerp(s, qe);
+  // Eigen::AngleAxisd axang = Eigen::AngleAxisd(qi.inverse() * qe);
+  // o_pose.linear() = qres.toRotationMatrix();
+  // o_twist.tail<3>() = axang.axis() * axang.angle() / delta_time;
+  // o_acc.tail<3>().setZero();
+  Eigen::Vector3d pinterp =
+    interpolateRotationVector(m_plan.pose.at(idx - 1).linear(), m_plan.pose.at(idx).linear(), m_plan.twist.at(idx - 1).tail<3>(),
+                              m_plan.twist.at(idx).tail<3>(), s, delta_time);
+  o_pose.linear() = m_plan.pose.at(idx - 1).linear() * Eigen::AngleAxisd(pinterp.norm(), pinterp.normalized()).toRotationMatrix();
+  o_twist.tail<3>() = pinterp / delta_time;
   o_acc.tail<3>().setZero();
 
 
@@ -248,7 +275,7 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   // const Eigen::Vector3d rv0 = m_plan.twist.at(idx - 1).tail<3>();
   // const Eigen::Vector3d rv1 = m_plan.twist.at(idx).tail<3>();
   // if ((rv1 - rv0).norm() < 1e-9) {
-  // // if rotation is too small, set to zero
+  //    // if rotation is too small, set to zero
   // o_pose.linear() = Eigen::Matrix3d::Identity();
   // o_twist.tail<3>() = Eigen::Vector3d::Zero();
   // return InterpolationResult::OK;
@@ -256,15 +283,15 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   // Eigen::AngleAxisd htheta;
   // htheta = (m_plan.pose.at(idx - 1).linear().transpose()) * m_plan.pose.at(idx).linear();
   // const Eigen::Vector3d diff_rotvec = htheta.axis() * htheta.angle() / 2;
-  // const Eigen::Vector3d d_diff_rotvec = A_th(diff_rotvec) * rv1;
+  // const Eigen::Vector3d d_diff_rotvec = left_jacobian(diff_rotvec) * rv1;
   // const double& Tf = m_plan.time.at(idx).seconds();
   // const Eigen::Vector3d a = rv0;
   // const Eigen::Vector3d b = (3 * diff_rotvec - 2 * Tf * rv0 - Tf * d_diff_rotvec) / (Tf * Tf);
   // const Eigen::Vector3d c = (-2 * diff_rotvec + Tf * rv0 + Tf * d_diff_rotvec) / (Tf * Tf * Tf);
   // const Eigen::Vector3d th = a * s + b * s * s + c * s * s * s;
   // const Eigen::Vector3d dth = (a + 2 * b * s + 3 * c * s * s) / delta_time;
-  // o_pose.linear() = m_plan.pose.at(idx - 1).linear() * Eigen::AngleAxisd(th.norm(), 2 *
-  // th.normalized()).toRotationMatrix(); o_twist.tail<3>() = A_th_inv(th) * dth;
+  // o_pose.linear() = m_plan.pose.at(idx - 1).linear() * Eigen::AngleAxisd(th.norm(), 2 * th.normalized()).toRotationMatrix();
+  // o_twist.tail<3>() = left_jacobian_inv(th) * dth;
 
   return InterpolationResult::OK;
 }

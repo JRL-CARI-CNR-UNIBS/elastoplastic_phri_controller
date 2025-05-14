@@ -29,10 +29,10 @@ prepare_lie_spline(const std::vector<Eigen::Affine3d>& t_poses,
   Spline3Coeff coeff(t_poses.size());
   coeff.c.at(1) = t_init_w;
   coeff.b.at(1) = t_init_a * 0.5;
-  coeff.a.at(1) = unskew(r.at(1)) - coeff.b.at(1) - coeff.c.at(1);
+  coeff.a.at(1) = vee(r.at(1)) - coeff.b.at(1) - coeff.c.at(1);
   for(size_t idx = 2; idx < t_poses.size(); ++idx)
   {
-    const Eigen::Vector3d s = unskew(r.at(idx));
+    const Eigen::Vector3d s = vee(r.at(idx));
     const Eigen::Vector3d t = 3*coeff.a.at(idx-1) + 2*coeff.b.at(idx-1) + coeff.c.at(idx-1);
     const Eigen::Vector3d u = 3*coeff.a.at(idx-1) + 2*coeff.b.at(idx-1);
     const double s_norm = s.norm();
@@ -54,7 +54,7 @@ lie_spline(const double t_s,
 {
   const Eigen::Vector3d r = coeff[0] * t_s*t_s*t_s + coeff[1] * t_s*t_s + coeff[2] * t_s;
   Eigen::Matrix3d pose = t_R0 * rot_exp(r);
-  Eigen::Vector3d ang_vel = ang_vel_coeff_in_body_frame(skew(r)) * (3*coeff[0] * t_s*t_s + 2*coeff[1] * t_s + coeff[2]) / t_delta_t;
+  Eigen::Vector3d ang_vel = ang_vel_coeff_in_body_frame(hat(r)) * (3*coeff[0] * t_s*t_s + 2*coeff[1] * t_s + coeff[2]) / t_delta_t;
   return std::tuple<Eigen::Matrix3d, Eigen::Vector3d>(pose, ang_vel);
 }
 
