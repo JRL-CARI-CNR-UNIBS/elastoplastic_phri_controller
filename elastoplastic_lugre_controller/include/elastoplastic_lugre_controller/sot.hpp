@@ -2,6 +2,7 @@
 #define ELASTOPLASTIC_CONTORLLER__SOT_HPP
 
 #include "Eigen/Dense"
+#include "eiquadprog/eiquadprog-fast.hpp"
 #include <numeric>
 
 namespace elastoplastic {
@@ -28,6 +29,9 @@ public:
   const Eigen::VectorXd& b() const { return m_bd; }
   Eigen::MatrixXd& W() { return m_W; }
   Eigen::VectorXd value(const Eigen::VectorXd& x) { return m_Ad * x + m_bd; }
+  double cost(const Eigen::VectorXd& x) const {
+    return (x.transpose() * m_Ad.transpose() * m_W * m_Ad * x + m_bd.transpose() * m_W * m_Ad * x).eval()(0);
+  }
   std::pair<Eigen::MatrixXd, Eigen::VectorXd> update_task(void) {
     Eigen::MatrixXd Gt = m_Ad.transpose() * m_W * m_Ad;
     Eigen::VectorXd Ft = m_bd.transpose() * m_W * m_Ad;
@@ -96,12 +100,19 @@ public:
   void compute_set() {
     size_t eq_size = std::accumulate(m_eq.begin(), m_eq.end(), 0,
                                      [](const size_t acc, const EqualityConstraint& eq) -> size_t { return acc + eq.size(); });
-    this->reset(eq_size);
-    m_CE(Eigen::seqN(0, m_eq.at(0).get().size()), Eigen::all) << m_eq.at(0).get().A();
-    m_ce.segment(0, m_eq.at(0).get().size()) << m_eq.at(0).get().b();
-    for (size_t idx = 1; idx < m_eq.size(); ++idx) {
-      m_CE(Eigen::seqN(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()), Eigen::all) << m_eq.at(idx).get().A();
-      m_ce.segment(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()) << m_eq.at(idx).get().b();
+    if (eq_size > 0) {
+      this->reset(eq_size);
+      m_CE(Eigen::seqN(0, m_eq.at(0).get().size()), Eigen::all) << m_eq.at(0).get().A();
+      m_ce.segment(0, m_eq.at(0).get().size()) << m_eq.at(0).get().b();
+      for (size_t idx = 1; idx < m_eq.size(); ++idx) {
+        m_CE(Eigen::seqN(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()), Eigen::all) << m_eq.at(idx).get().A();
+        m_ce.segment(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()) << m_eq.at(idx).get().b();
+      }
+    } else {
+      // No equality constraints: https://github.com/liuq/QuadProgpp/issues/3
+      reset(1);
+      m_CE.setConstant(std::numeric_limits<double>::epsilon());
+      m_ce.setConstant(std::numeric_limits<double>::epsilon());
     }
   }
 };
@@ -163,6 +174,26 @@ public:
       m_CI(Eigen::seqN(m_neq.at(idx - 1).get().size(), m_neq.at(idx).get().size()), Eigen::all) << m_neq.at(idx).get().CI();
       m_ci.segment(m_neq.at(idx - 1).get().size(), m_neq.at(idx).get().size()) << m_neq.at(idx).get().ci();
     }
+  }
+};
+
+using SolverStatus = eiquadprog::solvers::EiquadprogFast_status;
+class SolverQP {
+private:
+  eiquadprog::solvers::EiquadprogFast m_solver;
+  const size_t m_prb_dim;
+  const Stack& m_stack;
+  const EqualitySet& m_eq;
+  const InequalitySet& m_ineq;
+
+public:
+  SolverQP(const size_t problem_size, const Stack& stack, const EqualitySet& eq, const InequalitySet& ineq)
+      : m_prb_dim(problem_size), m_stack(stack), m_eq(eq), m_ineq(ineq) {}
+  std::pair<Eigen::VectorXd, SolverStatus> solve() {
+    m_solver.reset(m_prb_dim, m_eq.size(), m_ineq.size());
+    Eigen::VectorXd sol;
+    SolverStatus status = m_solver.solve_quadprog(m_stack.G(), m_stack.F(), m_eq.CE(), m_eq.ce(), m_ineq.CI(), m_ineq.ci(), sol);
+    return std::make_pair(sol, status);
   }
 };
 
