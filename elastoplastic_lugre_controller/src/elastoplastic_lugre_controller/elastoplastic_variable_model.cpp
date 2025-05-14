@@ -97,4 +97,5 @@ ElastoplasticModel::update(const Eigen::Vector6d& x, const Eigen::Vector6d& v, c
   // std::cout << "xpp: " << xspp.transpose() << "\nxsp: " << xsp.transpose() << std::endl;
   return std::make_tuple(xs, xsp, xspp);
 }
+
 } // namespace elastoplastic

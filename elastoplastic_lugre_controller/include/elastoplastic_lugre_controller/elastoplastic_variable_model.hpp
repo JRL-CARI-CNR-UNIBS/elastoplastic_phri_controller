@@ -79,6 +79,7 @@ public:
   std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d> update(const Eigen::Vector6d& x, const Eigen::Vector6d& v,
                                                                        const Eigen::Vector6d& f, const Eigen::Affine3d T_a_b,
                                                                        const double period);
+
   ElastoplasticModel(const ElastoplasticModelData& data);
   ElastoplasticModel() = delete;
 };

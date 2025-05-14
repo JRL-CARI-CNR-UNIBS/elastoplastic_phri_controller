@@ -566,17 +566,17 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   nav_msgs::msg::Odometry odom_msg = *(m_rt_buffer_base_odom.readFromRT());
   if (rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time > std::chrono::duration<double>(m_dt) ||
       rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time < std::chrono::seconds(0)) {
-    twist_base_world_in_base = twist_from_base_velocity(m_mobile_base.velocity_in_base);
+    twist_base_world_in_base = utils::twist_from_base_velocity(m_mobile_base.velocity_in_base);
   } else {
     Eigen::fromMsg(odom_msg.twist.twist, twist_base_world_in_base);
   }
   m_last_odom_msg_time = odom_msg.header.stamp;
 
-  twist_base_world_in_world = move_from_base_to_world(twist_base_world_in_base);
+  twist_base_world_in_world = rdyn::spatialRotation(twist_base_world_in_base, m_T_world_base.linear());
 
   // Build state vectors
   if (m_mobile_base.enabled) {
-    m_qp.head<M_SE2>() = base_velocity_from_twist(twist_base_world_in_world);
+    m_qp.head<M_SE2>() = utils::base_velocity_from_twist(twist_base_world_in_world);
     m_q.head<2>() = m_T_world_base.translation().head<2>();
     m_q(2) = Eigen::AngleAxisd(m_T_world_base.linear()).angle();
   }
@@ -686,12 +686,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // Update computed trajectory
   m_computed_target_twist_tool_world_in_world =
     m_computed_target_twist_tool_world_in_world + m_computed_target_acc_tool_world_in_world * m_dt;
-  // if (m_elastoplastic_model->is_plastic()) {
-  // m_computed_target_T_world_tool = T_world_tool;
-  // } else {
-  // m_computed_target_T_world_tool =
-  // rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
-  // }
   m_computed_target_T_world_tool =
     rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
 
@@ -775,6 +769,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   m_qpp = qepp;
   m_qp += qepp * m_dt;
   m_q += m_qp * m_dt; // Symplectic Euler
+  Eigen::Vector6d tmp;
+  rdyn::getFrameDistanceQuat(m_chain_world_tool->getTransformation(m_q), reference_target_T_world_tool, tmp);
+  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "x - x_ref" << tmp);
 
   if (m_mobile_base.enabled) {
     Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
@@ -918,7 +915,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     geometry_msgs::msg::PoseStamped cmp_target_T_msg;
     cmp_target_T_msg.pose = tf2::toMsg(m_computed_target_T_world_tool);
     cmp_target_T_msg.header.stamp = time_now;
-    cmp_target_T_msg.header.frame_id = m_parameters.frames.map;
+    cmp_target_T_msg.header.frame_id = "odom";
     m_computed_pose_pub->publish(cmp_target_T_msg);
 
     geometry_msgs::msg::Twist cmp_target_twist_msg;
@@ -928,7 +925,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     geometry_msgs::msg::PoseStamped interp_msg;
     interp_msg.pose = tf2::toMsg(reference_target_T_world_tool);
     interp_msg.header.stamp = time_now;
-    interp_msg.header.frame_id = m_parameters.frames.map;
+    interp_msg.header.frame_id = "odom";
     m_interp_pose_pub->publish(interp_msg);
 
     geometry_msgs::msg::Twist target_twist_msg;
@@ -957,23 +954,17 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
   auto t_start_qp = get_node()->get_clock()->now();
   const unsigned int prb_dim = m_full_nax + M_SE3;
 
-  elastoplastic::Task task_cart_acc(prb_dim, M_SE3);
   elastoplastic::Task task_cart_vel(prb_dim, M_SE3);
   elastoplastic::Task task_cart_pos(prb_dim, M_SE3);
   elastoplastic::Task task_admittance(prb_dim, M_SE3);
   elastoplastic::Task task_joint_pos(prb_dim, m_full_nax);
   elastoplastic::Task task_joint_vel(prb_dim, m_full_nax);
   elastoplastic::Task task_minimize_joint_acc(prb_dim, m_full_nax);
-  elastoplastic::Task task_minimize_cart_acc(prb_dim, M_SE3);
   elastoplastic::Task task_cart_keep_pose(prb_dim, M_SE3);
 
   /**********************
    ** Task Definitions **
    **********************/
-
-  // Task Cartesian: Minimize difference between the real target acceleration and the computed one
-  task_cart_acc.A().rightCols(M_SE3).setIdentity();
-  task_cart_acc.b() = -a_data.target_acc_tool_target_in_world;
 
   // Task Cartesian : Minimize cartesian distance from reference twist
   task_cart_vel.A().rightCols(M_SE3) = Eigen::Matrix6d::Identity() * m_dt;
@@ -984,10 +975,6 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
   rdyn::getFrameDistanceQuat(m_computed_target_T_world_tool, a_data.target_T_world_tool, ref_perr);
   task_cart_pos.A().rightCols(M_SE3) = Eigen::Matrix6d::Identity() * 0.5 * std::pow(m_dt, 2);
   task_cart_pos.b() << ref_perr + m_computed_target_twist_tool_world_in_world * m_dt;
-
-  // Task Cartesian (on plastic return): Minimize acceleration
-  task_minimize_cart_acc.A().rightCols(M_SE3).setIdentity();
-  task_minimize_cart_acc.b().setZero();
 
   // Task Cartesian (on plastic return): Minimize deviation from actual pose
   Eigen::Vector6d actual_perr;
@@ -1004,25 +991,29 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
     a_data.twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world;
   Eigen::Vector6d pose_error_tool_world_in_world;
   rdyn::getFrameDistanceQuat(a_data.T_world_tool, m_computed_target_T_world_tool, pose_error_tool_world_in_world);
-  task_admittance.A() << a_data.J_world_tool_in_world,
-    -(Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2));
-  task_admittance.b() << acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
-                           // invM * K * (a_data.twist_tool_world_in_world * m_dt + pose_error_tool_world_in_world) +
-                           invM * K * (m_computed_target_twist_tool_world_in_world * m_dt + pose_error_tool_world_in_world) -
+
+  Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
+  task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
+  task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
+                           invM * K * (twist_error_tool_world_in_world * m_dt + pose_error_tool_world_in_world) -
                            invM * (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
 
+  elastoplastic::Task task_cart_admittance(prb_dim, M_SE3);
+  task_cart_admittance.A().rightCols(M_SE3) << -Eigen::Matrix6d::Identity() + invM * D * m_dt +
+                                                 invM * K * m_dt * m_dt; //<< -Eigen::Matrix6d::Identity();
+  task_cart_admittance.b() << invM * D * twist_error_tool_world_in_world +
+                                invM * K * (twist_error_tool_world_in_world * m_dt + pose_error_tool_world_in_world) -
+                                invM * (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
 
-  elastoplastic::Task task_admittance2(prb_dim, M_SE3);
-  Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
-  task_admittance2.A() << adm * a_data.J_world_tool_in_world, -adm;
-  task_admittance2.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
-                            // invM * K * (a_data.twist_tool_world_in_world * m_dt + pose_error_tool_world_in_world) +
-                            invM * K * (twist_error_tool_world_in_world * m_dt + pose_error_tool_world_in_world) -
-                            invM * (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
+  elastoplastic::Task task_clik(prb_dim, M_SE3);
+  task_clik.A() << a_data.J_world_tool_in_world, -Eigen::Matrix6d::Identity();
+  // task_clik.b() << acc_non_linear_in_world + 1e1 * twist_error_tool_world_in_world + 1e1 * pose_error_tool_world_in_world;
+  task_clik.b() << acc_non_linear_in_world;
 
-  elastoplastic::Task task_base_tracking(prb_dim, M_SE2);
-  task_base_tracking.A().leftCols<M_SE2>() << Eigen::Matrix<double, M_SE2, M_SE2>::Identity();
-  task_base_tracking.b() << (m_q.head<M_SE2>() + m_qp.head<M_SE2>() * m_dt - a_data.position_references.head<M_SE2>());
+  elastoplastic::Task task_track_pose(prb_dim, M_SE3);
+  task_track_pose.A() << a_data.J_world_tool_in_world * 0.5 * m_dt * m_dt, -Eigen::Matrix6d::Identity() * 0.5 * m_dt * m_dt;
+  task_track_pose.b() << twist_error_tool_world_in_world * m_dt + pose_error_tool_world_in_world +
+                           0.5 * m_dt * m_dt * acc_non_linear_in_world;
 
   /****************
    ** Task Stack **
@@ -1031,15 +1022,14 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
   if (m_elastoplastic_model->is_plastic()) {
     sot.push_task(task_cart_keep_pose, 1e-1);
   }
-  sot.push_task(task_cart_acc);
-  sot.push_task(task_cart_vel);
   sot.push_task(task_cart_pos, 1e1);
-  sot.new_level();
-  // sot.push_task(task_base_tracking);
-  sot.push_task(task_admittance2);
-  // sot.push_task(task_cartesian_admittance);
+  sot.push_task(task_cart_vel);
   // sot.new_level();
-  // sot.push_task(task_kinematics);
+  // sot.push_task(task_cart_admittance);
+  // sot.push_task(task_minimize_cart_acc);
+  // sot.push_task(task_admittance);
+  // sot.push_task(task_clik); // Not working
+  // sot.push_task(task_track_pose);
   sot.new_level();
 
   // Task: Minimize joint acceleration and weighting
@@ -1068,19 +1058,18 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
   task_joint_pos.b() += m_kp_joint_task * (a_data.position_references - (m_q + m_qp * m_dt));
   task_joint_pos.W() = m_W.transpose() * m_W;
 
+  sot.push_task(task_joint_vel);
+  sot.push_task(task_joint_pos);
   sot.push_task(task_minimize_joint_acc);
   // sot.new_level();
-  sot.push_task(task_joint_vel, 1e1);
-  sot.push_task(task_joint_pos, 1e1);
 
   /********************
    ** EQ Constraints **
    ********************/
-  Eigen::MatrixXd CE(1, prb_dim);
-  Eigen::VectorXd ce(1);
-  // No equality constraints: https://github.com/liuq/QuadProgpp/issues/3
-  CE = Eigen::MatrixXd::Ones(1, prb_dim) * std::numeric_limits<double>::epsilon();
-  ce.setConstant(std::numeric_limits<double>::epsilon());
+  elastoplastic::EqualitySet eq_set(prb_dim);
+  eq_set.push_constraint(task_admittance);
+  // eq_set.push_constraint(task_clik);
+  eq_set.compute_set();
 
 
   /***********************
@@ -1143,14 +1132,11 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
   /***********
    ** Solve **
    ***********/
-  Eigen::VectorXd solutionQP(prb_dim);
-  m_eiquadprog.reset(prb_dim, CE.rows(), ineq_set.size());
-  // NOTE: eiquadprog-fast non richiede di trasporre le matrici dei vincoli, al contrario di eiquadprog
-  eiquadprog::solvers::EiquadprogFast_status solver_status =
-    m_eiquadprog.solve_quadprog(sot.G(), sot.F(), CE, ce, ineq_set.CI(), ineq_set.ci(), solutionQP);
+  elastoplastic::SolverQP solver(prb_dim, sot, eq_set, ineq_set);
+  auto [solutionQP, status] = solver.solve();
 
-  if (solver_status != eiquadprog::solvers::EiquadprogFast_status::EIQUADPROG_FAST_OPTIMAL) {
-    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << solver_status);
+  if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
+    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << status);
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
                                                     << "\nacc_non_linear:\n"
                                                     << acc_non_linear_in_world << "\nT_world_tool\n"
@@ -1160,9 +1146,9 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
                                                     << m_delta_elastoplastic_in_world.velocity);
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
                                                     << "## m_W ## " << m_W.diagonal() << "## G ## " << sot.G() << "\n## F ##"
-                                                    << sot.F().transpose() << "\n## CE ## " << CE << "\n ## ce ## "
-                                                    << ce.transpose() << "\n## CI ## " << ineq_set.CI() << "\n## ci ##"
-                                                    << ineq_set.ci().transpose());
+                                                    << sot.F().transpose() << "\n## eq_set.CE() ## " << eq_set.CE()
+                                                    << "\n ## eq_set.ce() ## " << eq_set.ce().transpose() << "\n## CI ## "
+                                                    << ineq_set.CI() << "\n## ci ##" << ineq_set.ci().transpose());
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 
@@ -1172,18 +1158,17 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
                                                     << "\n## first round sol [qpp(" << m_full_nax << "), slack("
                                                     << prb_dim - m_full_nax << ")]##\n"
                                                     << solutionQP.transpose() << "\n## first round ret ##\n"
-                                                    << solver_status << "## G ## " << sot.G() << "\n## F ##"
-                                                    << sot.F().transpose() << "\n## CE ## " << CE << "\n ## ce ## "
-                                                    << ce.transpose() << "\n## CI ## " << ineq_set.CI() << "\n## ci ##"
+                                                    << status << "## G ## " << sot.G() << "\n## F ##" << sot.F().transpose()
+                                                    << "\n## eq_set.CE() ## " << eq_set.CE() << "\n ## eq_set.ce() ## "
+                                                    << eq_set.ce().transpose() << "\n## CI ## " << ineq_set.CI() << "\n## ci ##"
                                                     << ineq_set.ci().transpose());
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 
-  // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "sol: " << solutionQP.transpose());
-  RCLCPP_DEBUG_STREAM(get_node()->get_logger(),
-                      "cart_pos_task: " << task_cart_pos.value(solutionQP).transpose()
-                                        << ", cart_vel_task: " << task_cart_vel.value(solutionQP).transpose() << "task_admittance"
-                                        << task_admittance2.value(solutionQP).transpose());
+  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "task_admittance cost: " << task_admittance.cost(solutionQP));
+  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "task_clik cost: " << task_clik.cost(solutionQP));
+  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "task_clik value: " << task_clik.value(solutionQP).transpose());
+  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "---------------------------------------------------------------");
   m_computed_target_acc_tool_world_in_world = solutionQP.tail<M_SE3>();
   return solutionQP.head(m_full_nax);
 }
