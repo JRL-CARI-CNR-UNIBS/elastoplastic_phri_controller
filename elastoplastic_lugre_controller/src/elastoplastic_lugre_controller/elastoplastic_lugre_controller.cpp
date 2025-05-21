@@ -694,12 +694,17 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                  });
   m_wrench_in_sensor_prec = wrench_sensor_in_sensor;
 
-
   Eigen::Vector6d wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor, T_tool_sensor);
   Eigen::Vector6d wrench_tool_in_world =
     rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear()) - m_offset_wrench_tool_in_world;
 
   Eigen::Matrix6Xd J_world_tool_in_world = m_chain_world_tool->getJacobian(m_q);
+
+  Eigen::Vector6d cart_vel_error_tool_target_in_world;
+  cart_vel_error_tool_target_in_world = twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world;
+  double P_in = (wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis())).transpose() *
+                cart_vel_error_tool_target_in_world;
+  m_zp = m_elastoplastic_model->update_z(P_in, m_dt);
 
   ClikData clik_data{.position_references = full_position_references,
                      .velocity_references = full_velocity_references,
@@ -711,12 +716,15 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                      .target_twist_tool_world_in_world = reference_target_twist_tool_world_in_world,
                      .wrench_tool_in_world = wrench_tool_in_world};
 
-  Eigen::Vector6d cart_vel_error_tool_target_in_world;
-  cart_vel_error_tool_target_in_world = twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world;
-  double P_in = (wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis())).transpose() *
-                cart_vel_error_tool_target_in_world;
-  double zp = m_elastoplastic_model->update_z(P_in, m_dt);
   Eigen::VectorXd qepp = compute_clik(clik_data);
+
+  Eigen::Vector6d dist;
+  rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);
+  if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() && dist.head<3>().norm() < 1e-2 &&
+      dist.tail<3>().norm() < 1.0 && m_parameters.impedance.plastic_restoration) {
+    m_elastoplastic_model->restore();
+    RCLCPP_INFO(get_node()->get_logger(), "Restore elastic state");
+  }
 
   if (qepp.hasNaN()) {
     RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
@@ -842,7 +850,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     auto time_now = this->get_node()->get_clock()->now();
     std_msgs::msg::Float64MultiArray msg_z;
     msg_z.data.push_back(m_elastoplastic_model->z());
-    msg_z.data.push_back(zp);
+    msg_z.data.push_back(m_zp);
     m_pub_z->publish(msg_z);
 
     geometry_msgs::msg::WrenchStamped msg_wrench_in_tool;
@@ -1008,10 +1016,14 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
    ** Task Stack **
    ****************/
   elastoplastic::Stack sot(prb_dim);
-  if (m_elastoplastic_model->is_plastic()) {
+  if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() && m_parameters.impedance.plastic_restoration) {
     sot.push_task(task_cart_keep_pose, 1e-1);
+    sot.push_task(task_cart_pos, 1e1);
+  } else if (m_elastoplastic_model->is_plastic()) {
+    sot.push_task(task_cart_keep_pose, 1e-1);
+  } else {
+    sot.push_task(task_cart_pos, 1e1);
   }
-  sot.push_task(task_cart_pos, 1e1);
   sot.push_task(task_cart_vel);
   // sot.new_level();
   // sot.push_task(task_cart_admittance);
