@@ -124,6 +124,10 @@ private:
 
   Eigen::Affine3d m_T_world_base;
 
+  Eigen::Vector6d m_offset_wrench_sensor_in_sensor;
+  Eigen::Vector6d m_offset_wrench_tool_in_world;
+  std::future<bool> m_offset_future;
+
   // Required both for states and at least one for command
   const std::vector<std::string> m_allowed_interface_types {
                                                            hardware_interface::HW_IF_POSITION,
@@ -180,6 +184,8 @@ private:
     const Eigen::Vector6d& wrench_tool_in_world;
   };
 
+  double m_zp;
+
   utils::Logistic m_logistic;
   double m_logis_prec;
 
@@ -192,8 +198,16 @@ private:
   Eigen::Vector6d m_computed_target_twist_tool_world_in_world;
   Eigen::Affine3d m_computed_target_T_world_tool;
 
+  Eigen::Vector6d get_wrench() {
+    auto [fx, fy, fz] = m_ft_sensor->get_forces();
+    auto [tx, ty, tz] = m_ft_sensor->get_torques();
+    return Eigen::Vector6d({fx, fy, fz, tx, ty, tz});
+  }
+
+  rclcpp::Logger m_debug_logger;
+
 public:
-  ElastoplasticController() {}
+  ElastoplasticController() : m_debug_logger(rclcpp::get_logger("elastoplastic_controller_debug_only")) {}
 
   controller_interface::InterfaceConfiguration command_interface_configuration() const override;
 

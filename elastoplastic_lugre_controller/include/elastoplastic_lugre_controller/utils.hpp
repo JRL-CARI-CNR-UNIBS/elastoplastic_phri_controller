@@ -167,22 +167,35 @@ inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Par
   return data;
 }
 
-// ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& a_params) {
-//   ElastoplasticModelData data;
-//   // std::vector<double> inertia = a_params.impedance.inertia;
-//   data.inertia_inv = Eigen::Vector6d(a_params.impedance.inertia.data()).cwiseInverse();
-//   data.lugre.sigma_0 = a_params.impedance.sigma_0;
-//   data.lugre.sigma_1 = a_params.impedance.sigma_1;
-//   data.lugre.sigma_2 = a_params.impedance.sigma_2;
-//   data.lugre.z_ba = a_params.impedance.z_ba;
-//   data.lugre.z_ss = a_params.impedance.z_ss;
-//   data.lugre.tau_w = a_params.impedance.tau_w;
-//   data.reset_condition.reset_window_size =
-//       a_params.impedance.reset_condition.reset_window_size;
-//   data.reset_condition.reset_threshold = a_params.impedance.reset_condition.reset_threshold;
-//   std::copy(a_params.impedance.enable_axis.begin(), a_params.impedance.enable_axis.end(), data.enable_axis.begin());
-//   return data;
-// }
+const std::string MOBILE_BASE_URDF = R"(<?xml version='1.0'?>
+<robot name='base'>
+<link name='x_base'/>
+<link name='y_base'/>
+<link name='rz_base'/>
+<link name='mount_link'/>
+<joint name='move_x' type='prismatic'>
+  <parent link='x_base'/>
+  <child link='y_base'/>
+  <origin xyz='0 0 0'/>
+  <axis xyz='1 0 0'/>
+  <limit lower='-1e10' upper='1e10' effort='1e10' velocity='1e10'/>
+</joint>
+<joint name='move_y' type='prismatic'>
+  <parent link='y_base'/>
+  <child link='rz_base'/>
+  <origin xyz='0 0 0'/>
+  <axis xyz='0 1 0'/>
+  <limit lower='-1e10' upper='1e10' effort='1e10' velocity='1e10'/>
+</joint>
+<joint name='rot_z' type='revolute'>
+  <parent link='rz_base'/>
+  <child link='mount_link'/>
+  <origin xyz='0 0 0'/>
+  <axis xyz='0 0 1'/>
+  <limit lower='-1e10' upper='1e10' effort='1e10' velocity='1e10'/>
+</joint>
+</robot>
+    )";
 
 } // namespace elastoplastic::utils
 
