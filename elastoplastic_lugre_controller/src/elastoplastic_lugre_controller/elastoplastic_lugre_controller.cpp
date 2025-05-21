@@ -70,42 +70,12 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
   }
 
   if (m_mobile_base.enabled) {
-    const std::string mobile_base_urdf =
-      R"(<?xml version='1.0'?>
-<robot name='base'>
-<link name='x_base'/>
-<link name='y_base'/>
-<link name='rz_base'/>
-<link name='mount_link'/>
-<joint name='move_x' type='prismatic'>
-  <parent link='x_base'/>
-  <child link='y_base'/>
-  <origin xyz='0 0 0'/>
-  <axis xyz='1 0 0'/>
-  <limit lower='-1e10' upper='1e10' effort='1e10' velocity='1e10'/>
-</joint>
-<joint name='move_y' type='prismatic'>
-  <parent link='y_base'/>
-  <child link='rz_base'/>
-  <origin xyz='0 0 0'/>
-  <axis xyz='0 1 0'/>
-  <limit lower='-1e10' upper='1e10' effort='1e10' velocity='1e10'/>
-</joint>
-<joint name='rot_z' type='revolute'>
-  <parent link='rz_base'/>
-  <child link='mount_link'/>
-  <origin xyz='0 0 0'/>
-  <axis xyz='0 0 1'/>
-  <limit lower='-1e10' upper='1e10' effort='1e10' velocity='1e10'/>
-</joint>
-</robot>
-    )";
-    urdf::ModelInterfaceSharedPtr mobile_base_model = urdf::parseURDF(mobile_base_urdf);
-    m_chain_world_base = rdyn::createChain(*mobile_base_model, "x_base", "mount_link", {0, 0, -9.806});
+    urdf::ModelInterfaceSharedPtr mobile_base_model = urdf::parseURDF(utils::MOBILE_BASE_URDF);
+    rdyn::ChainPtr chain_world_base = rdyn::createChain(*mobile_base_model, "x_base", "mount_link", {0, 0, -9.806});
 
-    m_chain_world_tool = rdyn::joinChains(m_chain_world_base, m_chain_base_tool);
+    m_chain_world_tool = rdyn::joinChains(chain_world_base, m_chain_base_tool);
   } else {
-    m_chain_world_tool = m_chain_base_tool;
+    m_chain_world_tool = rdyn::createChain(*urdf_model, m_parameters.frames.map, m_parameters.frames.tool, gravity);
   }
 
   if (not m_chain_world_tool) {
@@ -152,6 +122,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   if (m_parameters.debug.log) {
     this->get_node()->get_logger().set_level(rclcpp::Logger::Level::Debug);
+    m_debug_logger.set_level(rclcpp::Logger::Level::Debug);
   }
 
   m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters));
@@ -177,13 +148,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   using namespace std::placeholders;
   m_mobile_base_pose_updated = false;
   if (m_mobile_base.enabled) {
-    m_sub_mobile_base_target = this->get_node()->create_subscription<geometry_msgs::msg::Twist>(
-      m_parameters.mobile_base.input_target_topic, 1,
-      std::bind(&ElastoplasticController::get_mobile_base_target_callback, this, _1));
     m_sub_mobile_base_odometry = this->get_node()->create_subscription<nav_msgs::msg::Odometry>(
       m_parameters.mobile_base.odom, 1, std::bind(&ElastoplasticController::get_odometry_callback, this, _1));
-    m_sub_mobile_base_pose = this->get_node()->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-      m_parameters.mobile_base.localization_topic, 2, std::bind(&ElastoplasticController::get_localization_callback, this, _1));
   } else {
     m_mobile_base_pose_updated = true;
   }
@@ -241,7 +207,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     configure_after_robot_description_callback(rd);
   } else {
 #ifdef USE_LATEST_ROS2_CONTROL
-    RCLCPP_DEBUG(get_node()->get_logger(), "Robot description from class member");
+    RCLCPP_DEBUG(get_node()->get_logger(), "Robot description from controller manager");
     std_msgs::msg::String::SharedPtr rd = std::make_shared<std_msgs::msg::String>();
     rd->data = this->get_robot_description();
     configure_after_robot_description_callback(rd);
@@ -425,17 +391,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     m_computed_twist_pub->on_activate();
   }
 
-  m_rt_buffer_base_odom.initRT(nav_msgs::msg::Odometry(rosidl_runtime_cpp::MessageInitialization::ALL));
-  m_rt_buffer_mobile_base_target.initRT(geometry_msgs::msg::Twist(rosidl_runtime_cpp::MessageInitialization::ZERO));
-  m_rt_buffer_base_pose_in_world.initRT(
-    geometry_msgs::msg::PoseWithCovarianceStamped(rosidl_runtime_cpp::MessageInitialization::ALL));
-
   m_last_odom_msg_time = this->get_node()->get_clock()->now();
-  m_last_localization_msg_time = m_last_odom_msg_time;
 
-  m_qp.head<M_SE2>().setZero();
-  m_q.head<M_SE2>().setZero(); // Updated on first cycle
-  tf2::fromMsg(m_rt_buffer_base_pose_in_world.readFromRT()->pose.pose, m_T_world_base);
   if (m_mobile_base.enabled) {
     m_q.head<2>() = m_T_world_base.translation().head<2>();
     m_q(2) = utils::vector_from_affine(m_T_world_base)(5);
@@ -523,24 +480,13 @@ controller_interface::return_type ElastoplasticController::update_reference_from
   return controller_interface::return_type::OK;
 }
 
-
-void ElastoplasticController::get_mobile_base_target_callback(const geometry_msgs::msg::Twist& msg) {
-  // Always from topic
-  m_rt_buffer_mobile_base_target.writeFromNonRT(msg);
-}
-
-void ElastoplasticController::get_localization_callback(const geometry_msgs::msg::PoseWithCovarianceStamped& msg) {
-  m_mobile_base_pose_updated = true;
-  m_rt_buffer_base_pose_in_world.writeFromNonRT(msg);
-}
-
 void ElastoplasticController::get_odometry_callback(const nav_msgs::msg::Odometry& msg) {
   m_rt_buffer_base_odom.writeFromNonRT(msg);
 }
 
 
-controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time& /*a_time*/,
-                                                                                     const rclcpp::Duration& /*a_period*/) {
+controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time& time,
+                                                                                     const rclcpp::Duration& /*period*/) {
   rclcpp::Time t_start = get_node()->get_clock()->now();
   // **********
   // ** Read **
@@ -764,14 +710,17 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   //   }
   // }
 
+  Eigen::Vector6d tmp;
+  rdyn::getFrameDistanceQuat(m_chain_world_tool->getTransformation(m_q), reference_target_T_world_tool, tmp);
+  RCLCPP_INFO_STREAM(m_debug_logger, "xp - x_ref" << tmp.transpose());
+  RCLCPP_INFO_STREAM(m_debug_logger,
+                     "xp - xp_ref" << (twist_tool_world_in_world - reference_target_twist_tool_world_in_world).transpose());
+
   // Ik integration
   // m_q += m_qp * m_dt + 0.5 * qepp * std::pow(m_dt, 2);
   m_qpp = qepp;
   m_qp += qepp * m_dt;
   m_q += m_qp * m_dt; // Symplectic Euler
-  Eigen::Vector6d tmp;
-  rdyn::getFrameDistanceQuat(m_chain_world_tool->getTransformation(m_q), reference_target_T_world_tool, tmp);
-  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "x - x_ref" << tmp);
 
   if (m_mobile_base.enabled) {
     Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
@@ -915,7 +864,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     geometry_msgs::msg::PoseStamped cmp_target_T_msg;
     cmp_target_T_msg.pose = tf2::toMsg(m_computed_target_T_world_tool);
     cmp_target_T_msg.header.stamp = time_now;
-    cmp_target_T_msg.header.frame_id = "odom";
+    cmp_target_T_msg.header.frame_id = m_parameters.frames.map;
     m_computed_pose_pub->publish(cmp_target_T_msg);
 
     geometry_msgs::msg::Twist cmp_target_twist_msg;
@@ -925,7 +874,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     geometry_msgs::msg::PoseStamped interp_msg;
     interp_msg.pose = tf2::toMsg(reference_target_T_world_tool);
     interp_msg.header.stamp = time_now;
-    interp_msg.header.frame_id = "odom";
+    interp_msg.header.frame_id = m_parameters.frames.map;
     m_interp_pose_pub->publish(interp_msg);
 
     geometry_msgs::msg::Twist target_twist_msg;
@@ -1165,10 +1114,6 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 
-  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "task_admittance cost: " << task_admittance.cost(solutionQP));
-  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "task_clik cost: " << task_clik.cost(solutionQP));
-  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "task_clik value: " << task_clik.value(solutionQP).transpose());
-  RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "---------------------------------------------------------------");
   m_computed_target_acc_tool_world_in_world = solutionQP.tail<M_SE3>();
   return solutionQP.head(m_full_nax);
 }
