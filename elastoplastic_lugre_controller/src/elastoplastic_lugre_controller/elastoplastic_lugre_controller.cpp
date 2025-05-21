@@ -5,6 +5,7 @@
 #include "pluginlib/class_list_macros.hpp"
 #include "rclcpp/logger.hpp"
 #include "tf2_eigen/tf2_eigen.hpp"
+#include "tf2_ros/create_timer_ros.h"
 
 #include "urdfdom_headers/urdf_model/model.h"
 
@@ -416,6 +417,32 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
   m_logis_prec = 0;
 
+  m_offset_future = std::async(std::launch::async, [this](void) -> bool {
+    // Compensate force offset
+    m_offset_wrench_sensor_in_sensor.setZero();
+    constexpr static int FORCE_WINDOW = 10;
+    for (int idx = 0; idx < FORCE_WINDOW; ++idx) {
+      Eigen::Vector6d wr = get_wrench();
+      std::transform(wr.begin(), wr.end(), m_parameters.wrench.deadband.begin(), wr.begin(),
+                     [](const double w, const double deadband) {
+                       return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
+                     });
+      std::transform(wr.begin(), wr.end(), m_offset_wrench_sensor_in_sensor.begin(), m_offset_wrench_sensor_in_sensor.begin(),
+                     std::plus<double>{});
+      std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
+    }
+    m_offset_wrench_sensor_in_sensor /= FORCE_WINDOW;
+
+    // Transform wrench offset in world T_tool_sensor
+    Eigen::Vector6d offset_wrench_tool_in_tool =
+      rdyn::spatialDualTranformation(m_offset_wrench_sensor_in_sensor, m_chain_base_tool->getTransformation(m_q).inverse() *
+                                                                         m_chain_base_sensor->getTransformation(m_q));
+    m_offset_wrench_tool_in_world =
+      rdyn::spatialRotation(offset_wrench_tool_in_tool, m_chain_world_tool->getTransformation(m_q).linear());
+
+    RCLCPP_INFO(get_node()->get_logger(), "Wrench Offset computed");
+    return true;
+  });
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -488,6 +515,18 @@ void ElastoplasticController::get_odometry_callback(const nav_msgs::msg::Odometr
 controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time& time,
                                                                                      const rclcpp::Duration& /*period*/) {
   rclcpp::Time t_start = get_node()->get_clock()->now();
+
+  if (m_offset_future.wait_for(0s) != std::future_status::ready) {
+    bool result{true};
+    for (size_t idx = 0; idx < m_nax; ++idx) {
+      result &=
+        m_joint_command_interfaces.at(0).at(idx).get().set_value(m_joint_state_interfaces.at(0).at(idx).get().get_value());
+    }
+    if (!result) {
+      RCLCPP_ERROR(get_node()->get_logger(), "Could not copy state interface position into command interfaces");
+    }
+    return controller_interface::return_type::OK;
+  }
   // **********
   // ** Read **
   // **********
@@ -657,7 +696,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
 
   Eigen::Vector6d wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor, T_tool_sensor);
-  Eigen::Vector6d wrench_tool_in_world = rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear());
+  Eigen::Vector6d wrench_tool_in_world =
+    rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear()) - m_offset_wrench_tool_in_world;
 
   Eigen::Matrix6Xd J_world_tool_in_world = m_chain_world_tool->getJacobian(m_q);
 
