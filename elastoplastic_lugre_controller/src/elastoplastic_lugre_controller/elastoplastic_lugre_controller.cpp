@@ -263,9 +263,41 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
       RCLCPP_INFO_STREAM(get_node()->get_logger(), "-> " << m_interpolator.is_empty());
     });
 
+  m_rt_buffer_base_odom.initRT(nav_msgs::msg::Odometry(rosidl_runtime_cpp::MessageInitialization::ALL));
+
+  Eigen::Matrix6d kfA, kfC, kfQ, kfR;
+  Eigen::Matrix<double, 6, 3> kfB;
+  kfA << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Identity() * m_dt, Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity();
+  kfB << Eigen::Matrix3d::Identity() * 0.5 * std::pow(m_dt, 2), Eigen::Matrix3d::Identity() * m_dt;
+  kfC.setIdentity();
+  kfQ.setIdentity();
+  kfR.setIdentity() * 1e1;
+  m_base_position_filter = state_observer::KalmanFilter(kfA, kfB, kfC.transpose(), kfQ, kfR);
+
+  // Map->base transform handling
+  m_tf_buffer = std::make_shared<tf2_ros::Buffer>(get_node()->get_clock());
+  m_tf_buffer->setUsingDedicatedThread(true);
+  m_tf_buffer->setCreateTimerInterface(
+    std::make_shared<tf2_ros::CreateTimerROS>(get_node()->get_node_base_interface(), get_node()->get_node_timers_interface()));
+  m_tf_base_pose_recovery_thread = std::make_unique<std::thread>(&ElastoplasticController::update_base_pose_from_tf, this);
+  bool can_transform{false};
+  do {
+    can_transform = m_tf_buffer->canTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero);
+  } while (!can_transform);
+  m_T_world_base =
+    tf2::transformToEigen(m_tf_buffer->lookupTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero));
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
+void ElastoplasticController::update_base_pose_from_tf() {
+  m_tf_node = rclcpp::Node::make_shared("__elastoplastic__get_tf_node__");
+  m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer, m_tf_node, false);
+  rclcpp::executors::SingleThreadedExecutor ex;
+  ex.add_node(m_tf_node);
+  ex.spin();
+  ex.remove_node(m_tf_node);
+}
 
 controller_interface::InterfaceConfiguration ElastoplasticController::state_interface_configuration() const {
   controller_interface::InterfaceConfiguration state_interface_configuration;
@@ -443,6 +475,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     RCLCPP_INFO(get_node()->get_logger(), "Wrench Offset computed");
     return true;
   });
+
+  Eigen::Vector6d filter_init;
+  m_base_position_filter.initialize((filter_init << m_q.head<3>(), m_qp.head<3>()).finished());
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -527,46 +563,58 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     }
     return controller_interface::return_type::OK;
   }
+
   // **********
   // ** Read **
   // **********
 
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE_
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
-  /* Actual state */
   // Base state
-
-  // TODO: smooth with a filter?
-  Eigen::Vector6d twist_base_world_in_world, twist_base_world_in_base;
-
-  // Recover pose from localization
-  geometry_msgs::msg::PoseWithCovarianceStamped localization_msg = *(m_rt_buffer_base_pose_in_world.readFromNonRT());
-  if (!(rclcpp::Time(localization_msg.header.stamp) - m_last_localization_msg_time > std::chrono::duration<double>(m_dt) ||
-        rclcpp::Time(localization_msg.header.stamp) - m_last_localization_msg_time < std::chrono::seconds(0))) {
-    Eigen::fromMsg(localization_msg.pose.pose, m_T_world_base);
-  }
-  m_last_localization_msg_time = localization_msg.header.stamp;
-
-  // Recover twist from odometry
-  nav_msgs::msg::Odometry odom_msg = *(m_rt_buffer_base_odom.readFromRT());
-  if (rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time > std::chrono::duration<double>(m_dt) ||
-      rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time < std::chrono::seconds(0)) {
-    twist_base_world_in_base = utils::twist_from_base_velocity(m_mobile_base.velocity_in_base);
-  } else {
-    Eigen::fromMsg(odom_msg.twist.twist, twist_base_world_in_base);
-  }
-  m_last_odom_msg_time = odom_msg.header.stamp;
-
-  twist_base_world_in_world = rdyn::spatialRotation(twist_base_world_in_base, m_T_world_base.linear());
-
-  // Build state vectors
   if (m_mobile_base.enabled) {
-    m_qp.head<M_SE2>() = utils::base_velocity_from_twist(twist_base_world_in_world);
-    m_q.head<2>() = m_T_world_base.translation().head<2>();
-    m_q(2) = Eigen::AngleAxisd(m_T_world_base.linear()).angle();
+    Eigen::Vector6d twist_base_world_in_world, twist_base_world_in_base;
+
+    try {
+      geometry_msgs::msg::TransformStamped T_world_base_msg =
+        m_tf_buffer->lookupTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero);
+      m_T_world_base = tf2::transformToEigen(T_world_base_msg);
+    } catch (tf2::LookupException ex) {
+      RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Could not get transformation between " << m_parameters.frames.map << " and "
+                                                                                            << m_parameters.frames.base
+                                                                                            << ". Fallback on computed data");
+    } catch (std::exception) {
+      RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Error while getting " << m_parameters.frames.map << " and "
+                                                                           << m_parameters.frames.base
+                                                                           << ". Fallback on computed data");
+    }
+
+    // Recover twist from odometry
+    nav_msgs::msg::Odometry odom_msg = *(m_rt_buffer_base_odom.readFromRT());
+    if (rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time > std::chrono::duration<double>(m_dt) ||
+        rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time < std::chrono::seconds(0)) {
+      twist_base_world_in_base = utils::twist_from_base_velocity(m_mobile_base.velocity_in_base);
+    } else {
+      Eigen::fromMsg(odom_msg.twist.twist, twist_base_world_in_base);
+    }
+    m_last_odom_msg_time = odom_msg.header.stamp;
+
+    twist_base_world_in_world = rdyn::spatialRotation(twist_base_world_in_base, m_T_world_base.linear());
+
+    // Build state vectors
+    // TODO: Non va
+    Eigen::Vector6d base_read;
+    base_read.tail<M_SE2>() = utils::base_velocity_from_twist(twist_base_world_in_world);
+    base_read.head<2>() = m_T_world_base.translation().head<2>();
+    base_read(2) = Eigen::AngleAxisd(m_T_world_base.linear()).angle();
+    Eigen::Vector6d estim_base = m_base_position_filter.update(base_read, m_qpp.head<M_SE2>());
+    m_qp.head<M_SE2>() = estim_base.tail<M_SE2>();
+    m_q.head<M_SE2>() = estim_base.head<M_SE2>();
+    // m_qp.head<M_SE2>() = utils::base_velocity_from_twist(twist_base_world_in_world);
+    // m_q.head<2>() = m_T_world_base.translation().head<2>();
+    // m_q(2) = Eigen::AngleAxisd(m_T_world_base.linear()).angle();
   }
 #endif
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR_
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
   // Manipulator State
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),

@@ -27,12 +27,13 @@
 #include "realtime_tools/realtime_buffer.hpp"
 #include "semantic_components/force_torque_sensor.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "state_observers/kalman_filter.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
 
-
-// #include "derivatives.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 namespace elastoplastic
 {
@@ -59,18 +60,19 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_mobile_base_odometry;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr m_sub_mobile_base_pose;
 
-  realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_mobile_base_target;
-  realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovarianceStamped>
-      m_rt_buffer_base_pose_in_world;
-  realtime_tools::RealtimeBuffer<geometry_msgs::msg::TwistWithCovariance>
-      m_rt_buffer_base_twist_in_base;
+  // realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_mobile_base_target;
   realtime_tools::RealtimeBuffer<nav_msgs::msg::Odometry> m_rt_buffer_base_odom;
 
   rclcpp::Time m_last_odom_msg_time;
-  rclcpp::Time m_last_localization_msg_time;
 
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_pub_timing;
+
+  std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
+  std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
+  std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
+  rclcpp::Node::SharedPtr m_tf_node;
+  void update_base_pose_from_tf();
 
   // Debug publishers
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_world;
@@ -98,7 +100,6 @@ private:
 
   rdyn::ChainPtr m_chain_base_tool;
   rdyn::ChainPtr m_chain_base_sensor;
-  rdyn::ChainPtr m_chain_world_base;
   rdyn::ChainPtr m_chain_world_tool;
 
   std::vector<std::string> m_joint_names;
@@ -127,6 +128,8 @@ private:
   Eigen::Vector6d m_offset_wrench_sensor_in_sensor;
   Eigen::Vector6d m_offset_wrench_tool_in_world;
   std::future<bool> m_offset_future;
+
+  state_observer::KalmanFilter m_base_position_filter;
 
   // Required both for states and at least one for command
   const std::vector<std::string> m_allowed_interface_types {

@@ -31,6 +31,8 @@ find_package(rdyn_core                  REQUIRED)
 find_package(eiquadprog                 REQUIRED)
 find_package(Eigen3 3.4                 REQUIRED)
 
+find_package(state_observers            REQUIRED)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 generate_parameter_library(
@@ -77,6 +79,7 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   tf2_eigen
   urdfdom
   realtime_tools
+  state_observers
   )
 
 target_link_libraries(elastoplastic_controller
@@ -124,6 +127,7 @@ ament_export_dependencies(controller_interface
   urdfdom
   realtime_tools
   control_toolbox
+  state_observers
 )
 
 if(BUILD_TESTING)
