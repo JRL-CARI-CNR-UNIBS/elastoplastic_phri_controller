@@ -87,8 +87,10 @@ private:
 
 public:
   EqualitySet(const size_t problem_size) : m_prb_size(problem_size), m_CE(0, problem_size), m_ce(0) {}
-  Eigen::MatrixXd CE() const { return m_CE; }
-  Eigen::VectorXd ce() const { return m_ce; }
+  const Eigen::MatrixXd& CE() const { return m_CE; }
+  const Eigen::VectorXd& ce() const { return m_ce; }
+  Eigen::MatrixXd& CE() { return m_CE; }
+  Eigen::VectorXd& ce() { return m_ce; }
   size_t size() const { return m_ce.size(); }
   size_t problem_size() const { return m_prb_size; }
   void clear() {
@@ -132,8 +134,10 @@ public:
     m_ci.setZero();
   }
 
-  Eigen::MatrixXd CI() const { return m_CI; }
-  Eigen::VectorXd ci() const { return m_ci; }
+  Eigen::MatrixXd& CI() { return m_CI; }
+  Eigen::VectorXd& ci() { return m_ci; }
+  const Eigen::MatrixXd& CI() const { return m_CI; }
+  const Eigen::VectorXd& ci() const { return m_ci; }
   size_t size() const { return m_constr_size; }
   size_t problem_size() const { return m_prb_size; }
 };
