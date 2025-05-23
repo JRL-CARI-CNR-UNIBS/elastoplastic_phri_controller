@@ -68,7 +68,15 @@ elastoplastic_controller:
     type: string_array,
     default_value: [],
     description: "Robot Joints",
-    # read_only: true
+  }
+  acceleration_limits_coeff: {
+    type: double,
+    default_value: 10,
+    read_only: true,
+    description: "Acceleration limits for manipulator joints computed as: acceleration_limits_coeff * velocity_limits",
+    validation: {
+      gt<>: 0.0
+    }
   }
   mobile_base:
     enabled: {

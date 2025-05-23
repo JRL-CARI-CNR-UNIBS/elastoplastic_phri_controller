@@ -103,7 +103,9 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
     }
 
     m_limits.vel(ax) = urdf_model->getJoint(m_parameters.joints.at(ax))->limits->velocity;
-    m_limits.acc(ax) = 10 * m_limits.vel(ax);
+    m_limits.acc(ax) = m_parameters.acceleration_limits_coeff * m_limits.vel(ax);
+    RCLCPP_DEBUG(get_node()->get_logger(), "Limits joint %ld: upper = %5.2f, lower = %5.2f, vel = %5.2f, acc = %5.2f", ax,
+                 m_limits.pos_upper(ax), m_limits.pos_lower(ax), m_limits.vel(ax), m_limits.acc(ax));
   }
   RCLCPP_DEBUG(get_node()->get_logger(), "Kinematics limits: OK");
 
