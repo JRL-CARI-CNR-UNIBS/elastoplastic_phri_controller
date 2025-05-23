@@ -23,6 +23,7 @@ using namespace std::chrono_literals;
 
 controller_interface::CallbackReturn ElastoplasticController::on_init() {
   m_param_listener = std::make_shared<elastoplastic_controller::ParamListener>(this->get_node());
+  RCLCPP_DEBUG(get_node()->get_logger(), "Elastoplastic controller correctly loaded");
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -121,9 +122,13 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
 controller_interface::CallbackReturn ElastoplasticController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
   m_parameters = m_param_listener->get_params();
 
+  // Logger setup:
+  m_node_debug_only =
+    rclcpp::Node::make_shared("__elastoplastic_controller_debug_only__",
+                              fmt::format("{}{}", this->get_node()->get_namespace(), this->get_node()->get_name()));
   if (m_parameters.debug.log) {
     this->get_node()->get_logger().set_level(rclcpp::Logger::Level::Debug);
-    m_debug_logger.set_level(rclcpp::Logger::Level::Debug);
+    m_node_debug_only->get_logger().set_level(rclcpp::Logger::Level::Debug);
   }
 
   m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters));
@@ -808,8 +813,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   Eigen::Vector6d tmp;
   rdyn::getFrameDistanceQuat(m_chain_world_tool->getTransformation(m_q), reference_target_T_world_tool, tmp);
-  RCLCPP_INFO_STREAM(m_debug_logger, "xp - x_ref" << tmp.transpose());
-  RCLCPP_INFO_STREAM(m_debug_logger,
+  RCLCPP_INFO_STREAM(m_node_debug_only->get_logger(), "x - x_ref" << tmp.transpose());
+  RCLCPP_INFO_STREAM(m_node_debug_only->get_logger(),
                      "xp - xp_ref" << (twist_tool_world_in_world - reference_target_twist_tool_world_in_world).transpose());
 
   // Ik integration
@@ -1184,6 +1189,16 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
   elastoplastic::SolverQP solver(prb_dim, sot, eq_set, ineq_set);
   auto [solutionQP, status] = solver.solve();
 
+  RCLCPP_DEBUG_STREAM(m_node_debug_only->get_logger(), "Acceleration:\n"
+                                                         << "Upper limit: " << ineq_qpp_max.ci().head(m_full_nax).transpose()
+                                                         << "\nSolution: " << solutionQP.head(m_full_nax).transpose()
+                                                         << "\nLower Limit: " << -ineq_qpp_min.ci().head(m_full_nax).transpose());
+  RCLCPP_DEBUG_STREAM(
+    m_node_debug_only->get_logger(), "Velocity:\n"
+                                       << "Upper limit: " << (ineq_qp_max.ci().head(m_full_nax)).transpose() << "\nSolution: "
+                                       << (solutionQP.head(m_full_nax) * m_dt + m_qp.tail(m_full_nax)).transpose()
+                                       << "\nLower Limit: " << -ineq_qp_min.ci().head(m_full_nax).transpose());
+
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
     RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << status);
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
@@ -1203,14 +1218,14 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
 
   if (solutionQP.hasNaN()) {
     RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution!");
-    RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
-                                                    << "\n## first round sol [qpp(" << m_full_nax << "), slack("
-                                                    << prb_dim - m_full_nax << ")]##\n"
-                                                    << solutionQP.transpose() << "\n## first round ret ##\n"
-                                                    << status << "## G ## " << sot.G() << "\n## F ##" << sot.F().transpose()
-                                                    << "\n## eq_set.CE() ## " << eq_set.CE() << "\n ## eq_set.ce() ## "
-                                                    << eq_set.ce().transpose() << "\n## CI ## " << ineq_set.CI() << "\n## ci ##"
-                                                    << ineq_set.ci().transpose());
+    RCLCPP_DEBUG_STREAM(m_node_debug_only->get_logger(), "Dump: "
+                                                           << "\n## first round sol [qpp(" << m_full_nax << "), slack("
+                                                           << prb_dim - m_full_nax << ")]##\n"
+                                                           << solutionQP.transpose() << "\n## first round ret ##\n"
+                                                           << status << "## G ## " << sot.G() << "\n## F ##"
+                                                           << sot.F().transpose() << "\n## eq_set.CE() ## " << eq_set.CE()
+                                                           << "\n ## eq_set.ce() ## " << eq_set.ce().transpose() << "\n## CI ## "
+                                                           << ineq_set.CI() << "\n## ci ##" << ineq_set.ci().transpose());
     return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
   }
 

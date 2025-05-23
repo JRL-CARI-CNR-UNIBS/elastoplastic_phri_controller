@@ -207,10 +207,11 @@ private:
     return Eigen::Vector6d({fx, fy, fz, tx, ty, tz});
   }
 
-  rclcpp::Logger m_debug_logger;
+  // Debugger
+  rclcpp::Node::SharedPtr m_node_debug_only;
 
 public:
-  ElastoplasticController() : m_debug_logger(rclcpp::get_logger("elastoplastic_controller_debug_only")) {}
+  ElastoplasticController() {}
 
   controller_interface::InterfaceConfiguration command_interface_configuration() const override;
 
@@ -263,7 +264,7 @@ protected:
 
   void configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 
-  Eigen::VectorXd compute_clik(const ClikData& data);
+  Eigen::VectorXd clik(const ClikData& data);
   Eigen::VectorXd compute_clik_as_qp(const ClikData &data, const Eigen::Vector6d &a_position_error,
                                      const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
   Eigen::VectorXd compute_clik_as_inv(const ClikData &data, const Eigen::Vector6d &a_position_error,
