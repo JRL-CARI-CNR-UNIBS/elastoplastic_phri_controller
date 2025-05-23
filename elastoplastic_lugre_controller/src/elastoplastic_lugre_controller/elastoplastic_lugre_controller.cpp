@@ -771,7 +771,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                      .target_twist_tool_world_in_world = reference_target_twist_tool_world_in_world,
                      .wrench_tool_in_world = wrench_tool_in_world};
 
-  Eigen::VectorXd qepp = compute_clik(clik_data);
+  Eigen::VectorXd qepp = clik(clik_data);
 
   Eigen::Vector6d dist;
   rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);
@@ -999,7 +999,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 }
 
 
-Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
+Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
 
   Eigen::Vector6d acc_non_linear_in_world = m_chain_world_tool->getDTwistNonLinearPartTool(m_q, m_qp);
 
@@ -1074,17 +1074,16 @@ Eigen::VectorXd ElastoplasticController::compute_clik(const ClikData& a_data) {
   if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() && m_parameters.impedance.plastic_restoration) {
     sot.push_task(task_cart_keep_pose, 1e-1);
     sot.push_task(task_cart_pos, 1e1);
-  } else if (m_elastoplastic_model->is_plastic()) {
+  } else if (m_elastoplastic_model->is_plastic() ||
+             (m_elastoplastic_model->to_restore() && !m_parameters.impedance.plastic_restoration)) {
     sot.push_task(task_cart_keep_pose, 1e-1);
   } else {
     sot.push_task(task_cart_pos, 1e1);
   }
   sot.push_task(task_cart_vel);
   // sot.new_level();
-  // sot.push_task(task_cart_admittance);
   // sot.push_task(task_minimize_cart_acc);
   // sot.push_task(task_admittance);
-  // sot.push_task(task_clik); // Not working
   // sot.push_task(task_track_pose);
   sot.new_level();
 
