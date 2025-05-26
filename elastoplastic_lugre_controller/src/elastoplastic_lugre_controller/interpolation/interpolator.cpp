@@ -4,32 +4,26 @@
 #define DEBUG
 namespace elastoplastic::utils::interpolation {
 
-Interpolator::Interpolator(const Trajectory& t_plan)
-{
-  this->set_plan(t_plan);
-}
+Interpolator::Interpolator(const Trajectory& plan) { this->set_plan(plan); }
 
 Interpolator::Interpolator(): m_state(State::Empty) {}
 
-void Interpolator::set_plan(const Trajectory& t_plan)
-{
-  m_plan = t_plan;
-  m_coeff_rot_spline = prepare_lie_spline(t_plan.pose, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+void Interpolator::set_plan(const Trajectory& plan) {
+  m_plan = plan;
+  m_coeff_rot_spline = prepare_lie_spline(plan.pose, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
   m_state = State::Available;
 }
 
-Interpolator Interpolator::from_msg(const moveit_msgs::msg::CartesianTrajectory& t_trj){
+Interpolator Interpolator::from_msg(const moveit_msgs::msg::CartesianTrajectory& trj) {
   Trajectory plan;
-  size_t size = t_trj.points.size();
+  size_t size = trj.points.size();
   plan.clear();
   plan.resize(size);
-  for(size_t idx = 0; idx < size; ++idx)
-  {
-    tf2::fromMsg(t_trj.points.at(idx).point.pose, plan.pose.at(idx));
-    tf2::fromMsg(t_trj.points.at(idx).point.velocity, plan.twist.at(idx));
+  for (size_t idx = 0; idx < size; ++idx) {
+    tf2::fromMsg(trj.points.at(idx).point.pose, plan.pose.at(idx));
+    tf2::fromMsg(trj.points.at(idx).point.velocity, plan.twist.at(idx));
     //    tf2::fromMsg(trj.points.at(idx).point.acceleration, m_plan.acc.at(idx));
-    plan.time.at(idx) = rclcpp::Time(t_trj.points.at(idx).time_from_start.sec,
-                                       t_trj.points.at(idx).time_from_start.nanosec);
+    plan.time.at(idx) = rclcpp::Time(trj.points.at(idx).time_from_start.sec, trj.points.at(idx).time_from_start.nanosec);
   }
   std::cerr << "New interpolator created from msg, with " << size << "points." << std::endl;
 
@@ -37,23 +31,20 @@ Interpolator Interpolator::from_msg(const moveit_msgs::msg::CartesianTrajectory&
   return inter;
 }
 
-void Interpolator::start_plan(const rclcpp::Time& t_time)
-{
-  m_plan.start = t_time;
+void Interpolator::start_plan(const rclcpp::Time& time) {
+  m_plan.start = time;
   m_state = State::Started;
 }
 
-Interpolator Interpolator::clone_with_transform(const geometry_msgs::msg::TransformStamped &t_tf)
-{
+Interpolator Interpolator::clone_with_transform(const geometry_msgs::msg::TransformStamped& tf) {
   Trajectory new_plan;
   new_plan.resize(m_plan.size());
-  for(size_t idx = 0; idx < new_plan.size(); ++idx)
-  {
-//    tf2::doTransform(m_plan.pose.at(idx), new_plan.pose.at(idx),t_tf);
-    Eigen::Isometry3d tf__eig = tf2::transformToEigen(t_tf);
-    new_plan.pose.at(idx) = m_plan.pose.at(idx) * tf__eig;
+  for (size_t idx = 0; idx < new_plan.size(); ++idx) {
+    //    tf2::doTransform(m_plan.pose.at(idx), new_plan.pose.at(idx),t_tf);
+    Eigen::Isometry3d tf_eigen = tf2::transformToEigen(tf);
+    new_plan.pose.at(idx) = m_plan.pose.at(idx) * tf_eigen;
     // map -> object * object -> grasp
-    new_plan.twist.at(idx) = rdyn::spatialTranslation(m_plan.twist.at(idx), tf__eig.translation());
+    new_plan.twist.at(idx) = rdyn::spatialTranslation(m_plan.twist.at(idx), tf_eigen.translation());
     new_plan.time.at(idx) = m_plan.time.at(idx);
   }
   return Interpolator(new_plan);
@@ -80,62 +71,53 @@ Eigen::Vector3d interpolateRotationVector(const Eigen::Matrix3d& Cs, const Eigen
 }
 
 
-Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& t_t, Eigen::Vector6d& o_acc,
-                                                            Eigen::Vector6d& o_twist, Eigen::Affine3d& o_pose) {
-  if(m_state == State::Empty || m_state == State::Available)
-  {
+Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& now, Eigen::Vector6d& acc, Eigen::Vector6d& twist,
+                                                            Eigen::Affine3d& pose) {
+  if (m_state == State::Empty || m_state == State::Available) {
     return InterpolationResult::InterpolatorNotStarted;
   }
-  const rclcpp::Duration T = t_t - m_plan.start;
-  const rclcpp::Time t_now = rclcpp::Time(T.nanoseconds());
+  const rclcpp::Duration T = now - m_plan.start;
+  const rclcpp::Time t_from_start = rclcpp::Time(T.nanoseconds());
   size_t idx;
-  if(t_now > m_plan.time.back())
-  {
-    idx = m_plan.time.size()-1;
-    o_pose = m_plan.pose.back();
-    o_twist.setZero();
+  if (t_from_start > m_plan.time.back()) {
+    idx = m_plan.time.size() - 1;
+    pose = m_plan.pose.back();
+    twist.setZero();
     return InterpolationResult::OK;
+  } else {
+    idx = std::distance(m_plan.time.begin(), std::find_if(m_plan.time.begin(), m_plan.time.end(),
+                                                          [t_from_start](const auto& time) { return t_from_start < time; }));
+    idx = idx == 0 ? 1 : idx;
   }
-  else
-  {
-    idx = std::distance(m_plan.time.begin(),
-                        std::find_if(m_plan.time.begin(), m_plan.time.end(), [t_now](const auto& t_time){
-                              return t_now < t_time;
-                        }));
-    idx = idx == 0? 1 : idx;
-  }
-  if(idx >= m_plan.time.size())
-  {
+  if (idx >= m_plan.time.size()) {
     std::cerr << "[Interpolator]: Non dovresti essere qui! idx == " << idx << std::endl;
-    o_pose = m_plan.pose.back();
-    o_twist.setZero();
+    pose = m_plan.pose.back();
+    twist.setZero();
     return InterpolationResult::OK;
   }
 
   // TODO: Cambia tutti i tempi in nanoseconds (così da essere interi e non float)
-  const double delta_time = (m_plan.time.at(idx) - m_plan.time.at(idx-1)).seconds();
-  const double t = (t_now - m_plan.time.at(idx-1)).seconds();
+  const double delta_time = (m_plan.time.at(idx) - m_plan.time.at(idx - 1)).seconds();
+  const double t = (t_from_start - m_plan.time.at(idx - 1)).seconds();
   const double s = t / delta_time;
 
   Eigen::Isometry3d pose_interp;
-  const Eigen::Vector3d p0 = m_plan.pose.at(idx-1).translation();
+  const Eigen::Vector3d p0 = m_plan.pose.at(idx - 1).translation();
   const Eigen::Vector3d p1 = m_plan.pose.at(idx).translation();
-  const Eigen::Vector3d v0 = m_plan.twist.at(idx-1).head<3>();
+  const Eigen::Vector3d v0 = m_plan.twist.at(idx - 1).head<3>();
   const Eigen::Vector3d v1 = m_plan.twist.at(idx).head<3>();
 
-//  double s0=0.0;
-//  double s1=1.0;
-//  double ds = 0.00; //formula vel
-//  double s = 0.0; // formula pos;
+  //  double s0=0.0;
+  //  double s1=1.0;
+  //  double ds = 0.00; //formula vel
+  //  double s = 0.0; // formula pos;
 
-  o_acc.head<3>() = 6 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * s / std::pow(delta_time, 2) +
-                    2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) / std::pow(delta_time, 2);
-  o_twist.head<3>() = (3 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * std::pow(s, 2) / delta_time +
-                       2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) * s / delta_time + v0);
-  o_pose.translation() =   (  2*p0 + delta_time*v0 - 2*p1 + delta_time*v1) * std::pow(s,3)
-                      + (- 3*p0 + 3*p1 - 2*delta_time*v0 - delta_time*v1) * std::pow(s,2)
-                      +                                    delta_time*v0 * s
-                      +                                    p0;
+  acc.head<3>() = 6 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * s / std::pow(delta_time, 2) +
+                  2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) / std::pow(delta_time, 2);
+  twist.head<3>() = (3 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * std::pow(s, 2) / delta_time +
+                     2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) * s / delta_time + v0);
+  pose.translation() = (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * std::pow(s, 3) +
+                       (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) * std::pow(s, 2) + delta_time * v0 * s + p0;
 
   /* Slerp */
   // Eigen::Quaterniond qi(m_plan.pose.at(idx - 1).linear());
@@ -148,9 +130,9 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   Eigen::Vector3d pinterp =
     interpolateRotationVector(m_plan.pose.at(idx - 1).linear(), m_plan.pose.at(idx).linear(), m_plan.twist.at(idx - 1).tail<3>(),
                               m_plan.twist.at(idx).tail<3>(), s, delta_time);
-  o_pose.linear() = m_plan.pose.at(idx - 1).linear() * Eigen::AngleAxisd(pinterp.norm(), pinterp.normalized()).toRotationMatrix();
-  o_twist.tail<3>() = pinterp / delta_time;
-  o_acc.tail<3>().setZero();
+  pose.linear() = m_plan.pose.at(idx - 1).linear() * Eigen::AngleAxisd(pinterp.norm(), pinterp.normalized()).toRotationMatrix();
+  twist.tail<3>() = pinterp / delta_time;
+  acc.tail<3>().setZero();
 
 
   /* Lie Spline ?? */

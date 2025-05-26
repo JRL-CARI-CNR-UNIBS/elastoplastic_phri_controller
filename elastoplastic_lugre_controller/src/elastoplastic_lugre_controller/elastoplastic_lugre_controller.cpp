@@ -266,6 +266,12 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_carteisan_trj_sub = get_node()->create_subscription<moveit_msgs::msg::CartesianTrajectory>(
     m_parameters.cartesian_trajectory_topic, 1, [this](const moveit_msgs::msg::CartesianTrajectory& msg) {
       RCLCPP_INFO_STREAM(get_node()->get_logger(), "got trajectory");
+      if (msg.header.frame_id != m_parameters.frames.map) {
+        RCLCPP_WARN_STREAM(get_node()->get_logger(), "Trajectory received but in wrong reference frame. Should be in {"
+                                                       << m_parameters.frames.map << "} but instead is in {"
+                                                       << msg.header.frame_id << "}. Skipping");
+        return;
+      }
       m_interpolator = utils::interpolation::Interpolator::from_msg(msg);
       RCLCPP_INFO_STREAM(get_node()->get_logger(), "-> " << m_interpolator.is_empty());
     });

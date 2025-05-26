@@ -40,23 +40,24 @@ public:
   }
   static Interpolator from_msg(const moveit_msgs::msg::CartesianTrajectory& trj);
 
-  void start_plan(const rclcpp::Time& t_time);
+  void expect_plan_in_frame(const std::string& s) { m_expected_reference_frame = s; }
+  void start_plan(const rclcpp::Time& time);
   void end_plan() {m_state = State::Terminated;};
 
-  bool is_empty() {return m_state == State::Empty;}
+  bool is_empty() { return m_state == State::Empty; }
   bool is_ready() {return m_state == State::Available;}
   bool is_plan_started(){return m_state == State::Started;}
   bool is_plan_ended(){return m_state == State::Terminated;}
 
-  Interpolator clone_with_transform(const geometry_msgs::msg::TransformStamped& t_tf);
+  Interpolator clone_with_transform(const geometry_msgs::msg::TransformStamped& tf);
 
-  InterpolationResult interpolate(const rclcpp::Time& t_t, Eigen::Vector6d& o_acc, Eigen::Vector6d& o_twist,
-                                  Eigen::Affine3d& o_pose);
+  InterpolationResult interpolate(const rclcpp::Time& now, Eigen::Vector6d& acc, Eigen::Vector6d& twist, Eigen::Affine3d& pose);
 
 private:
   Trajectory m_plan;
   State m_state;
   Spline3Coeff m_coeff_rot_spline;
+  std::string m_expected_reference_frame;
 };
 
 } // namespace elastoplastic::utils::interpolation
