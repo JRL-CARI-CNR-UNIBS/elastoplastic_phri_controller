@@ -777,7 +777,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                      .target_twist_tool_world_in_world = reference_target_twist_tool_world_in_world,
                      .wrench_tool_in_world = wrench_tool_in_world};
 
-  Eigen::VectorXd qepp = clik(clik_data);
+  Eigen::VectorXd solution_qp = clik(clik_data);
+  Eigen::VectorXd qepp = solution_qp.head(m_full_nax);
+  Eigen::Vector6d xepp = solution_qp.tail<M_SE3>();
 
   Eigen::Vector6d dist;
   rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);
@@ -990,10 +992,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     target_twist_msg = tf2::toMsg(reference_target_twist_tool_world_in_world);
     m_interp_twist_pub->publish(target_twist_msg);
 
-    std_msgs::msg::Float64MultiArray qepp_msg;
-    qepp_msg.data.resize(qepp.size());
-    std::copy(qepp.begin(), qepp.end(), qepp_msg.data.begin());
-    m_clik_result->publish(qepp_msg);
+    std_msgs::msg::Float64MultiArray clik_msg;
+    clik_msg.data.resize(solution_qp.size());
+    std::copy(qepp.begin(), qepp.end(), clik_msg.data.begin());
+    std::copy(xepp.begin(), xepp.end(), std::next(clik_msg.data.begin(), m_full_nax));
+    m_clik_result->publish(clik_msg);
   }
 
   rclcpp::Time t_end = get_node()->get_clock()->now();
@@ -1237,7 +1240,7 @@ Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
   }
 
   m_computed_target_acc_tool_world_in_world = solutionQP.tail<M_SE3>();
-  return solutionQP.head(m_full_nax);
+  return solutionQP;
 }
 
 } // namespace elastoplastic
