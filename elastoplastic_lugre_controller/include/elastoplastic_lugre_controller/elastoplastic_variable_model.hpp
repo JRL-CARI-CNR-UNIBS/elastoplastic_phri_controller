@@ -77,7 +77,7 @@ public:
 
   Eigen::Vector6d compute_impedance(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
                                     const Eigen::Affine3d& T_a_b) const;
-  std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> compute_variable_matricies(const Eigen::Affine3d& T_a_b) const;
+  std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> compute_variable_matrices(const Eigen::Affine3d& T_a_b) const;
   double update_z(const double uin, const double period);
   std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d> update(const Eigen::Vector6d& x, const Eigen::Vector6d& v,
                                                                        const Eigen::Vector6d& f, const Eigen::Affine3d T_a_b,

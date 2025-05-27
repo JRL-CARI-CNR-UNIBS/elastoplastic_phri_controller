@@ -1046,7 +1046,7 @@ Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
   // Task: Admittance
   // TODO: Rinforza la traiettoria cartesiana per evitare che questo task la modifichi, soprattutto quando l'elasticità si
   // abbassa
-  auto [K, D] = m_elastoplastic_model->compute_variable_matricies(a_data.T_world_tool);
+  auto [K, D] = m_elastoplastic_model->compute_variable_matrices(a_data.T_world_tool);
   auto invM = m_elastoplastic_model->get_inertia_inv();
   Eigen::Vector6d twist_error_tool_world_in_world =
     a_data.twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world;

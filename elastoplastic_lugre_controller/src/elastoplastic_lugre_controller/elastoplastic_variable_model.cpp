@@ -59,7 +59,7 @@ Eigen::Matrix6d ElastoplasticModel::compute_coeff_in_b(const Eigen::Matrix6d& M,
   return T6 * M * T6.transpose();
 }
 
-std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> ElastoplasticModel::compute_variable_matricies(const Eigen::Affine3d& T_a_b) const {
+std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> ElastoplasticModel::compute_variable_matrices(const Eigen::Affine3d& T_a_b) const {
   Eigen::Matrix6d k_in_base = compute_coeff_in_b(compute_k(m_z), T_a_b);
   Eigen::Matrix6d d_in_base = compute_coeff_in_b(m_d, T_a_b);
 
@@ -70,7 +70,7 @@ Eigen::Vector6d ElastoplasticModel::compute_impedance(const Eigen::Vector6d& x, 
                                                       const Eigen::Vector6d& f, const Eigen::Affine3d& T_a_b) const {
   Eigen::Vector6d fe = f.cwiseProduct(m_enable_axis);
 
-  auto [k_in_base, d_in_base] = compute_variable_matricies(T_a_b);
+  auto [k_in_base, d_in_base] = compute_variable_matrices(T_a_b);
   // std::cout << "k: " << k_in_base.diagonal()(0) << ", x: " << x(0) << ", d: " << d_in_base(0, 0) << ", v: " << v(0)
   //           << ", fe: " << fe(0) << std::endl;
   return m_inertia_inv * (fe - k_in_base * x - d_in_base * v);
