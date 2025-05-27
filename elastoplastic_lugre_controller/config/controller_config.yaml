@@ -1,0 +1,87 @@
+elastoplastic_lugre_controller:
+  ros__parameters:
+    type: elastoplastic_controller/ElastoplasticController
+    use_sim_time: True
+    target_joint_trajectory_topic: "/joints_target"
+    robot_description_topic: "/robot_description"
+    cmd_vel_topic: "/cmd_vel"
+    ft_sensor_name: wrist_right_ft_sensor
+    frames:
+      # map: map
+      map: base_footprint
+      base: base_footprint
+      tool: wrist_right_ft_tool_link
+      sensor: wrist_right_ft_sensor_link
+    joints:
+      - arm_right_1_joint
+      - arm_right_2_joint
+      - arm_right_3_joint
+      - arm_right_4_joint
+      - arm_right_5_joint
+      - arm_right_6_joint
+      - arm_right_7_joint
+    acceleration_limits_coeff: 5.0
+    command_interfaces:
+      - position
+      #- velocity
+    state_interfaces:
+      - position
+      - velocity
+    mobile_base:
+      enabled: false
+      enable_z_rotation: false
+      input_target_topic: "/target_cmd_vel"
+      localization_topic: "/amcl_pose" # Unused
+      odom: "/odom"
+      max_vel:
+        linear: [5.0, 5.0]
+        angular: 5.0
+      max_acc_x: 50.0
+      max_dec_x: 50.0
+      max_acc_y: 50.0
+      max_dec_y: 50.0
+      max_acc_yaw: 50.0
+      max_dec_yaw: 50.0
+    wrench:
+      deadband: [1.0,1.0,1.0,1.0,1.0,1.0]
+      filter_alfa: 0.1
+    impedance:
+      enable_axis: [true, true, true, false, false, false]
+      inertia:
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+      k:
+        - 100.0
+        - 100.0
+        - 100.0
+        - 100.0
+        - 100.0
+        - 100.0
+      d:
+        - 50.0
+        - 50.0
+        - 50.0
+        - 50.0
+        - 50.0
+        - 50.0
+      z_max: 0.1
+      z_kmax: 0.1
+      z_start: 0.05
+      logistic:
+        max: 1.0
+        slope: 10.0
+        inflection: 0.5
+      leak_coefficient: 0.05
+      plastic_restoration: true
+    clik:
+      alpha_gain: 1.0e6
+      joint_task:
+        kp: 1e1
+        kv: 1e2
+    debug:
+      log: true
+      pub: true
