@@ -69,6 +69,24 @@ elastoplastic_controller:
     default_value: [],
     description: "Robot Joints",
   }
+  kalman_filter:
+    manipulator:
+      position: {
+        type: double_array,
+        default_value: [],
+        description: "Q over R for manipulator kalman filter",
+        validation: {
+          not_empty<>: []
+        }
+      }
+      velocity: {
+        type: double_array,
+        default_value: [],
+        description: "Q over R for manipulator kalman filter",
+        validation: {
+          not_empty<>: []
+        }
+      }
   acceleration_limits_coeff: {
     type: double,
     default_value: 10,

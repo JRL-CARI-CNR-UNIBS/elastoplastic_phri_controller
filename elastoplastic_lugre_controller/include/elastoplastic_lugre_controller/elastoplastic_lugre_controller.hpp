@@ -89,6 +89,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_z;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_weights;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_result;
+  rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr m_estim_joint_state;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr m_pub_alfa;
 
   constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
@@ -130,6 +131,7 @@ private:
   std::future<bool> m_offset_future;
 
   state_observer::KalmanFilter m_base_position_filter;
+  state_observer::KalmanFilter m_joint_filter;
 
   // Required both for states and at least one for command
   const std::vector<std::string> m_allowed_interface_types {

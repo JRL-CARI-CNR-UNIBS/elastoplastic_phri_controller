@@ -182,6 +182,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_interp_twist_pub = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/interp_twist", 10);
     m_computed_pose_pub = this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>("~/computed_pose", 5);
     m_computed_twist_pub = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/computed_twist", 10);
+    m_estim_joint_state = this->get_node()->create_publisher<sensor_msgs::msg::JointState>("~/estimated_joints", 10);
   }
 
   m_state_interfaces_names.reserve(m_allowed_interface_types.size());
@@ -285,7 +286,26 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   kfC.setIdentity();
   kfQ.setIdentity();
   kfR.setIdentity() * 1e1;
-  m_base_position_filter = state_observer::KalmanFilter(kfA, kfB, kfC.transpose(), kfQ, kfR);
+  m_base_position_filter = state_observer::KalmanFilter(kfA, kfB, kfC, kfQ, kfR);
+
+  // Joint Kalman filter
+  Eigen::MatrixXd kfjA(3 * m_nax, 3 * m_nax), kfjB(3 * m_nax, m_nax), kfjC(2 * m_nax, 3 * m_nax), kfjQ(3 * m_nax, 3 * m_nax),
+    kfjR(2 * m_nax, 2 * m_nax);
+  kfjA.setZero();
+  kfjA.topLeftCorner(2 * m_nax, 2 * m_nax) << Eigen::MatrixXd::Identity(m_nax, m_nax),
+    Eigen::MatrixXd::Identity(m_nax, m_nax) * m_dt, Eigen::MatrixXd::Zero(m_nax, m_nax), Eigen::MatrixXd::Identity(m_nax, m_nax);
+  kfjA.bottomRightCorner(m_nax, m_nax).setIdentity();
+  kfjB << Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * std::pow(m_dt, 2), Eigen::MatrixXd::Identity(m_nax, m_nax) * m_dt,
+    Eigen::MatrixXd::Zero(m_nax, m_nax);
+  kfjC.setZero();
+  kfjC.leftCols(2 * m_nax).setIdentity();
+  kfjC.bottomRightCorner(m_nax, m_nax).setIdentity();
+  kfjQ.setIdentity();
+  kfjQ.diagonal() << Eigen::Map<Eigen::VectorXd>(m_parameters.kalman_filter.manipulator.position.data(), m_nax),
+    Eigen::Map<Eigen::VectorXd>(m_parameters.kalman_filter.manipulator.velocity.data(), m_nax),
+    Eigen::VectorXd::Constant(m_nax, 1e-6);
+  kfjR.setIdentity();
+  m_joint_filter = state_observer::KalmanFilter(kfjA, kfjB, kfjC, kfjQ, kfjR);
 
   // Map->base transform handling
   m_tf_buffer = std::make_shared<tf2_ros::Buffer>(get_node()->get_clock());
@@ -435,6 +455,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     m_interp_twist_pub->on_activate();
     m_computed_pose_pub->on_activate();
     m_computed_twist_pub->on_activate();
+    m_estim_joint_state->on_activate();
   }
 
   m_last_odom_msg_time = this->get_node()->get_clock()->now();
@@ -489,8 +510,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     return true;
   });
 
-  Eigen::Vector6d filter_init;
-  m_base_position_filter.initialize((filter_init << m_q.head<3>(), m_qp.head<3>()).finished());
+  m_base_position_filter.initialize((Eigen::Vector6d() << m_q.head<3>(), m_qp.head<3>()).finished());
+  m_joint_filter.initialize(
+    (Eigen::VectorXd(3 * m_nax) << m_q.tail(m_nax), m_qp.tail(m_nax), Eigen::VectorXd::Zero(m_nax)).finished());
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -630,10 +652,15 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
   // Manipulator State
-  std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
+  Eigen::VectorXd q_qp_in(2 * m_nax), q_qp_out(2 * m_nax);
+  std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), q_qp_in.head(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
-  std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
+  std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), q_qp_in.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+  // Kalman filter
+  q_qp_out = m_joint_filter.update(q_qp_in, m_qpp.tail(m_nax));
+  m_q.tail(m_nax) = q_qp_out.head(m_nax);
+  m_qp.tail(m_nax) = q_qp_out.tail(m_nax);
 #endif
 
   Eigen::Affine3d T_world_tool = m_chain_world_tool->getTransformation(m_q);
@@ -915,6 +942,15 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     msg_z.data.push_back(m_elastoplastic_model->z());
     msg_z.data.push_back(m_zp);
     m_pub_z->publish(msg_z);
+
+    sensor_msgs::msg::JointState joint_state_msg;
+    joint_state_msg.header.stamp = time_now;
+    joint_state_msg.name = m_joint_names;
+    joint_state_msg.position.resize(m_nax);
+    joint_state_msg.velocity.resize(m_nax);
+    std::ranges::copy(q_start.tail(m_nax), joint_state_msg.position.begin());
+    std::ranges::copy(qp_start.tail(m_nax), joint_state_msg.velocity.begin());
+    m_estim_joint_state->publish(joint_state_msg);
 
     geometry_msgs::msg::WrenchStamped msg_wrench_in_tool;
     msg_wrench_in_tool.header.frame_id = m_parameters.frames.tool;

@@ -23,6 +23,7 @@
   <depend>tf2</depend>
   <depend>tf2_eigen</depend>
   <depend>urdfdom</depend>
+  <depend>state_observers</depend>
   <depend>generate_parameter_library</depend>
 
   <depend>rdyn_core</depend>
