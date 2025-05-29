@@ -3,13 +3,16 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.actions import OpaqueFunction, DeclareLaunchArgument
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+import os
+from ament_index_python.packages import get_package_share_directory
 
 package_name = 'elastoplastic_lugre_controller'
 
 def generate_launch_description():
+  default_config = os.path.join(get_package_share_directory(package_name), 'config', 'elastoplastic_controller.yaml')
+
   launch_args = [
-    DeclareLaunchArgument('config-pkg', default_value=package_name, description='Controller config pkg'),
-    DeclareLaunchArgument('config-path', default_value='config/controller_config.yaml', description='Controller config path from pkg'),
+    DeclareLaunchArgument('config', default_value=default_config, description='Controller config path'),
   ]
 
   launch_actions = [
@@ -20,12 +23,10 @@ def generate_launch_description():
 
 def launch_setup(context):
 
-  controller_config = PathJoinSubstitution([FindPackageShare(LaunchConfiguration('config-pkg')), LaunchConfiguration('config-path')])
-
   controller_spawner = Node(
     package='controller_manager',
     executable='spawner',
-    arguments=['elastoplastic_controller', '--param-file', controller_config, '--inactive']
+    arguments=['elastoplastic_controller', '--param-file', LaunchConfiguration('config'), '--inactive']
   )
 
   return [
