@@ -92,6 +92,13 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr m_estim_joint_state;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr m_pub_alfa;
 
+  enum Mode {
+    ELASTIC = 0,
+    PLASTIC = 1,
+    RESTORE = 2,
+  };
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_controller_mode;
+
   constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
   constexpr static unsigned int M_SE3{6};
   constexpr static unsigned int M_SE2{3};

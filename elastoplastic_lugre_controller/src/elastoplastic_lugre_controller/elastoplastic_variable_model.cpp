@@ -85,6 +85,7 @@ double ElastoplasticModel::update_z(const double uin, const double period) {
   m_z =
     utils::rk4([this, &period](const double& xin, const double& puin) -> double { return this->compute_zp(xin, puin, period); },
                m_z, uin, period);
+  m_z = std::max(0.0, m_z); // Non dovrebbe servire, però...
   m_to_restore |= this->is_plastic();
   return ret_zp;
 }
