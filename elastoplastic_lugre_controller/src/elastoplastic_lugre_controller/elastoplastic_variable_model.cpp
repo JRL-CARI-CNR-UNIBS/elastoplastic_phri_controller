@@ -6,7 +6,7 @@
 namespace elastoplastic {
 ElastoplasticModel::ElastoplasticModel(const ElastoplasticModelData& data)
     : m_inertia_inv(data.inertia_inv), m_k(data.k), m_d(data.d), m_z_max(data.z_max), m_z_kmax(data.z_kmax),
-      m_z_start(data.z_start), m_z(0), m_leak_coefficient(data.leak_coefficient), m_to_restore(false) {
+      m_z_start(data.z_start), m_z(0), m_leak_coefficient(data.leak_coefficient), m_to_restore(false), m_was_plastic(false) {
   std::transform(data.enable_axis.begin(), data.enable_axis.end(), m_enable_axis.begin(),
                  [](const bool b) { return static_cast<double>(b); });
 }
@@ -33,14 +33,17 @@ double ElastoplasticModel::z() const { return m_z; }
 
 bool ElastoplasticModel::is_plastic() const { return m_z >= m_z_kmax; }
 
+bool ElastoplasticModel::became_plastic() const { return !m_was_plastic && is_plastic(); }
+
 bool ElastoplasticModel::to_restore() const { return m_to_restore; }
 
 void ElastoplasticModel::restore() { m_to_restore = false; }
 
 double ElastoplasticModel::compute_zp(const double z, const double u, const double dt) const {
-  // double leak = z >= 0.9 * m_z_kmax ? 1.0 : 0.0;
+  double leak = z >= 0.90 * m_z_kmax ? 1.0 : 0.0;
   // double leak{1.0};
-  double leak = std::abs(u) >= 1e-3 ? 0.0 : 1.0;
+  // double leak{0.0};
+  // double leak = std::abs(u) >= 1e-3 ? 0.0 : 1.0;
   // double zp = u * (1 - z / m_z_max * utils::sgn(u)) - leak * m_k.norm() * z / m_z_max;
   double zp = u * (1 - z / m_z_max * utils::sgn(u)) - leak * m_leak_coefficient * z;
   if (z < m_z_max && z + zp * dt > m_z_max) {
@@ -77,6 +80,7 @@ Eigen::Vector6d ElastoplasticModel::compute_impedance(const Eigen::Vector6d& x, 
 }
 
 double ElastoplasticModel::update_z(const double uin, const double period) {
+  m_was_plastic = is_plastic();
   double ret_zp = this->compute_zp(m_z, uin, period);
   m_z =
     utils::rk4([this, &period](const double& xin, const double& puin) -> double { return this->compute_zp(xin, puin, period); },

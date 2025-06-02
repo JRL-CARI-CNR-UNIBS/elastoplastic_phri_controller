@@ -50,6 +50,7 @@ private:
 
   double m_leak_coefficient;
   bool m_to_restore;
+  bool m_was_plastic;
 
   Eigen::Vector6d m_enable_axis;
 
@@ -70,6 +71,7 @@ public:
   void clear();
   double z() const;
   bool is_plastic() const;
+  bool became_plastic() const;
   bool to_restore() const;
   void restore();
   Eigen::Matrix6d get_inertia_inv() const { return m_inertia_inv; }

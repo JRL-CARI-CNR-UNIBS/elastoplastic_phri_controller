@@ -4,6 +4,7 @@
 #include "Eigen/Dense"
 #include "eiquadprog/eiquadprog-fast.hpp"
 #include <numeric>
+#include <variant>
 
 namespace elastoplastic {
 
@@ -140,6 +141,7 @@ public:
   const Eigen::VectorXd& ci() const { return m_ci; }
   size_t size() const { return m_constr_size; }
   size_t problem_size() const { return m_prb_size; }
+  size_t violations(const Eigen::VectorXd& x) const { return ((m_CI * x + m_ci).array() < 0).count(); }
 };
 
 class InequalitySet {
@@ -179,9 +181,42 @@ public:
       m_ci.segment(m_neq.at(idx - 1).get().size(), m_neq.at(idx).get().size()) << m_neq.at(idx).get().ci();
     }
   }
+  size_t violations(const Eigen::VectorXd& x) {
+    return std::accumulate(m_neq.begin(), m_neq.end(), 0,
+                           [&x](const size_t acc, const InequalityConstraint& neq) -> size_t { return acc + neq.violations(x); });
+  }
 };
 
 using SolverStatus = eiquadprog::solvers::EiquadprogFast_status;
+// class SolutionQP : public std::variant<Eigen::VectorXd, SolverStatus> {
+// public:
+//   using std::variant<Eigen::VectorXd, SolverStatus>::variant;
+//   using std::variant<Eigen::VectorXd, SolverStatus>::operator=;
+
+//   SolutionQP(const Eigen::VectorXd& v, const SolverStatus& s) {
+//     if (s == SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
+//       *this = v;
+//     } else {
+//       *this = s;
+//     }
+//   }
+
+//   bool is_valid() { return std::holds_alternative<Eigen::VectorXd>(*this); }
+//   Eigen::VectorXd solution() {
+//     if (is_valid()) {
+//       throw std::runtime_error("QP resulted in an error. Cannot get solution");
+//     }
+//     return std::get<Eigen::VectorXd>(*this);
+//   }
+//   SolverStatus status() {
+//     if (is_valid()) {
+//       return SolverStatus::EIQUADPROG_FAST_OPTIMAL;
+//     } else {
+//       return std::get<SolverStatus>(*this);
+//     }
+//   }
+// };
+
 class SolverQP {
 private:
   eiquadprog::solvers::EiquadprogFast m_solver;
