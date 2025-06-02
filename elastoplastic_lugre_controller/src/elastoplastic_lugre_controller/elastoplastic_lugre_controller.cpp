@@ -763,8 +763,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // Update computed trajectory
   m_computed_target_twist_tool_world_in_world =
     m_computed_target_twist_tool_world_in_world + m_computed_target_acc_tool_world_in_world * m_dt;
-  m_computed_target_T_world_tool =
-    rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
+  m_computed_target_T_world_tool = // Set target position to the actual position when switch elastic->plastic is completed
+    !m_elastoplastic_model->became_plastic()
+      ? rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt)
+      : T_world_tool;
 
   // ************
   // ** Update **
@@ -796,7 +798,12 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   cart_vel_error_tool_target_in_world = twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world;
   double P_in = (wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis())).transpose() *
                 cart_vel_error_tool_target_in_world;
-  m_zp = m_elastoplastic_model->update_z(P_in, m_dt);
+  Eigen::Vector6d d_pose;
+  rdyn::getFrameDistanceQuat(T_world_tool, m_computed_target_T_world_tool, d_pose);
+  d_pose.normalize();
+  // m_zp = m_elastoplastic_model->update_z(P_in, m_dt);
+  auto [Kt, Dt] = m_elastoplastic_model->compute_variable_matrices(T_world_tool);
+  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world.dot(d_pose), m_dt);
 
   ClikData clik_data{.position_references = full_position_references,
                      .velocity_references = full_velocity_references,
