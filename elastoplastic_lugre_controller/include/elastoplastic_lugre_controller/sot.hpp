@@ -49,7 +49,7 @@ private:
   int m_level;
   const double m_level_step;
   Eigen::MatrixXd m_G;
-  Eigen::MatrixXd m_F;
+  Eigen::VectorXd m_F;
 
 public:
   Stack(const size_t problem_size, const double level_step = 1e-3, const double level_zero = 0)
