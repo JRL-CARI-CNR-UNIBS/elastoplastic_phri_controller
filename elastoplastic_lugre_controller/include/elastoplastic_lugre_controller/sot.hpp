@@ -174,11 +174,11 @@ public:
       std::accumulate(m_neq.begin(), m_neq.end(), 0,
                       [](const size_t acc, const InequalityConstraint& ineq) -> size_t { return acc + ineq.size(); });
     this->reset(neq_size);
-    m_CI(Eigen::seqN(0, m_neq.at(0).get().size()), Eigen::all) << m_neq.at(0).get().CI();
-    m_ci.segment(0, m_neq.at(0).get().size()) << m_neq.at(0).get().ci();
-    for (size_t idx = 1; idx < m_neq.size(); ++idx) {
-      m_CI(Eigen::seqN(m_neq.at(idx - 1).get().size(), m_neq.at(idx).get().size()), Eigen::all) << m_neq.at(idx).get().CI();
-      m_ci.segment(m_neq.at(idx - 1).get().size(), m_neq.at(idx).get().size()) << m_neq.at(idx).get().ci();
+    size_t level = 0;
+    for (size_t idx = 0; idx < m_neq.size(); ++idx) {
+      m_CI.middleRows(level, m_neq.at(idx).get().size()) << m_neq.at(idx).get().CI();
+      m_ci.segment(level, m_neq.at(idx).get().size()) << m_neq.at(idx).get().ci();
+      level += m_neq.at(idx).get().size();
     }
   }
   size_t violations(const Eigen::VectorXd& x) {
