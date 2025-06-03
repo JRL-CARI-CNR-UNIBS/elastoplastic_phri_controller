@@ -1146,8 +1146,8 @@ Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
   } else if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() &&
              m_parameters.impedance.plastic_restoration) {
     sot.push_task(task_cart_pos, 1e1);
-    sot.push_task(task_cart_keep_pose);
-    sot.push_task(task_minimize_cart_acc);
+    sot.push_task(task_cart_keep_pose, 1e-1);
+    // sot.push_task(task_minimize_cart_acc);
     sot.push_task(task_cart_vel);
   } else {
     sot.push_task(task_cart_pos, 1e1);
