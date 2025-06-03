@@ -127,26 +127,34 @@ private:
   Eigen::VectorXd m_ci;
   const size_t m_prb_size;
   const size_t m_constr_size;
+  std::string m_description;
 
 public:
-  InequalityConstraint(const size_t problem_size, const size_t constr_size)
-      : m_CI(constr_size, problem_size), m_ci(constr_size), m_prb_size(problem_size), m_constr_size(constr_size) {
+  InequalityConstraint(const size_t problem_size, const size_t constr_size, const std::string& description)
+      : m_CI(constr_size, problem_size), m_ci(constr_size), m_prb_size(problem_size), m_constr_size(constr_size),
+        m_description(description) {
     m_CI.setZero();
     m_ci.setZero();
   }
 
+  InequalityConstraint(const size_t problem_size, const size_t constr_size)
+      : InequalityConstraint(problem_size, constr_size, "No Description") {}
+
+  std::string description() const { return m_description; }
   Eigen::MatrixXd& CI() { return m_CI; }
   Eigen::VectorXd& ci() { return m_ci; }
   const Eigen::MatrixXd& CI() const { return m_CI; }
   const Eigen::VectorXd& ci() const { return m_ci; }
   size_t size() const { return m_constr_size; }
   size_t problem_size() const { return m_prb_size; }
-  size_t violations(const Eigen::VectorXd& x) const { return ((m_CI * x + m_ci).array() < 0).count(); }
+  Eigen::VectorXd value(const Eigen::VectorXd& x) const { return m_CI * x + m_ci; }
+  size_t violations(const Eigen::VectorXd& x) const { return (value(x).array() < 0).count(); }
 };
 
 class InequalitySet {
 private:
-  std::vector<std::reference_wrapper<const InequalityConstraint>> m_neq;
+  using InequalityVectorRefConst = std::vector<std::reference_wrapper<const InequalityConstraint>>;
+  InequalityVectorRefConst m_neq;
   const size_t m_prb_size;
   Eigen::MatrixXd m_CI;
   Eigen::VectorXd m_ci;
@@ -184,6 +192,13 @@ public:
   size_t violations(const Eigen::VectorXd& x) {
     return std::accumulate(m_neq.begin(), m_neq.end(), 0,
                            [&x](const size_t acc, const InequalityConstraint& neq) -> size_t { return acc + neq.violations(x); });
+  }
+  InequalityVectorRefConst which_violations(const Eigen::VectorXd& x) {
+    InequalityVectorRefConst v;
+    v.reserve(size());
+    std::copy_if(m_neq.begin(), m_neq.end(), std::back_inserter(v),
+                 [&x](const InequalityConstraint& ineq) { return ineq.violations(x); });
+    return v;
   }
 };
 

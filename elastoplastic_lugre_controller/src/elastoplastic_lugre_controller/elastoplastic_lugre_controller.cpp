@@ -124,13 +124,8 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
 controller_interface::CallbackReturn ElastoplasticController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
   m_parameters = m_param_listener->get_params();
 
-  // Logger setup:
-  m_node_debug_only =
-    rclcpp::Node::make_shared("__elastoplastic_controller_debug_only__",
-                              fmt::format("{}{}", this->get_node()->get_namespace(), this->get_node()->get_name()));
   if (m_parameters.debug.log) {
     this->get_node()->get_logger().set_level(rclcpp::Logger::Level::Debug);
-    m_node_debug_only->get_logger().set_level(rclcpp::Logger::Level::Debug);
   }
 
   m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters));
@@ -320,17 +315,23 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   } while (!can_transform);
   m_T_world_base =
     tf2::transformToEigen(m_tf_buffer->lookupTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero));
+  if (m_parameters.debug.log) {
+    m_node_semaph.acquire();
+    m_node_support->get_logger().set_level(rclcpp::Logger::Level::Debug);
+  }
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
 void ElastoplasticController::update_base_pose_from_tf() {
-  m_tf_node = rclcpp::Node::make_shared("__elastoplastic__get_tf_node__");
-  m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer, m_tf_node, false);
+  m_node_support = rclcpp::Node::make_shared(
+    "__support_node__", fmt::format("{}{}", this->get_node()->get_namespace(), this->get_node()->get_name()));
+  m_node_semaph.release();
+  m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer, m_node_support, false);
   rclcpp::executors::SingleThreadedExecutor ex;
-  ex.add_node(m_tf_node);
+  ex.add_node(m_node_support);
   ex.spin();
-  ex.remove_node(m_tf_node);
+  ex.remove_node(m_node_support);
 }
 
 controller_interface::InterfaceConfiguration ElastoplasticController::state_interface_configuration() const {
@@ -820,9 +821,19 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                      .target_twist_tool_world_in_world = reference_target_twist_tool_world_in_world,
                      .wrench_tool_in_world = wrench_tool_in_world};
 
-  Eigen::VectorXd solution_qp = clik(clik_data);
-  Eigen::VectorXd qepp = solution_qp.head(m_full_nax);
-  Eigen::Vector6d xepp = solution_qp.tail<M_SE3>();
+  std::optional<Eigen::VectorXd> solution_qp = clik(clik_data);
+  if (!solution_qp.has_value()) {
+    RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
+    RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\ncart_vel_error_tool_target_in_world\n"
+                                                    << cart_vel_error_tool_target_in_world << "\nwrench_tool_in_world\n"
+                                                    << wrench_tool_in_world << "\nwrench_tool_in_tool\n"
+                                                    << wrench_tool_in_tool << "\nwrench_sensor_in_sensor\n"
+                                                    << wrench_sensor_in_sensor);
+    this->on_deactivate(rclcpp_lifecycle::State());
+    throw std::runtime_error("Controller crashed");
+  }
+  Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
+  Eigen::Vector6d xepp = solution_qp.value().tail<M_SE3>();
 
   Eigen::Vector6d dist;
   rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);
@@ -832,17 +843,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     RCLCPP_INFO(get_node()->get_logger(), "Restore elastic state");
   }
 
-  if (qepp.hasNaN()) {
-    RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
-    RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\ncart_vel_error_tool_target_in_world\n"
-                                                    << cart_vel_error_tool_target_in_world << "\nwrench_tool_in_world\n"
-                                                    << wrench_tool_in_world << "\nwrench_tool_in_tool\n"
-                                                    << wrench_tool_in_tool << "\nwrench_sensor_in_sensor\n"
-                                                    << wrench_sensor_in_sensor);
-    this->on_deactivate(rclcpp_lifecycle::State());
-    throw std::runtime_error("Controller crashed");
-    // return controller_interface::return_type::ERROR;
-  }
 
   // Scaling due to joint velocity limits
   // Eigen::VectorXd qp = m_qp.tail(m_nax) + qepp.tail(m_nax) * m_dt;
@@ -866,8 +866,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   Eigen::Vector6d tmp;
   rdyn::getFrameDistanceQuat(m_chain_world_tool->getTransformation(m_q), reference_target_T_world_tool, tmp);
-  RCLCPP_INFO_STREAM(m_node_debug_only->get_logger(), "x - x_ref" << tmp.transpose());
-  RCLCPP_INFO_STREAM(m_node_debug_only->get_logger(),
+  RCLCPP_INFO_STREAM(m_node_support->get_logger(), "x - x_ref" << tmp.transpose());
+  RCLCPP_INFO_STREAM(m_node_support->get_logger(),
                      "xp - xp_ref" << (twist_tool_world_in_world - reference_target_twist_tool_world_in_world).transpose());
 
   // Ik integration
@@ -1045,7 +1045,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_interp_twist_pub->publish(target_twist_msg);
 
     std_msgs::msg::Float64MultiArray clik_msg;
-    clik_msg.data.resize(solution_qp.size());
+    clik_msg.data.resize(solution_qp.value().size());
     std::copy(qepp.begin(), qepp.end(), clik_msg.data.begin());
     std::copy(xepp.begin(), xepp.end(), std::next(clik_msg.data.begin(), m_full_nax));
     m_clik_result->publish(clik_msg);
@@ -1071,7 +1071,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 }
 
 
-Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
+std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_data) {
 
   Eigen::Vector6d acc_non_linear_in_world = m_chain_world_tool->getDTwistNonLinearPartTool(m_q, m_qp);
 
@@ -1132,8 +1132,6 @@ Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
                            invM * K * (twist_error_tool_world_in_world * m_dt + pose_error_tool_world_in_world) -
                            invM * (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
 
-  RCLCPP_DEBUG_STREAM(m_node_debug_only->get_logger(), "K: " << K.diagonal());
-
   /****************
    ** Task Stack **
    ****************/
@@ -1152,11 +1150,8 @@ Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
   } else {
     sot.push_task(task_cart_pos, 1e1);
     sot.push_task(task_cart_vel);
+    // sot.push_task(task_minimize_cart_acc);
   }
-  // sot.new_level();
-  // sot.push_task(task_minimize_cart_acc);
-  // sot.push_task(task_admittance);
-  // sot.push_task(task_track_pose);
   sot.new_level();
 
   // Task: Minimize joint acceleration and weighting
@@ -1202,12 +1197,12 @@ Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
   /***********************
    ** DISEQ Constraints **
    ***********************/
-  elastoplastic::InequalityConstraint ineq_qpp_max(prb_dim, m_full_nax);
-  elastoplastic::InequalityConstraint ineq_qpp_min(prb_dim, m_full_nax);
-  elastoplastic::InequalityConstraint ineq_qp_max(prb_dim, m_full_nax);
-  elastoplastic::InequalityConstraint ineq_qp_min(prb_dim, m_full_nax);
-  elastoplastic::InequalityConstraint ineq_q_max(prb_dim, m_nax);
-  elastoplastic::InequalityConstraint ineq_q_min(prb_dim, m_nax);
+  elastoplastic::InequalityConstraint ineq_qpp_max(prb_dim, m_full_nax, "Joint Acceleration Max");
+  elastoplastic::InequalityConstraint ineq_qpp_min(prb_dim, m_full_nax, "Joint Acceleration Min");
+  elastoplastic::InequalityConstraint ineq_qp_max(prb_dim, m_full_nax, "Joint Velocity Max");
+  elastoplastic::InequalityConstraint ineq_qp_min(prb_dim, m_full_nax, "Joint Velocity Min");
+  elastoplastic::InequalityConstraint ineq_q_max(prb_dim, m_nax, "Joint Position Max");
+  elastoplastic::InequalityConstraint ineq_q_min(prb_dim, m_nax, "Joint Position Min");
 
   // Velocity
   ineq_qp_min.CI().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
@@ -1262,8 +1257,6 @@ Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
   elastoplastic::SolverQP solver(prb_dim, sot, eq_set, ineq_set);
   auto [solutionQP, status] = solver.solve();
 
-  RCLCPP_DEBUG_STREAM(m_node_debug_only->get_logger(), "Constraint violations: " << ineq_set.violations(solutionQP));
-
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
     RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << status);
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
@@ -1278,25 +1271,36 @@ Eigen::VectorXd ElastoplasticController::clik(const ClikData& a_data) {
                                                     << sot.F().transpose() << "\n## eq_set.CE() ## " << eq_set.CE()
                                                     << "\n ## eq_set.ce() ## " << eq_set.ce().transpose() << "\n## CI ## "
                                                     << ineq_set.CI() << "\n## ci ##" << ineq_set.ci().transpose());
-    return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
+    return std::nullopt;
   }
 
   if (solutionQP.hasNaN()) {
     RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution!");
-    RCLCPP_DEBUG_STREAM(m_node_debug_only->get_logger(), "Dump: "
-                                                           << "\n## first round sol [qpp(" << m_full_nax << "), slack("
-                                                           << prb_dim - m_full_nax << ")]##\n"
-                                                           << solutionQP.transpose() << "\n## first round ret ##\n"
-                                                           << status << "## G ## " << sot.G() << "\n## F ##"
-                                                           << sot.F().transpose() << "\n## eq_set.CE() ## " << eq_set.CE()
-                                                           << "\n ## eq_set.ce() ## " << eq_set.ce().transpose() << "\n## CI ## "
-                                                           << ineq_set.CI() << "\n## ci ##" << ineq_set.ci().transpose());
-    return Eigen::VectorXd::Constant(1, 1, std::nan("0"));
+    RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "Dump: "
+                                                        << "\n## first round sol [qpp(" << m_full_nax << "), slack("
+                                                        << prb_dim - m_full_nax << ")]##\n"
+                                                        << solutionQP.transpose() << "\n## first round ret ##\n"
+                                                        << status << "## G ## " << sot.G() << "\n## F ##" << sot.F().transpose()
+                                                        << "\n## eq_set.CE() ## " << eq_set.CE() << "\n ## eq_set.ce() ## "
+                                                        << eq_set.ce().transpose() << "\n## CI ## " << ineq_set.CI()
+                                                        << "\n## ci ##" << ineq_set.ci().transpose());
+    return std::nullopt;
   }
 
-  RCLCPP_DEBUG_STREAM(m_node_debug_only->get_logger(), "task_keep_pose cost: " << task_cart_keep_pose.cost(solutionQP));
-  RCLCPP_DEBUG_STREAM(m_node_debug_only->get_logger(),
-                      "task_minimize_cart_vel cost: " << task_minimize_cart_vel.cost(solutionQP));
+  // Should be useless but...
+  RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "Constraint violations: " << ineq_set.violations(solutionQP));
+  if (ineq_set.violations(solutionQP) != 0) {
+    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Constraint violated:");
+    auto ineq_violated = ineq_set.which_violations(solutionQP);
+    std::for_each(ineq_violated.begin(), ineq_violated.end(), [this, &solutionQP](const InequalityConstraint& ineq) {
+      RCLCPP_ERROR_STREAM(get_node()->get_logger(),
+                          " - " << ineq.description() << " | values: " << ineq.value(solutionQP).transpose());
+    });
+    // return std::nullopt;
+  }
+
+  RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "task_keep_pose cost: " << task_cart_keep_pose.cost(solutionQP));
+  RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "task_minimize_cart_vel cost: " << task_minimize_cart_vel.cost(solutionQP));
 
   m_computed_target_acc_tool_world_in_world = solutionQP.tail<M_SE3>();
   return solutionQP;

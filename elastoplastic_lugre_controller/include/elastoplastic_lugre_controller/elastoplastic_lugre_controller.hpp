@@ -35,6 +35,8 @@
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 
+#include <semaphore>
+
 namespace elastoplastic
 {
 
@@ -71,7 +73,8 @@ private:
   std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
-  rclcpp::Node::SharedPtr m_tf_node;
+  rclcpp::Node::SharedPtr m_node_support; // tf and log
+  std::binary_semaphore m_node_semaph{0};
   void update_base_pose_from_tf();
 
   // Debug publishers
@@ -216,8 +219,6 @@ private:
     return Eigen::Vector6d({fx, fy, fz, tx, ty, tz});
   }
 
-  // Debugger
-  rclcpp::Node::SharedPtr m_node_debug_only;
 
 public:
   ElastoplasticController() {}
@@ -263,7 +264,7 @@ protected:
 
   void configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 
-  Eigen::VectorXd clik(const ClikData& data);
+  std::optional<Eigen::VectorXd> clik(const ClikData& data);
   Eigen::VectorXd compute_clik_as_qp(const ClikData &data, const Eigen::Vector6d &a_position_error,
                                      const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
   Eigen::VectorXd compute_clik_as_inv(const ClikData &data, const Eigen::Vector6d &a_position_error,
