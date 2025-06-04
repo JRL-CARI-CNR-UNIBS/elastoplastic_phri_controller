@@ -31,7 +31,7 @@ void ElastoplasticModel::clear() {
 
 double ElastoplasticModel::z() const { return m_z; }
 
-bool ElastoplasticModel::is_plastic() const { return m_z >= 0.97 * m_z_kmax; }
+bool ElastoplasticModel::is_plastic() const { return m_z >= m_z_kmax; }
 
 bool ElastoplasticModel::became_plastic() const { return !m_was_plastic && is_plastic(); }
 
@@ -51,6 +51,9 @@ double ElastoplasticModel::compute_zp(const double z, const double u, const doub
   } else if (z > 0 && z + zp * dt < 0) {
     zp = -z / dt;
   }
+  // if (is_plastic() && zp < 0) {
+  //   zp = 0;
+  // }
   return zp;
 }
 
