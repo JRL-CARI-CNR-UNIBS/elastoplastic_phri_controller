@@ -105,11 +105,15 @@ public:
                                      [](const size_t acc, const EqualityConstraint& eq) -> size_t { return acc + eq.size(); });
     if (eq_size > 0) {
       this->reset(eq_size);
-      m_CE(Eigen::seqN(0, m_eq.at(0).get().size()), Eigen::all) << m_eq.at(0).get().A();
-      m_ce.segment(0, m_eq.at(0).get().size()) << m_eq.at(0).get().b();
-      for (size_t idx = 1; idx < m_eq.size(); ++idx) {
-        m_CE(Eigen::seqN(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()), Eigen::all) << m_eq.at(idx).get().A();
-        m_ce.segment(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()) << m_eq.at(idx).get().b();
+      // m_CE(Eigen::seqN(0, m_eq.at(0).get().size()), Eigen::all) << m_eq.at(0).get().A();
+      // m_ce.segment(0, m_eq.at(0).get().size()) << m_eq.at(0).get().b();
+      size_t level = 0;
+      for (size_t idx = 0; idx < m_eq.size(); ++idx) {
+        // m_CE(Eigen::seqN(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()), Eigen::all) << m_eq.at(idx).get().A();
+        // m_ce.segment(m_eq.at(idx - 1).get().size(), m_eq.at(idx).get().size()) << m_eq.at(idx).get().b();
+        m_CE.middleRows(level, m_eq.at(idx).get().size()) << m_eq.at(idx).get().A();
+        m_ce.segment(level, m_eq.at(idx).get().size()) << m_eq.at(idx).get().b();
+        level += m_eq.at(idx).get().size();
       }
     } else {
       // No equality constraints: https://github.com/liuq/QuadProgpp/issues/3
