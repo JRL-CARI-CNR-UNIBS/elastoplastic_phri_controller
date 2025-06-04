@@ -814,6 +814,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // m_zp = m_elastoplastic_model->update_z(P_in, m_dt);
   auto [Kt, Dt] = m_elastoplastic_model->compute_variable_matrices(T_world_tool);
   m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world.dot(d_pose), m_dt);
+  bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
+                                            cart_vel_error_tool_target_in_world);
+  RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "reset: " << reset);
 
   ClikData clik_data{.position_references = full_position_references,
                      .velocity_references = full_velocity_references,
@@ -1133,29 +1136,32 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   // task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
   task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
   task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
-                           invM * K * (twist_error_tool_world_in_world * m_dt + pose_error_tool_world_in_world) -
+                           invM * K *
+                             (twist_error_tool_world_in_world * m_dt +
+                              m_elastoplastic_model->z() * pose_error_tool_world_in_world.normalized()) -
                            invM * (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
+
+  RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "K:\n" << K);
 
   /****************
    ** Task Stack **
    ****************/
   elastoplastic::Stack sot(prb_dim);
-  if (m_elastoplastic_model->is_plastic() ||
-      (m_elastoplastic_model->to_restore() && !m_parameters.impedance.plastic_restoration)) {
-    // sot.push_task(task_cart_keep_pose, 1e1);
-    sot.push_task(task_minimize_cart_vel, 1);
-    sot.push_task(task_minimize_cart_acc, 1e-1);
-  } else if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() &&
-             m_parameters.impedance.plastic_restoration) {
-    sot.push_task(task_cart_pos, 1e1);
-    sot.push_task(task_cart_keep_pose, 1e-1);
-    // sot.push_task(task_minimize_cart_acc);
-    sot.push_task(task_cart_vel);
-  } else {
-    sot.push_task(task_cart_pos, 1e1);
-    sot.push_task(task_cart_vel);
-    // sot.push_task(task_minimize_cart_acc);
-  }
+  // if (m_elastoplastic_model->is_plastic() ||
+  //     (m_elastoplastic_model->to_restore() && !m_parameters.impedance.plastic_restoration)) {
+  //   // sot.push_task(task_cart_keep_pose, 1e1);
+  //   sot.push_task(task_minimize_cart_vel, 1);
+  //   sot.push_task(task_minimize_cart_acc, 1e-1);
+  // } else if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() &&
+  //            m_parameters.impedance.plastic_restoration) {
+  //   sot.push_task(task_cart_pos, 1e1);
+  //   sot.push_task(task_cart_keep_pose, 1e-1);
+  //   // sot.push_task(task_minimize_cart_acc);
+  //   sot.push_task(task_cart_vel);
+  // } else {
+  sot.push_task(task_cart_pos, 1e1);
+  sot.push_task(task_cart_vel);
+  // }
   sot.new_level();
 
   // Task: Minimize joint acceleration and weighting

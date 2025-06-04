@@ -4,6 +4,8 @@
 #include "Eigen/Dense"
 #include "elastoplastic_parameters.hpp"
 
+#include <boost/circular_buffer.hpp>
+
 #ifdef BUILD_TESTING
 #include "gtest/gtest.h"
 #endif
@@ -58,6 +60,8 @@ private:
   double compute_zp(const double z, const double u, const double dt) const;
   Eigen::Matrix6d compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_a_b) const;
 
+  boost::circular_buffer<double> m_reset_buffer;
+
 #ifdef BUILD_TESTING
   FRIEND_TEST(ElastoplasticModelTest, privateComputeK);
   FRIEND_TEST(ElastoplasticModelTest, privateComputeZp);
@@ -66,6 +70,7 @@ private:
 #endif
 
 public:
+  bool reset(const Eigen::Vector6d& f, const Eigen::Vector6d& v);
   double alpha(const double z) const;
   double alpha() const;
   void clear();

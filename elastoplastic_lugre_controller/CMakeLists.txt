@@ -32,6 +32,7 @@ find_package(eiquadprog                 REQUIRED)
 find_package(Eigen3 3.4                 REQUIRED)
 
 find_package(state_observers            REQUIRED)
+find_package(Boost REQUIRED COMPONENTS container)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

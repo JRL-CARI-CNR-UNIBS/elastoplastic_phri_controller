@@ -1,12 +1,17 @@
 #include "elastoplastic_lugre_controller/elastoplastic_variable_model.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 
+#include <algorithm>
+#include <ranges>
+
 #include "fmt/format.h"
 
 namespace elastoplastic {
 ElastoplasticModel::ElastoplasticModel(const ElastoplasticModelData& data)
     : m_inertia_inv(data.inertia_inv), m_k(data.k), m_d(data.d), m_z_max(data.z_max), m_z_kmax(data.z_kmax),
-      m_z_start(data.z_start), m_z(0), m_leak_coefficient(data.leak_coefficient), m_to_restore(false), m_was_plastic(false) {
+      m_z_start(data.z_start), m_z(0), m_leak_coefficient(data.leak_coefficient), m_to_restore(false), m_was_plastic(false),
+      m_reset_buffer(300) // TODO: to change into a parameter if works
+{
   std::transform(data.enable_axis.begin(), data.enable_axis.end(), m_enable_axis.begin(),
                  [](const bool b) { return static_cast<double>(b); });
 }
@@ -46,14 +51,14 @@ double ElastoplasticModel::compute_zp(const double z, const double u, const doub
   // double leak = std::abs(u) >= 1e-3 ? 0.0 : 1.0;
   // double zp = u * (1 - z / m_z_max * utils::sgn(u)) - leak * m_k.norm() * z / m_z_max;
   double zp = u * (1 - alpha(z) * z / m_z_max * utils::sgn(u)) - leak * m_leak_coefficient * z;
-  if (z < m_z_max && z + zp * dt > m_z_max) {
-    zp = (m_z_max - z) / dt;
-  } else if (z > 0 && z + zp * dt < 0) {
-    zp = -z / dt;
-  }
-  // if (is_plastic() && zp < 0) {
-  //   zp = 0;
+  // if (z < m_z_max && z + zp * dt > m_z_max) {
+  //   zp = (m_z_max - z) / dt;
+  // } else if (z > 0 && z + zp * dt < 0) {
+  //   zp = -z / dt;
   // }
+  if (is_plastic() && zp < 0) {
+    zp = 0;
+  }
   return zp;
 }
 
@@ -112,5 +117,19 @@ ElastoplasticModel::update(const Eigen::Vector6d& x, const Eigen::Vector6d& v, c
   // std::cout << "xpp: " << xspp.transpose() << "\nxsp: " << xsp.transpose() << std::endl;
   return std::make_tuple(xs, xsp, xspp);
 }
+
+
+bool ElastoplasticModel::reset(const Eigen::Vector6d& f, const Eigen::Vector6d& v) {
+  if (is_plastic()) {
+    m_reset_buffer.push_back(f.dot(v));
+    if (m_reset_buffer.full() && std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0) < 1e-2) {
+      m_reset_buffer.clear();
+      m_z = 0;
+      return true;
+    }
+  }
+  return false;
+}
+
 
 } // namespace elastoplastic
