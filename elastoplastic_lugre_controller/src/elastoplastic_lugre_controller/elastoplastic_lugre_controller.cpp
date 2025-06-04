@@ -526,6 +526,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
   m_qpp.setZero();
 
+  m_computed_target_T_world_tool = m_chain_world_tool->getTransformation(m_q);
+  m_computed_target_acc_tool_world_in_world.setZero();
+  m_computed_target_twist_tool_world_in_world.setZero();
+
   if (m_mobile_base.enabled) {
     Eigen::Vector6d empty = Eigen::Vector6d::Zero();
     geometry_msgs::msg::Twist cmd_vel = tf2::toMsg(empty);
@@ -766,10 +770,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   m_computed_target_twist_tool_world_in_world =
     m_computed_target_twist_tool_world_in_world + m_computed_target_acc_tool_world_in_world * m_dt;
 
-  m_computed_target_T_world_tool =       // Set target position to the actual position when switch elastic->plastic is completed
-    !m_elastoplastic_model->is_plastic() // became_plastic()
-      ? rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt)
-      : T_world_tool;
+  // m_computed_target_T_world_tool =
+  //   !m_elastoplastic_model->is_plastic()
+  //     ? rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt)
+  //     : T_world_tool;
 
   m_computed_target_T_world_tool =
     rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
@@ -1127,8 +1131,8 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   // Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
   Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
   // task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
-  task_admittance.A() << a_data.J_world_tool_in_world, -adm;
-  task_admittance.b() << acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
+  task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
+  task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
                            invM * K * (twist_error_tool_world_in_world * m_dt + pose_error_tool_world_in_world) -
                            invM * (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
 
@@ -1139,8 +1143,8 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   if (m_elastoplastic_model->is_plastic() ||
       (m_elastoplastic_model->to_restore() && !m_parameters.impedance.plastic_restoration)) {
     // sot.push_task(task_cart_keep_pose, 1e1);
-    // sot.push_task(task_minimize_cart_vel);
-    sot.push_task(task_minimize_cart_acc);
+    sot.push_task(task_minimize_cart_vel, 1);
+    sot.push_task(task_minimize_cart_acc, 1e-1);
   } else if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() &&
              m_parameters.impedance.plastic_restoration) {
     sot.push_task(task_cart_pos, 1e1);

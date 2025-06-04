@@ -31,7 +31,7 @@ void ElastoplasticModel::clear() {
 
 double ElastoplasticModel::z() const { return m_z; }
 
-bool ElastoplasticModel::is_plastic() const { return m_z >= m_z_kmax; }
+bool ElastoplasticModel::is_plastic() const { return m_z >= 0.97 * m_z_kmax; }
 
 bool ElastoplasticModel::became_plastic() const { return !m_was_plastic && is_plastic(); }
 
@@ -40,12 +40,12 @@ bool ElastoplasticModel::to_restore() const { return m_to_restore; }
 void ElastoplasticModel::restore() { m_to_restore = false; }
 
 double ElastoplasticModel::compute_zp(const double z, const double u, const double dt) const {
-  double leak = z >= 0.90 * m_z_kmax ? 1.0 : 0.0;
+  // double leak = z >= 0.90 * m_z_kmax ? 1.0 : 0.0;
   // double leak{1.0};
-  // double leak{0.0};
+  double leak{0.0};
   // double leak = std::abs(u) >= 1e-3 ? 0.0 : 1.0;
   // double zp = u * (1 - z / m_z_max * utils::sgn(u)) - leak * m_k.norm() * z / m_z_max;
-  double zp = u * (1 - z / m_z_max * utils::sgn(u)) - leak * m_leak_coefficient * z;
+  double zp = u * (1 - alpha(z) * z / m_z_max * utils::sgn(u)) - leak * m_leak_coefficient * z;
   if (z < m_z_max && z + zp * dt > m_z_max) {
     zp = (m_z_max - z) / dt;
   } else if (z > 0 && z + zp * dt < 0) {
