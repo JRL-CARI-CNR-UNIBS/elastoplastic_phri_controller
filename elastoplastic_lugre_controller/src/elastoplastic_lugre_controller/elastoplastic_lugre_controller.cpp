@@ -805,7 +805,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Matrix6Xd J_world_tool_in_world = m_chain_world_tool->getJacobian(m_q);
 
   Eigen::Vector6d cart_vel_error_tool_target_in_world;
-  cart_vel_error_tool_target_in_world = twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world;
+  cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
+                                          .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
   double P_in = (wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis())).transpose() *
                 cart_vel_error_tool_target_in_world;
   Eigen::Vector6d d_pose;
@@ -817,6 +818,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
                                             cart_vel_error_tool_target_in_world);
   RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "reset: " << reset);
+  m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool;
 
   ClikData clik_data{.position_references = full_position_references,
                      .velocity_references = full_velocity_references,
@@ -1159,10 +1161,11 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   //   // sot.push_task(task_minimize_cart_acc);
   //   sot.push_task(task_cart_vel);
   // } else {
-  sot.push_task(task_cart_pos, 1e1);
+  // sot.push_task(task_cart_pos, 1e1);
   sot.push_task(task_cart_vel);
   // }
   sot.new_level();
+  sot.push_task(task_minimize_cart_acc);
 
   // Task: Minimize joint acceleration and weighting
   m_W = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) / prb_dim * sot.G().trace();

@@ -10,7 +10,7 @@ namespace elastoplastic {
 ElastoplasticModel::ElastoplasticModel(const ElastoplasticModelData& data)
     : m_inertia_inv(data.inertia_inv), m_k(data.k), m_d(data.d), m_z_max(data.z_max), m_z_kmax(data.z_kmax),
       m_z_start(data.z_start), m_z(0), m_leak_coefficient(data.leak_coefficient), m_to_restore(false), m_was_plastic(false),
-      m_reset_buffer(300) // TODO: to change into a parameter if works
+      m_reset_buffer(500) // TODO: to change into a parameter if works
 {
   std::transform(data.enable_axis.begin(), data.enable_axis.end(), m_enable_axis.begin(),
                  [](const bool b) { return static_cast<double>(b); });
@@ -50,7 +50,8 @@ double ElastoplasticModel::compute_zp(const double z, const double u, const doub
   double leak{0.0};
   // double leak = std::abs(u) >= 1e-3 ? 0.0 : 1.0;
   // double zp = u * (1 - z / m_z_max * utils::sgn(u)) - leak * m_k.norm() * z / m_z_max;
-  double zp = u * (1 - alpha(z) * z / m_z_max * utils::sgn(u)) - leak * m_leak_coefficient * z;
+  // double zp = u * (1 - alpha(z) * z / m_z_max * utils::sgn(u)) - leak * m_leak_coefficient * z;
+  double zp = u * (1 - alpha(z) * z / m_z_max * utils::sgn(u));
   // if (z < m_z_max && z + zp * dt > m_z_max) {
   //   zp = (m_z_max - z) / dt;
   // } else if (z > 0 && z + zp * dt < 0) {
