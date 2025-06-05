@@ -2,7 +2,6 @@
 #include "elastoplastic_lugre_controller/utils.hpp"
 
 #include <algorithm>
-#include <ranges>
 
 #include "fmt/format.h"
 
@@ -94,12 +93,12 @@ double ElastoplasticModel::update_z(const double uin, const double period) {
   m_z =
     utils::rk4([this, &period](const double& xin, const double& puin) -> double { return this->compute_zp(xin, puin, period); },
                m_z, uin, period);
-  m_z = std::max(0.0, m_z); // Non dovrebbe servire, però...
+  // m_z = std::max(0.0, m_z); // Non dovrebbe servire, però...
   m_to_restore |= this->is_plastic();
   return ret_zp;
 }
 
-std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d>
+[[deprecated("Usa un modello che non va bene")]] std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d>
 ElastoplasticModel::update(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
                            const Eigen::Affine3d T_a_b, const double period) {
   Eigen::Vector6d xspp = compute_impedance(x, v, f, T_a_b);
