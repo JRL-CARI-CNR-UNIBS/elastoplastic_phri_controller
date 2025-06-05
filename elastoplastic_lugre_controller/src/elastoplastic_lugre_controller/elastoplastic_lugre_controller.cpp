@@ -1149,19 +1149,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
    ** Task Stack **
    ****************/
   elastoplastic::Stack sot(prb_dim);
-  // if (m_elastoplastic_model->is_plastic() ||
-  //     (m_elastoplastic_model->to_restore() && !m_parameters.impedance.plastic_restoration)) {
-  //   // sot.push_task(task_cart_keep_pose, 1e1);
-  //   sot.push_task(task_minimize_cart_vel, 1);
-  //   sot.push_task(task_minimize_cart_acc, 1e-1);
-  // } else if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() &&
-  //            m_parameters.impedance.plastic_restoration) {
-  //   sot.push_task(task_cart_pos, 1e1);
-  //   sot.push_task(task_cart_keep_pose, 1e-1);
-  //   // sot.push_task(task_minimize_cart_acc);
-  //   sot.push_task(task_cart_vel);
-  // } else {
-  // sot.push_task(task_cart_pos, 1e1);
+  if (!m_elastoplastic_model->is_plastic() && m_elastoplastic_model->to_restore() && m_parameters.impedance.plastic_restoration) {
+    RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "Is restoring");
+    sot.push_task(task_cart_pos, 1e1);
+  }
   sot.push_task(task_cart_vel);
   // }
   sot.new_level();
