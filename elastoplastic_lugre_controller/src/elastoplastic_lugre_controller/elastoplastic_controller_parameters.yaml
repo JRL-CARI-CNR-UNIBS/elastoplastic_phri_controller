@@ -285,6 +285,19 @@ elastoplastic_controller:
         gt_eq<>: 0
       }
     }
+    reset:
+      time: {
+        type: double,
+        validation: {
+          gt<>: 0
+        }
+      }
+      threshold: {
+        type: double,
+        validation: {
+          gt<>: 0
+        }
+      }
     plastic_restoration: {
       type: bool,
       description: "Allow restoration from plastic error once the system return elastic",

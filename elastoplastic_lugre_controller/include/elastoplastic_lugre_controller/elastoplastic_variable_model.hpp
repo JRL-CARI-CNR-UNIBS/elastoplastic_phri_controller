@@ -27,6 +27,8 @@ struct ElastoplasticModelData {
   double z_start;
 
   double leak_coefficient;
+  double reset_threshold;
+  size_t buffer_size;
 
   std::vector<bool> enable_axis;
   ElastoplasticModelData() : z_max(0.0), z_kmax(0.0), z_start(0.0), leak_coefficient(0.0) {
@@ -50,6 +52,9 @@ private:
 
   double m_z;
 
+  boost::circular_buffer<double> m_reset_buffer;
+  double m_reset_threshold;
+
   double m_leak_coefficient;
   bool m_to_restore;
   bool m_was_plastic;
@@ -60,7 +65,6 @@ private:
   double compute_zp(const double z, const double u, const double dt) const;
   Eigen::Matrix6d compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_a_b) const;
 
-  boost::circular_buffer<double> m_reset_buffer;
 
 #ifdef BUILD_TESTING
   FRIEND_TEST(ElastoplasticModelTest, privateComputeK);

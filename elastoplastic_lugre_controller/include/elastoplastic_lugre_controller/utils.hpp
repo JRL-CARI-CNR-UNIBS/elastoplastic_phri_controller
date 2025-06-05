@@ -154,7 +154,7 @@ constexpr std::pair<T, T> rk4_double(Acc&& acc, // a = acc(x,v,u)
   return {s_next.x, s_next.v};
 }
 
-inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& params) {
+inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& params, const double update_rate) {
   ElastoplasticModelData data;
   std::copy(params.impedance.inertia.begin(), params.impedance.inertia.end(), data.inertia_inv.diagonal().begin());
   std::copy(params.impedance.k.begin(), params.impedance.k.end(), data.k.diagonal().begin());
@@ -164,6 +164,8 @@ inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Par
   data.z_kmax = params.impedance.z_kmax;
   data.enable_axis = params.impedance.enable_axis;
   data.leak_coefficient = params.impedance.leak_coefficient;
+  data.buffer_size = static_cast<size_t>(params.impedance.reset.time * update_rate);
+  data.reset_threshold = params.impedance.reset.threshold;
   return data;
 }
 

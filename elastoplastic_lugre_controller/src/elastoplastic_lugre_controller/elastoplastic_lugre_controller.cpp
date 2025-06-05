@@ -128,7 +128,16 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     this->get_node()->get_logger().set_level(rclcpp::Logger::Level::Debug);
   }
 
-  m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters));
+
+  // The parameter update_rate, if not defined, is provided by the controller_manager
+  auto update_rate = this->get_node()->get_parameter("update_rate").as_int();
+  m_dt = 1.0 / double(update_rate);
+  RCLCPP_DEBUG_STREAM(this->get_node()->get_logger(), "dt: " << m_dt);
+  if (m_dt < M_MINIMUM_SAMPLING_TIME) {
+    RCLCPP_FATAL(this->get_node()->get_logger(), "dt: %.6f, too low. Minimum sampling time: %.6f", m_dt, M_MINIMUM_SAMPLING_TIME);
+    return controller_interface::CallbackReturn::ERROR;
+  }
+  m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters, update_rate));
 
   m_mobile_base.enabled = m_parameters.mobile_base.enabled;
 
@@ -250,15 +259,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_logistic = {.max = m_parameters.impedance.logistic.max,
                 .slope = m_parameters.impedance.logistic.slope,
                 .inflection = m_parameters.impedance.logistic.inflection * m_mobile_base.vel_limits};
-
-  // The parameter update_rate, if not defined, is provided by the controller_manager
-  auto update_rate = this->get_node()->get_parameter("update_rate").as_int();
-  m_dt = 1.0 / double(update_rate);
-  RCLCPP_DEBUG_STREAM(this->get_node()->get_logger(), "dt: " << m_dt);
-  if (m_dt < M_MINIMUM_SAMPLING_TIME) {
-    RCLCPP_FATAL(this->get_node()->get_logger(), "dt: %.6f, too low. Minimum sampling time: %.6f", m_dt, M_MINIMUM_SAMPLING_TIME);
-    return controller_interface::CallbackReturn::ERROR;
-  }
 
   m_carteisan_trj_sub = get_node()->create_subscription<moveit_msgs::msg::CartesianTrajectory>(
     m_parameters.cartesian_trajectory_topic, 1, [this](const moveit_msgs::msg::CartesianTrajectory& msg) {
