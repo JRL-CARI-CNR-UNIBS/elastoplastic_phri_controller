@@ -331,6 +331,14 @@ elastoplastic_controller:
           gt<>: 0.0
         }
       }
+  offset_force_window : {
+    type: double,
+    description: "Offset force window in seconds",
+    default_value: 1.0,
+    validation: {
+      gt_eq<>: 0.0
+    }
+  }
   clik:
     alpha_gain: {
       type: double,

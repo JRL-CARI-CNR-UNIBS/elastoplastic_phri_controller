@@ -488,8 +488,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_offset_future = std::async(std::launch::async, [this](void) -> bool {
     // Compensate force offset
     m_offset_wrench_sensor_in_sensor.setZero();
-    constexpr static int FORCE_WINDOW = 10;
-    for (int idx = 0; idx < FORCE_WINDOW; ++idx) {
+    const double offset_force_window = std::round(m_parameters.offset_force_window / static_cast<double>(get_update_rate()));
+    for (int idx = 0; idx < offset_force_window; ++idx) {
       Eigen::Vector6d wr = get_wrench();
       std::transform(wr.begin(), wr.end(), m_parameters.wrench.deadband.begin(), wr.begin(),
                      [](const double w, const double deadband) {
@@ -499,7 +499,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
                      std::plus<double>{});
       std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
     }
-    m_offset_wrench_sensor_in_sensor /= FORCE_WINDOW;
+    m_offset_wrench_sensor_in_sensor /= offset_force_window;
 
     // Transform wrench offset in world T_tool_sensor
     Eigen::Vector6d offset_wrench_tool_in_tool =
