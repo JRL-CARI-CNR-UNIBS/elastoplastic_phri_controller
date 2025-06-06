@@ -488,7 +488,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_offset_future = std::async(std::launch::async, [this](void) -> bool {
     // Compensate force offset
     m_offset_wrench_sensor_in_sensor.setZero();
-    const double offset_force_window = std::round(m_parameters.offset_force_window / static_cast<double>(get_update_rate()));
+    const double offset_force_window = std::round(m_parameters.offset_force_window * get_update_rate());
     for (int idx = 0; idx < offset_force_window; ++idx) {
       Eigen::Vector6d wr = get_wrench();
       std::transform(wr.begin(), wr.end(), m_parameters.wrench.deadband.begin(), wr.begin(),
@@ -598,6 +598,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   rclcpp::Time t_start = get_node()->get_clock()->now();
 
   if (m_offset_future.wait_for(0s) != std::future_status::ready) {
+    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000, "[Waiting] Computing Offset Force");
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
       result &=
@@ -605,9 +606,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     }
     if (!result) {
       RCLCPP_ERROR(get_node()->get_logger(), "Could not copy state interface position into command interfaces");
+      return controller_interface::return_type::ERROR;
     }
     return controller_interface::return_type::OK;
   }
+
 
   // **********
   // ** Read **
@@ -781,6 +784,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ************
   // ** Update **
   // ************
+
   Eigen::Affine3d T_base_tool = m_chain_base_tool->getTransformation(m_q.tail(m_nax));
   Eigen::Affine3d T_base_sensor = m_chain_base_sensor->getTransformation(m_q.tail(m_nax));
   Eigen::Affine3d T_tool_sensor = T_base_tool.inverse() * T_base_sensor;
