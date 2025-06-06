@@ -773,11 +773,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   m_computed_target_twist_tool_world_in_world =
     m_computed_target_twist_tool_world_in_world + m_computed_target_acc_tool_world_in_world * m_dt;
 
-  // m_computed_target_T_world_tool =
-  //   !m_elastoplastic_model->is_plastic()
-  //     ? rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt)
-  //     : T_world_tool;
-
   m_computed_target_T_world_tool =
     rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
 
@@ -816,12 +811,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector6d d_pose;
   rdyn::getFrameDistanceQuat(T_world_tool, m_computed_target_T_world_tool, d_pose);
   d_pose.normalize();
-  // m_zp = m_elastoplastic_model->update_z(P_in, m_dt);
   auto [Kt, Dt] = m_elastoplastic_model->compute_variable_matrices(T_world_tool);
   m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world.dot(d_pose), m_dt);
   bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
                                             cart_vel_error_tool_target_in_world);
-  RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "reset: " << reset);
   m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool;
 
   ClikData clik_data{.position_references = full_position_references,
