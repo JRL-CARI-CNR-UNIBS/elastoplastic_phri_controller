@@ -115,7 +115,7 @@ ElastoplasticModel::update(const Eigen::Vector6d& x, const Eigen::Vector6d& v, c
 bool ElastoplasticModel::reset(const Eigen::Vector6d& f, const Eigen::Vector6d& v) {
   if (is_plastic()) {
     m_reset_buffer.push_back(f.dot(v));
-    if (m_reset_buffer.full() && std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0) < m_reset_threshold) {
+    if (m_reset_buffer.full() && std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0.0) < m_reset_threshold) {
       m_reset_buffer.clear();
       m_z = 0;
       return true;
