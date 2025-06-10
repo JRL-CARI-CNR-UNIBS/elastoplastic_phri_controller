@@ -55,7 +55,7 @@ private:
   boost::circular_buffer<double> m_reset_buffer;
   double m_reset_threshold;
 
-  double m_leak_coefficient;
+  // double m_leak_coefficient;
   bool m_to_restore;
   bool m_was_plastic;
 
@@ -85,6 +85,7 @@ public:
   void restore();
   Eigen::Matrix6d get_inertia_inv() const { return m_inertia_inv; }
   Eigen::Vector6d get_enabled_axis() const { return m_enable_axis; }
+  std::pair<double, double> get_reset_buffer_status() const;
 
   Eigen::Vector6d compute_impedance(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
                                     const Eigen::Affine3d& T_a_b) const;

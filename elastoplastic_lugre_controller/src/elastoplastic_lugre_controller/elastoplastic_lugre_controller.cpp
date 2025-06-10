@@ -811,10 +811,12 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector6d d_pose;
   rdyn::getFrameDistanceQuat(T_world_tool, m_computed_target_T_world_tool, d_pose);
   d_pose.normalize();
-  auto [Kt, Dt] = m_elastoplastic_model->compute_variable_matrices(T_world_tool);
   m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world.dot(d_pose), m_dt);
   bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
                                             cart_vel_error_tool_target_in_world);
+  if (reset) {
+    RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
+  }
   m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool;
 
   ClikData clik_data{.position_references = full_position_references,
@@ -831,10 +833,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   if (!solution_qp.has_value()) {
     RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
     RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\ncart_vel_error_tool_target_in_world\n"
-                                                    << cart_vel_error_tool_target_in_world << "\nwrench_tool_in_world\n"
-                                                    << wrench_tool_in_world << "\nwrench_tool_in_tool\n"
-                                                    << wrench_tool_in_tool << "\nwrench_sensor_in_sensor\n"
-                                                    << wrench_sensor_in_sensor);
+                                                    << cart_vel_error_tool_target_in_world.transpose()
+                                                    << "\nwrench_tool_in_world\n"
+                                                    << wrench_tool_in_world.transpose() << "\nwrench_tool_in_tool\n"
+                                                    << wrench_tool_in_tool.transpose() << "\nwrench_sensor_in_sensor\n"
+                                                    << wrench_sensor_in_sensor.transpose());
     this->on_deactivate(rclcpp_lifecycle::State());
     throw std::runtime_error("Controller crashed");
   }

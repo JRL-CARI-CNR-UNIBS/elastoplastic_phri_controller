@@ -3,13 +3,13 @@
 
 #include <algorithm>
 
-#include "fmt/format.h"
+#include "fmt/core.h"
 
 namespace elastoplastic {
 ElastoplasticModel::ElastoplasticModel(const ElastoplasticModelData& data)
     : m_inertia_inv(data.inertia_inv), m_k(data.k), m_d(data.d), m_z_max(data.z_max), m_z_kmax(data.z_kmax),
-      m_z_start(data.z_start), m_z(0), m_leak_coefficient(data.leak_coefficient), m_to_restore(false), m_was_plastic(false),
-      m_reset_buffer(data.buffer_size), m_reset_threshold(data.reset_threshold) {
+      m_z_start(data.z_start), m_z(0), m_reset_buffer(data.buffer_size), m_reset_threshold(data.reset_threshold),
+      m_to_restore(false), m_was_plastic(false) {
   std::transform(data.enable_axis.begin(), data.enable_axis.end(), m_enable_axis.begin(),
                  [](const bool b) { return static_cast<double>(b); });
 }
@@ -42,16 +42,32 @@ bool ElastoplasticModel::to_restore() const { return m_to_restore; }
 
 void ElastoplasticModel::restore() { m_to_restore = false; }
 
+std::pair<double, double> ElastoplasticModel::get_reset_buffer_status() const {
+  return std::make_pair(std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0), m_reset_buffer.full());
+}
+
 double ElastoplasticModel::compute_zp(const double z, const double u, const double dt) const {
-  double zp = u * (1 - alpha(z) * z / m_z_max * utils::sgn(u));
+  auto aswitch = [this](const double z) {
+    const double& z_ss = 1.00 * m_z_kmax;
+    const double& z_ba = 1.02 * m_z_kmax;
+    if (std::abs(z) < z_ba) {
+      return 1.0;
+    } else if (std::abs(z) >= z_ss) {
+      return 0.0;
+    } else {
+      return 0.5 * std::sin(M_PI * ((z - (z_ba + z_ss) / 2) / (z_ba - z_ss))) + 0.5;
+    }
+  };
+  double zp = u * (1 - alpha(z) * z / m_z_max * utils::sgn(u)) * aswitch(z);
+  // * (-0.5 * std ::atan(1000 * (z - m_z_kmax)) / M_PI_2 + 0.5);
   // if (z < m_z_max && z + zp * dt > m_z_max) {
   //   zp = (m_z_max - z) / dt;
   // } else if (z > 0 && z + zp * dt < 0) {
   //   zp = -z / dt;
   // }
-  if (is_plastic() && zp < 0) {
-    zp = 0;
-  }
+  // if (is_plastic() && zp < 0) {
+  //   zp = 0;
+  // }
   return zp;
 }
 
