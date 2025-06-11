@@ -745,7 +745,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   }
   if (m_mobile_base.enabled) {
     full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(reference_target_twist_tool_world_in_world);
-    // full_position_references.head<M_SE2>() = m_T_world_base.translation(); // + full_velocity_references.head<M_SE2>() * m_dt;
     full_position_references.head<M_SE2>() = utils::base_velocity_from_twist(utils::vector_from_affine(
       reference_target_T_world_tool * m_chain_base_tool->getTransformation(m_initial_q.tail(m_nax)).inverse()));
   }
@@ -1124,8 +1123,6 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   task_minimize_cart_acc.b().setZero();
 
   // Task: Admittance
-  // TODO: Rinforza la traiettoria cartesiana per evitare che questo task la modifichi, soprattutto quando l'elasticità si
-  // abbassa
   auto [K, D] = m_elastoplastic_model->compute_variable_matrices(a_data.T_world_tool);
   auto invM = m_elastoplastic_model->get_inertia_inv();
   Eigen::Vector6d twist_error_tool_world_in_world =
@@ -1133,17 +1130,13 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   Eigen::Vector6d pose_error_tool_world_in_world;
   rdyn::getFrameDistanceQuat(a_data.T_world_tool, m_computed_target_T_world_tool, pose_error_tool_world_in_world);
 
-  // Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
   Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
-  // task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
   task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
   task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
                            invM * K *
                              (twist_error_tool_world_in_world * m_dt +
                               m_elastoplastic_model->z() * pose_error_tool_world_in_world.normalized()) -
                            invM * (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
-
-  RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "K:\n" << K);
 
   /****************
    ** Task Stack **
@@ -1292,7 +1285,6 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   }
 
   // Should be useless but...
-  RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "Constraint violations: " << ineq_set.violations(solutionQP));
   if (ineq_set.violations(solutionQP) != 0) {
     RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Constraint violated:");
     auto ineq_violated = ineq_set.which_violations(solutionQP);
