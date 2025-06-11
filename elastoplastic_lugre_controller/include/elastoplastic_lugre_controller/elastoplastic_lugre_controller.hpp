@@ -18,7 +18,7 @@
 // ros lib
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
-#include "rclcpp/rclcpp.hpp"
+#include "rclcpp/rclcpp.hpp" // IWYU pragma: export
 #include "rclcpp_lifecycle/lifecycle_publisher.hpp"
 #include "realtime_tools/realtime_buffer.hpp"
 #include "semantic_components/force_torque_sensor.hpp"
@@ -26,6 +26,7 @@
 #include "tf2_ros/transform_listener.h"
 
 // ros msgs
+// IWYU pragma: begin_keep
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
@@ -39,6 +40,7 @@
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
+// IWYU pragma: end_keep
 
 // stdlib
 #include <semaphore>
