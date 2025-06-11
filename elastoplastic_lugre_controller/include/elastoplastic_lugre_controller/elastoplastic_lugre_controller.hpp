@@ -1,17 +1,31 @@
 #ifndef ELASTOPLASTIC_LUGRE_CONTROLLER_HPP
 #define ELASTOPLASTIC_LUGRE_CONTROLLER_HPP
 
+// local libs
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 #include "elastoplastic_parameters.hpp"
 #include "elastoplastic_variable_model.hpp"
-#include "rdyn_core/primitives.h"
 
+// fundamental libs
 #include "Eigen/Dense"
-#include "Eigen/Geometry"
 
-#include "controller_interface/chainable_controller_interface.hpp"
+// other libs
 #include "eiquadprog/eiquadprog-fast.hpp"
+#include "rdyn_core/primitives.h"
+#include "state_observers/kalman_filter.hpp"
+
+// ros lib
+#include "controller_interface/chainable_controller_interface.hpp"
+#include "hardware_interface/types/hardware_interface_type_values.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_lifecycle/lifecycle_publisher.hpp"
+#include "realtime_tools/realtime_buffer.hpp"
+#include "semantic_components/force_torque_sensor.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
+
+// ros msgs
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
@@ -19,22 +33,14 @@
 #include "geometry_msgs/msg/twist_with_covariance.hpp"
 #include "geometry_msgs/msg/wrench.hpp"
 #include "geometry_msgs/msg/wrench_stamped.hpp"
-#include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "moveit_msgs/msg/cartesian_trajectory.hpp"
 #include "nav_msgs/msg/odometry.hpp"
-#include "rclcpp/rclcpp.hpp"
-#include "rclcpp_lifecycle/lifecycle_publisher.hpp"
-#include "realtime_tools/realtime_buffer.hpp"
-#include "semantic_components/force_torque_sensor.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "state_observers/kalman_filter.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
 
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
-
+// stdlib
 #include <semaphore>
 
 namespace elastoplastic
@@ -62,7 +68,6 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_mobile_base_odometry;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr m_sub_mobile_base_pose;
 
-  // realtime_tools::RealtimeBuffer<geometry_msgs::msg::Twist> m_rt_buffer_mobile_base_target;
   realtime_tools::RealtimeBuffer<nav_msgs::msg::Odometry> m_rt_buffer_base_odom;
 
   rclcpp::Time m_last_odom_msg_time;

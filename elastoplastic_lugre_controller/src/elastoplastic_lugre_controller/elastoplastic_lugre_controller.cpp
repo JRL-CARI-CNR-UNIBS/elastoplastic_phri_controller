@@ -2,16 +2,12 @@
 #include "elastoplastic_lugre_controller/sot.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 
+#include "control_toolbox/filters.hpp"
+#include "eiquadprog/eiquadprog-fast.hpp"
 #include "pluginlib/class_list_macros.hpp"
-#include "rclcpp/logger.hpp"
 #include "tf2_eigen/tf2_eigen.hpp"
 #include "tf2_ros/create_timer_ros.h"
-
 #include "urdfdom_headers/urdf_model/model.h"
-
-#include "eiquadprog/eiquadprog-fast.hpp"
-
-#include "control_toolbox/filters.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -626,11 +622,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       geometry_msgs::msg::TransformStamped T_world_base_msg =
         m_tf_buffer->lookupTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero);
       m_T_world_base = tf2::transformToEigen(T_world_base_msg);
-    } catch (tf2::LookupException ex) {
+    } catch (tf2::LookupException& ex) {
       RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Could not get transformation between " << m_parameters.frames.map << " and "
                                                                                             << m_parameters.frames.base
                                                                                             << ". Fallback on computed data");
-    } catch (std::exception) {
+    } catch (std::exception&) {
       RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Error while getting " << m_parameters.frames.map << " and "
                                                                            << m_parameters.frames.base
                                                                            << ". Fallback on computed data");
@@ -805,8 +801,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector6d cart_vel_error_tool_target_in_world;
   cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
                                           .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
-  double P_in = (wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis())).transpose() *
-                cart_vel_error_tool_target_in_world;
   Eigen::Vector6d d_pose;
   rdyn::getFrameDistanceQuat(T_world_tool, m_computed_target_T_world_tool, d_pose);
   d_pose.normalize();

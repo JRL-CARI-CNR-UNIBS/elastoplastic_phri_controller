@@ -46,7 +46,7 @@ std::pair<double, double> ElastoplasticModel::get_reset_buffer_status() const {
   return std::make_pair(std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0), m_reset_buffer.full());
 }
 
-double ElastoplasticModel::compute_zp(const double z, const double u, const double dt) const {
+double ElastoplasticModel::compute_zp(const double z, const double u, const double /*dt*/) const {
   auto aswitch = [this](const double z) {
     const double& z_ss = 1.00 * m_z_kmax;
     const double& z_ba = 1.02 * m_z_kmax;
