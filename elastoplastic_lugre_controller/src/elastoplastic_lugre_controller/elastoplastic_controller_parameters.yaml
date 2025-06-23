@@ -27,12 +27,11 @@ elastoplastic_controller:
       not_empty<>: []
     }
   }
-  ft_sensor_name: {
-    type: string,
-    default_value: "ft_sensor",
-    description: "Force/Torque sensor name",
+  ft_sensor_names: {
+    type: string_array,
+    description: "Force/Torque sensor names",
     validation: {
-      not_empty<>: []
+      fixed_size<>: [2]
     }
   }
   frames:
@@ -43,18 +42,24 @@ elastoplastic_controller:
     }
     base: {
       type: string,
-      default_value: "",
-      description: "Base frame"
+      description: "Base frame",
+      validation: {
+        not_empty<>: []
+      }
     }
-    tool: {
-      type: string,
-      default_value: "",
-      description: "Tool frame"
+    tools: {
+      type: string_array,
+      description: "Tool frame",
+      validation: {
+        fixed_size<>: [2]
+      }
     }
-    sensor: {
-      type: string,
-      default_value: "",
+    sensors: {
+      type: string_array,
       description: "F/T Sensor frame",
+      validation: {
+        fixed_size<>: [2]
+      }
     }
   gravity: {
     type: double_array,
@@ -64,11 +69,17 @@ elastoplastic_controller:
       fixed_size<>: [3]
     }
   }
-  joints: {
-    type: string_array,
-    default_value: [],
-    description: "Robot Joints",
-  }
+  joints:
+    left: {
+      type: string_array,
+      default_value: [],
+      description: "Robot Joints arm left"
+    }
+    right: {
+      type: string_array,
+      default_value: [],
+      description: "Robot joints arm right"
+    }
   kalman_filter:
     manipulator:
       position: {

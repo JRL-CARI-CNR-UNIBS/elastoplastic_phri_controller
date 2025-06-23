@@ -43,6 +43,7 @@
 // IWYU pragma: end_keep
 
 // stdlib
+#include <numeric>
 #include <semaphore>
 
 namespace elastoplastic
@@ -57,14 +58,14 @@ private:
   template<typename T>
   using InterfaceReference = std::vector<std::vector<std::reference_wrapper<T>>>;
 
-  InterfaceReference<hardware_interface::LoanedStateInterface> m_joint_state_interfaces;
-  InterfaceReference<hardware_interface::LoanedCommandInterface> m_joint_command_interfaces;
-  InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
-  InterfaceReference<hardware_interface::LoanedCommandInterface> m_mobile_base_command_interfaces;
+  std::array<InterfaceReference<hardware_interface::LoanedStateInterface>, 2> m_joint_state_interfaces;
+  std::array<InterfaceReference<hardware_interface::LoanedCommandInterface>, 2> m_joint_command_interfaces;
+  std::array<InterfaceReference<hardware_interface::LoanedStateInterface>, 2> m_mobile_base_state_interfaces;
+  std::array<InterfaceReference<hardware_interface::LoanedCommandInterface>, 2> m_mobile_base_command_interfaces;
 
   size_t m_joint_reference_interfaces_size;
 
-  std::unique_ptr<semantic_components::ForceTorqueSensor> m_ft_sensor;
+  std::array<std::unique_ptr<semantic_components::ForceTorqueSensor>, 2> m_ft_sensors;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_mobile_base_target;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_mobile_base_odometry;
@@ -116,12 +117,22 @@ private:
   enum class RDStatus { OK, ERROR, EMPTY } m_robot_description_configuration{ElastoplasticController::RDStatus::EMPTY};
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
 
-  rdyn::ChainPtr m_chain_base_tool;
-  rdyn::ChainPtr m_chain_base_sensor;
-  rdyn::ChainPtr m_chain_world_tool;
+  std::array<rdyn::ChainPtr, 2> m_chain_base_tools;
+  std::array<rdyn::ChainPtr, 2> m_chain_base_sensors;
+  std::array<rdyn::ChainPtr, 2> m_chain_world_tools;
 
-  std::vector<std::string> m_joint_names;
+  struct Side {
+    constexpr static unsigned int LEFT = 0;
+    constexpr static unsigned int RIGHT = 1;
+    constexpr static std::array<int, 2> arms() { return std::array<int, 2>{LEFT, RIGHT}; }
+    constexpr static unsigned int BASE = 2;
+  };
+  std::array<size_t, 2> m_side_select;
 
+
+  std::array<std::vector<std::string>, 2> m_joint_names;
+
+  std::array<size_t, 2> m_nax_side;
   size_t m_nax;
   size_t m_full_nax;
 
@@ -139,7 +150,7 @@ private:
   Eigen::VectorXd m_q_prec;
   Eigen::VectorXd m_qp_prec;
   Eigen::VectorXd m_qpp_prec;
-  Eigen::Vector6d m_wrench_in_sensor_prec;
+  std::array<Eigen::Vector6d, 2> m_wrench_in_sensor_prec;
 
   Eigen::Affine3d m_T_world_base;
 
@@ -179,10 +190,10 @@ private:
 
 
   struct Limits {
-    Eigen::VectorXd pos_upper;
-    Eigen::VectorXd pos_lower;
-    Eigen::VectorXd vel;
-    Eigen::VectorXd acc;
+    std::array<Eigen::VectorXd, 2> pos_upper;
+    std::array<Eigen::VectorXd, 2> pos_lower;
+    std::array<Eigen::VectorXd, 2> vel;
+    std::array<Eigen::VectorXd, 2> acc;
   } m_limits;
 
   std::unique_ptr<ElastoplasticModel> m_elastoplastic_model;
@@ -220,11 +231,49 @@ private:
   Eigen::Vector6d m_computed_target_twist_tool_world_in_world;
   Eigen::Affine3d m_computed_target_T_world_tool;
 
-  Eigen::Vector6d get_wrench() {
-    auto [fx, fy, fz] = m_ft_sensor->get_forces();
-    auto [tx, ty, tz] = m_ft_sensor->get_torques();
+  std::array<Eigen::VectorXd, 2> m_q2, m_qp2, m_qpp2;
+
+  std::array<Eigen::VectorXd, 2> split(const Eigen::VectorXd& q) {
+    std::array<Eigen::VectorXd, 2> q2{Eigen::VectorXd(m_mobile_base.nax() + m_nax_side[Side::LEFT]),
+                                      Eigen::VectorXd(m_mobile_base.nax() + m_nax_side[Side::RIGHT])};
+    q2[Side::LEFT] << q.head(m_mobile_base.nax()), q.segment(m_side_select[Side::LEFT], m_nax_side[Side::LEFT]);
+    q2[Side::RIGHT] << q.head(m_mobile_base.nax()), q.segment(m_side_select[Side::RIGHT], m_nax_side[Side::RIGHT]);
+    return q2;
+  }
+
+  // Da rivedere
+  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& fl, const Eigen::Affine3d& fr) {
+    Eigen::Affine3d shared;
+    shared.translation() = (fl.translation() + fr.translation()) / 2.0;
+    shared.linear() = fl.linear();
+    return shared;
+  }
+
+  Eigen::Affine3d get_shared_frame_from_chains(const std::array<rdyn::ChainPtr, 2>& chs,
+                                               const std::array<Eigen::VectorXd, 2>& q2) {
+    return get_shared_frame(chs[Side::LEFT]->getTransformation(q2[Side::LEFT]),
+                            chs[Side::RIGHT]->getTransformation(q2[Side::RIGHT]));
+  }
+
+  Eigen::Vector6d get_wrench(const int side) {
+    auto [fx, fy, fz] = m_ft_sensors[side]->get_forces();
+    auto [tx, ty, tz] = m_ft_sensors[side]->get_torques();
     return Eigen::Vector6d({fx, fy, fz, tx, ty, tz});
   }
+
+  Eigen::Matrix6d get_grasp_matrix_twist(const Eigen::Vector3d& dp) {
+    Eigen::Matrix6d P;
+    P << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), rdyn::skew(dp), Eigen::Matrix3d::Identity();
+    return P;
+  }
+
+  // Eigen::Vector6d get_wrench() {
+  //   auto [fxl, fyl, fzl] = m_ft_sensors[Side::LEFT]->get_forces();
+  //   auto [txl, tyl, tzl] = m_ft_sensors[Side::LEFT]->get_torques();
+  //   auto [fxr, fyr, fzr] = m_ft_sensors[Side::RIGHT]->get_forces();
+  //   auto [txr, tyr, tzr] = m_ft_sensors[Side::RIGHT]->get_torques();
+  //   return Eigen::Vector12d({fxl, fyl, fzl, txl, tyl, tzl, fxr, fyr, fzr, txr, tyr, tzr});
+  // }
 
 
 public:

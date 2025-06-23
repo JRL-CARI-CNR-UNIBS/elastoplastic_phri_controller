@@ -7,6 +7,8 @@
 
 namespace Eigen {
 using Vector6d = Vector<double,6>;
+using Vector12d = Vector<double, 12>;
+using Matrix12d = Matrix<double, 12, 12>;
 }
 
 namespace elastoplastic::utils {
