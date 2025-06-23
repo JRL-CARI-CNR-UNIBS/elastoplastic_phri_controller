@@ -151,9 +151,8 @@ private:
   state_observer::KalmanFilter m_joint_filter;
 
   // Required both for states and at least one for command
-  const std::vector<std::string> m_allowed_interface_types {
-                                                           hardware_interface::HW_IF_POSITION,
-                                                           hardware_interface::HW_IF_VELOCITY};
+  const std::vector<std::string> m_allowed_interface_types{hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY,
+                                                           hardware_interface::HW_IF_TORQUE};
   std::array<bool, 2> m_used_command_interfaces;
 
 
@@ -220,7 +219,9 @@ private:
   Eigen::Vector6d m_computed_target_twist_tool_world_in_world;
   Eigen::Affine3d m_computed_target_T_world_tool;
 
-  Eigen::Vector6d get_wrench() {
+  enum class FTSource { FT_SENSOR, TOPIC, TORQUE } m_ft_source;
+
+  Eigen::Vector6d get_wrench_from_sensor() {
     auto [fx, fy, fz] = m_ft_sensor->get_forces();
     auto [tx, ty, tz] = m_ft_sensor->get_torques();
     return Eigen::Vector6d({fx, fy, fz, tx, ty, tz});
@@ -236,8 +237,7 @@ public:
   controller_interface::InterfaceConfiguration state_interface_configuration() const override;
 
 
-  controller_interface::return_type update_and_write_commands(
-    const rclcpp::Time & time, const rclcpp::Duration & period) override;
+  controller_interface::return_type update_and_write_commands(const rclcpp::Time& time, const rclcpp::Duration& period) override;
 
 
   controller_interface::CallbackReturn on_init() override;
@@ -256,33 +256,27 @@ public:
   // controller_interface::CallbackReturn on_shutdown(
   //     const rclcpp_lifecycle::State & previous_state) override;
 
-  bool ready_for_activation()
-  {
-    return m_robot_description_configuration == RDStatus::OK;
-  }
+  bool ready_for_activation() { return m_robot_description_configuration == RDStatus::OK; }
 
 protected:
   std::vector<hardware_interface::CommandInterface> on_export_reference_interfaces() override;
 
-  controller_interface::return_type update_reference_from_subscribers(
-    const rclcpp::Time & time,
-    const rclcpp::Duration & period)
-  override;
+  controller_interface::return_type update_reference_from_subscribers(const rclcpp::Time& time,
+                                                                      const rclcpp::Duration& period) override;
 
   void configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
 
   std::optional<Eigen::VectorXd> clik(const ClikData& data);
-  Eigen::VectorXd compute_clik_as_qp(const ClikData &data, const Eigen::Vector6d &a_position_error,
-                                     const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
-  Eigen::VectorXd compute_clik_as_inv(const ClikData &data, const Eigen::Vector6d &a_position_error,
-                                      const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
+  Eigen::VectorXd compute_clik_as_qp(const ClikData& data, const Eigen::Vector6d& a_position_error,
+                                     const Eigen::Vector6d& a_twist_error, const Eigen::Vector6d& a_acc_non_linear);
+  Eigen::VectorXd compute_clik_as_inv(const ClikData& data, const Eigen::Vector6d& a_position_error,
+                                      const Eigen::Vector6d& a_twist_error, const Eigen::Vector6d& a_acc_non_linear);
 
-  void get_target_callback(const geometry_msgs::msg::Twist & msg);
-  void get_mobile_base_target_callback(const geometry_msgs::msg::Twist & msg);
-  void get_odometry_callback(const nav_msgs::msg::Odometry & msg);
-  void get_localization_callback(const geometry_msgs::msg::PoseWithCovarianceStamped & msg);
+  void get_target_callback(const geometry_msgs::msg::Twist& msg);
+  void get_mobile_base_target_callback(const geometry_msgs::msg::Twist& msg);
+  void get_odometry_callback(const nav_msgs::msg::Odometry& msg);
+  void get_localization_callback(const geometry_msgs::msg::PoseWithCovarianceStamped& msg);
 };
-
 }
 
 #endif // ELASTOPLASTIC_LUGRE_CONTROLLER_HPP

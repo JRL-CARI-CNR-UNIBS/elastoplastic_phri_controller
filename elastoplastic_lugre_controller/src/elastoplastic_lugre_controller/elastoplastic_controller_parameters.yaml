@@ -225,6 +225,14 @@ elastoplastic_controller:
         gt_eq<>: 0
       }
     }
+    source: {
+      type: string,
+      default_value: "torque",
+      description: "joint torque instead of ft sensor",
+      validation: {
+        one_of<>: [["ft_sensor", "topic", "torque"]]
+      }
+    }
   impedance:
     enable_axis: {
       type: bool_array,
