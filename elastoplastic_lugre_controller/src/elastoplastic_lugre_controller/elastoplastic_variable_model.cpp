@@ -107,26 +107,6 @@ double ElastoplasticModel::update_z(const double uin, const double period) {
   return ret_zp;
 }
 
-[[deprecated("Usa un modello che non va bene")]] std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d>
-ElastoplasticModel::update(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
-                           const Eigen::Affine3d T_a_b, const double period) {
-  Eigen::Vector6d xspp = compute_impedance(x, v, f, T_a_b);
-  Eigen::Vector6d fe = f.cwiseProduct(m_enable_axis);
-  double Pin = fe.transpose() * v;
-  // Integrate z
-  this->update_z(Pin, period);
-  // Saturation
-  // m_z = std::max(0.0, m_z); // Non dovrebbe essere necessario
-  // Integrate acc
-  auto [xs, xsp] = utils::rk4_double(
-    [this, T_a_b](const Eigen::Vector6d& xin, const Eigen::Vector6d& vin, const Eigen::Vector6d& uin) -> Eigen::Vector6d {
-      return this->compute_impedance(xin, vin, uin, T_a_b);
-    },
-    x, v, f, period);
-  // std::cout << "xpp: " << xspp.transpose() << "\nxsp: " << xsp.transpose() << std::endl;
-  return std::make_tuple(xs, xsp, xspp);
-}
-
 
 bool ElastoplasticModel::reset(const Eigen::Vector6d& f, const Eigen::Vector6d& v) {
   if (is_plastic()) {

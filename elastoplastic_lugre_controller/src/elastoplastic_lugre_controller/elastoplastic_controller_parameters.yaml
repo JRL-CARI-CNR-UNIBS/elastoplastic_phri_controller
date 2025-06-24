@@ -233,6 +233,11 @@ elastoplastic_controller:
         one_of<>: [["ft_sensor", "topic", "torque"]]
       }
     }
+    invert_torque: {
+      type: bool,
+      default_value: false,
+      description: "Invert sign of the force computed from torque joints"
+    }
   impedance:
     enable_axis: {
       type: bool_array,

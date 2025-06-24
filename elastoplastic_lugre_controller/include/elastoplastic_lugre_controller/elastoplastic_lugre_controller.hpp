@@ -227,6 +227,11 @@ private:
     return Eigen::Vector6d({fx, fy, fz, tx, ty, tz});
   }
 
+  bool m_invert_torque;
+  Eigen::Vector6d get_wrench_from_torque(const Eigen::JacobiSVD<Eigen::Matrix6Xd>& svd, const Eigen::VectorXd& tau) {
+    return m_invert_torque * svd.solve(tau);
+  }
+
 
 public:
   ElastoplasticController() {}
