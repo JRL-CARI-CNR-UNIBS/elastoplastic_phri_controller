@@ -143,7 +143,6 @@ private:
 
   Eigen::Affine3d m_T_world_base;
 
-  Eigen::Vector6d m_offset_wrench_sensor_in_sensor;
   Eigen::Vector6d m_offset_wrench_tool_in_world;
   std::future<bool> m_offset_future;
 
@@ -151,8 +150,9 @@ private:
   state_observer::KalmanFilter m_joint_filter;
 
   // Required both for states and at least one for command
-  const std::vector<std::string> m_allowed_interface_types{hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY,
-                                                           hardware_interface::HW_IF_TORQUE};
+  const std::vector<std::string> m_required_interface_types{hardware_interface::HW_IF_POSITION,
+                                                            hardware_interface::HW_IF_VELOCITY};
+  const std::vector<std::string> m_allowed_interface_types{hardware_interface::HW_IF_TORQUE};
   std::array<bool, 2> m_used_command_interfaces;
 
 
