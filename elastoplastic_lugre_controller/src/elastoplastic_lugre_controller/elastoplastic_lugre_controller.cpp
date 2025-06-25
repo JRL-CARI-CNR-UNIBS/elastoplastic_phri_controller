@@ -164,7 +164,16 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_pub_cmd_vel = this->get_node()->create_publisher<geometry_msgs::msg::Twist>(m_parameters.cmd_vel_topic, 1);
   m_pub_timing = this->get_node()->create_publisher<std_msgs::msg::Float64>("~/controller_period", 1);
 
-  m_ft_sensor = std::make_unique<semantic_components::ForceTorqueSensor>(m_parameters.ft_sensor_name);
+  if (m_parameters.wrench.source == "ft_sensor") {
+    m_ft_source = FTSource::FT_SENSOR;
+  } else {
+    m_ft_source = FTSource::TORQUE;
+    m_invert_torque = m_parameters.wrench.invert_torque;
+  }
+
+  if (m_ft_source == FTSource::FT_SENSOR) {
+    m_ft_sensor = std::make_unique<semantic_components::ForceTorqueSensor>(m_parameters.ft_sensor_name);
+  }
 
   m_pub_controller_mode = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/mode", 5);
   if (m_parameters.debug.pub) {
@@ -186,19 +195,32 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_estim_joint_state = this->get_node()->create_publisher<sensor_msgs::msg::JointState>("~/estimated_joints", 10);
   }
 
-  m_state_interfaces_names.reserve(m_allowed_interface_types.size());
-  m_command_interfaces_names.reserve(m_allowed_interface_types.size());
+  m_state_interfaces_names.reserve(m_required_interface_types.size());
+  m_command_interfaces_names.reserve(m_required_interface_types.size());
 
-  for (const auto& interface : m_allowed_interface_types) {
+  for (const auto& interface : m_required_interface_types) {
     auto it = std::ranges::find(m_parameters.state_interfaces, interface);
     if (it == m_parameters.state_interfaces.end()) {
       RCLCPP_ERROR(get_node()->get_logger(), "Missing State interfaces from parameters");
       return controller_interface::CallbackReturn::FAILURE;
     } else {
       m_state_interfaces_names.push_back(*it);
+      RCLCPP_INFO(get_node()->get_logger(), "State interface name: %s", (*it).c_str());
     }
+  }
+  if (m_ft_source == FTSource::TORQUE) {
+    auto it = std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_TORQUE);
+    if (it == m_parameters.state_interfaces.end()) {
+      RCLCPP_ERROR(get_node()->get_logger(), "Missing State interfaces from parameters");
+      return controller_interface::CallbackReturn::FAILURE;
+    } else {
+      m_state_interfaces_names.push_back(*it);
+      RCLCPP_INFO(get_node()->get_logger(), "State interface name: %s", (*it).c_str());
+    }
+  }
 
-    it = std::ranges::find(m_parameters.command_interfaces, interface);
+  for (const auto& interface : m_required_interface_types) {
+    auto it = std::ranges::find(m_parameters.command_interfaces, interface);
     if (it != m_parameters.command_interfaces.end()) {
       m_command_interfaces_names.push_back(*it);
       RCLCPP_INFO(get_node()->get_logger(), "Command interface name: %s", (*it).c_str());
@@ -233,10 +255,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   }
 
   std::ranges::fill(m_used_command_interfaces, false);
-  if (std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[0]) != m_command_interfaces_names.end()) {
+  if (std::ranges::find(m_command_interfaces_names, m_required_interface_types[0]) != m_command_interfaces_names.end()) {
     m_used_command_interfaces.at(0) = true;
   }
-  if (std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[1]) != m_command_interfaces_names.end()) {
+  if (std::ranges::find(m_command_interfaces_names, m_required_interface_types[1]) != m_command_interfaces_names.end()) {
     m_used_command_interfaces.at(1) = true;
   }
 
@@ -334,7 +356,7 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
   controller_interface::InterfaceConfiguration state_interface_configuration;
   state_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  state_interface_configuration.names.reserve(m_parameters.joints.size() * m_allowed_interface_types.size() + 6);
+  state_interface_configuration.names.reserve(m_parameters.joints.size() * m_required_interface_types.size() + 6);
 
   for (const auto& jnt : m_parameters.joints) {
     state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_POSITION));
@@ -343,9 +365,15 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
     state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
   }
 
-  std::vector<std::string> ft_interfaces = m_ft_sensor->get_state_interface_names();
-  state_interface_configuration.names.insert(state_interface_configuration.names.end(), ft_interfaces.begin(),
-                                             ft_interfaces.end());
+  if (m_ft_source == FTSource::TORQUE) {
+    for (const auto& jnt : m_parameters.joints) {
+      state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_TORQUE));
+    }
+  } else if (m_ft_source == FTSource::FT_SENSOR) {
+    std::vector<std::string> ft_interfaces = m_ft_sensor->get_state_interface_names();
+    state_interface_configuration.names.insert(state_interface_configuration.names.end(), ft_interfaces.begin(),
+                                               ft_interfaces.end());
+  }
 
   return state_interface_configuration;
 }
@@ -356,14 +384,14 @@ controller_interface::InterfaceConfiguration ElastoplasticController::command_in
   command_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
   command_interface_configuration.names.reserve(m_parameters.joints.size() * m_command_interfaces_names.size());
-  if (std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[0]) != m_command_interfaces_names.end()) {
+  if (std::ranges::find(m_command_interfaces_names, m_required_interface_types[0]) != m_command_interfaces_names.end()) {
     for (const auto& jnt : m_parameters.joints) {
-      command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, m_allowed_interface_types[0]));
+      command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, m_required_interface_types[0]));
     }
   }
-  if (std::ranges::find(m_command_interfaces_names, m_allowed_interface_types[1]) != m_command_interfaces_names.end()) {
+  if (std::ranges::find(m_command_interfaces_names, m_required_interface_types[1]) != m_command_interfaces_names.end()) {
     for (const auto& jnt : m_parameters.joints) {
-      command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, m_allowed_interface_types[1]));
+      command_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, m_required_interface_types[1]));
     }
   }
 
@@ -386,12 +414,12 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_elastoplastic_model->clear();
   m_delta_elastoplastic_in_world.clear();
 
-  m_joint_state_interfaces.resize(2);
-  m_joint_command_interfaces.resize(2);
+  m_joint_state_interfaces.resize(3);
+  m_joint_command_interfaces.resize(3);
 
-  for (const auto& interface : m_allowed_interface_types) {
-    auto it = std::ranges::find(m_allowed_interface_types, interface);
-    auto idx = std::distance(m_allowed_interface_types.begin(), it);
+  for (const auto& interface : m_required_interface_types) {
+    auto it = std::ranges::find(m_required_interface_types, interface);
+    auto idx = std::distance(m_required_interface_types.begin(), it);
     if (not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, interface,
                                                          m_joint_state_interfaces.at(idx))) {
       RCLCPP_ERROR(get_node()->get_logger(), "Missing joints state interfaces: %ld names vs %ld interfaces",
@@ -401,9 +429,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   }
 
   auto at_least_one_command_interface{false};
-  for (const auto& interface : m_allowed_interface_types) {
-    auto it = std::ranges::find(m_allowed_interface_types, interface);
-    auto idx = std::distance(m_allowed_interface_types.begin(), it);
+  for (const auto& interface : m_required_interface_types) {
+    auto it = std::ranges::find(m_required_interface_types, interface);
+    auto idx = std::distance(m_required_interface_types.begin(), it);
     if (not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.joints, interface,
                                                          m_joint_command_interfaces.at(idx))) {
       continue;
@@ -415,9 +443,11 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     return controller_interface::CallbackReturn::FAILURE;
   }
 
-  if (!m_ft_sensor->assign_loaned_state_interfaces(state_interfaces_)) {
-    RCLCPP_ERROR(get_node()->get_logger(), "Cannot assing state interface to ft_sensor");
-    return controller_interface::CallbackReturn::ERROR;
+  if (m_ft_source == FTSource::FT_SENSOR) {
+    if (!m_ft_sensor->assign_loaned_state_interfaces(state_interfaces_)) {
+      RCLCPP_ERROR(get_node()->get_logger(), "Cannot assing state interface to ft_sensor");
+      return controller_interface::CallbackReturn::ERROR;
+    }
   }
 
   // Joint initialization
@@ -481,30 +511,55 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
   m_logis_prec = 0;
 
+  m_offset_wrench_tool_in_world.setZero();
   m_offset_future = std::async(std::launch::async, [this](void) -> bool {
     // Compensate force offset
-    m_offset_wrench_sensor_in_sensor.setZero();
+    Eigen::Vector6d offset_wrench;
+    offset_wrench.setZero();
     const double offset_force_window = std::round(m_parameters.offset_force_window * get_update_rate());
-    for (int idx = 0; idx < offset_force_window; ++idx) {
-      Eigen::Vector6d wr = get_wrench();
-      std::transform(wr.begin(), wr.end(), m_parameters.wrench.deadband.begin(), wr.begin(),
-                     [](const double w, const double deadband) {
-                       return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
-                     });
-      std::transform(wr.begin(), wr.end(), m_offset_wrench_sensor_in_sensor.begin(), m_offset_wrench_sensor_in_sensor.begin(),
-                     std::plus<double>{});
-      std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
-    }
-    m_offset_wrench_sensor_in_sensor /= offset_force_window;
 
-    // Transform wrench offset in world T_tool_sensor
-    Eigen::Vector6d offset_wrench_tool_in_tool =
-      rdyn::spatialDualTranformation(m_offset_wrench_sensor_in_sensor, m_chain_base_tool->getTransformation(m_q).inverse() *
+    if (m_ft_source == FTSource::TORQUE) {
+      // Wrench is already in world
+      Eigen::Matrix6Xd J = m_chain_base_tool->getJacobian(m_q);
+      Eigen::JacobiSVD<Eigen::Matrix6Xd> svd(J, Eigen::ComputeThinU | Eigen::ComputeThinV);
+      Eigen::VectorXd tau_j;
+      for (int idx = 0; idx < offset_force_window; ++idx) {
+        std::transform(m_joint_state_interfaces.at(2).begin(), m_joint_state_interfaces.at(2).end(), tau_j.head(m_nax).begin(),
+                       [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+        Eigen::Vector6d wr = get_wrench_from_torque(svd, tau_j);
+        std::transform(wr.begin(), wr.end(), m_parameters.wrench.deadband.begin(), wr.begin(),
+                       [](const double w, const double deadband) {
+                         return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
+                       });
+        std::transform(wr.begin(), wr.end(), offset_wrench.begin(), offset_wrench.begin(), std::plus<double>{});
+        std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
+      }
+      offset_wrench /= offset_force_window;
+    } else if (m_ft_source == FTSource::FT_SENSOR) {
+      // Wrench is in sensor frame
+      Eigen::Vector6d offset_wrench_sensor_in_sensor;
+      for (int idx = 0; idx < offset_force_window; ++idx) {
+        Eigen::Vector6d wr = get_wrench_from_sensor();
+        std::transform(wr.begin(), wr.end(), m_parameters.wrench.deadband.begin(), wr.begin(),
+                       [](const double w, const double deadband) {
+                         return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
+                       });
+        std::transform(wr.begin(), wr.end(), offset_wrench_sensor_in_sensor.begin(), offset_wrench_sensor_in_sensor.begin(),
+                       std::plus<double>{});
+        std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
+      }
+      offset_wrench_sensor_in_sensor /= offset_force_window;
+
+      // Transform wrench offset in world T_tool_sensor
+      Eigen::Vector6d offset_wrench_tool_in_tool =
+        rdyn::spatialDualTranformation(offset_wrench_sensor_in_sensor, m_chain_base_tool->getTransformation(m_q).inverse() *
                                                                          m_chain_base_sensor->getTransformation(m_q));
-    m_offset_wrench_tool_in_world =
-      rdyn::spatialRotation(offset_wrench_tool_in_tool, m_chain_world_tool->getTransformation(m_q).linear());
 
-    RCLCPP_INFO(get_node()->get_logger(), "Wrench Offset computed");
+      offset_wrench = rdyn::spatialRotation(offset_wrench_tool_in_tool,
+                                            m_chain_world_tool->getTransformation(m_q).linear()); // offset_wrench_tool_in_world
+    }
+    m_offset_wrench_tool_in_world = offset_wrench;
+    RCLCPP_INFO_STREAM(get_node()->get_logger(), "Wrench Offset computed: " << m_offset_wrench_tool_in_world.transpose());
     return true;
   });
 
@@ -512,8 +567,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_joint_filter.initialize(
     (Eigen::VectorXd(3 * m_nax) << m_q.tail(m_nax), m_qp.tail(m_nax), Eigen::VectorXd::Zero(m_nax)).finished());
 
+  RCLCPP_DEBUG(m_node_support->get_logger(), "Activated...");
   return controller_interface::CallbackReturn::SUCCESS;
 }
+
 
 controller_interface::CallbackReturn ElastoplasticController::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) {
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
@@ -538,7 +595,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
   m_joint_state_interfaces.clear();
   m_joint_command_interfaces.clear();
 
-  m_ft_sensor->release_interfaces();
+  if (m_ft_source == FTSource::FT_SENSOR) {
+    m_ft_sensor->release_interfaces();
+  }
 
   m_wrench_in_sensor_prec.setZero();
 
@@ -555,13 +614,13 @@ std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_ex
 
   m_joint_reference_interfaces_size =
     m_parameters.joints.size() *
-    m_allowed_interface_types.size(); // There must be both position and velocity reference interfaces!
+    m_required_interface_types.size(); // There must be both position and velocity reference interfaces!
 
   reference_interfaces_.resize(m_joint_reference_interfaces_size);
   reference_interfaces.reserve(m_joint_reference_interfaces_size);
 
   size_t idx = 0;
-  for (const auto& hwi : m_allowed_interface_types) {
+  for (const auto& hwi : m_required_interface_types) {
     for (const auto& jnt : m_parameters.joints) {
 
       reference_interfaces.emplace_back(hardware_interface::CommandInterface(
@@ -645,7 +704,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     twist_base_world_in_world = rdyn::spatialRotation(twist_base_world_in_base, m_T_world_base.linear());
 
     // Build state vectors
-    // TODO: Non va
     Eigen::Vector6d base_read;
     base_read.tail<M_SE2>() = utils::base_velocity_from_twist(twist_base_world_in_world);
     base_read.head<2>() = m_T_world_base.translation().head<2>();
@@ -748,19 +806,59 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 #endif
 
   /* FT state */
-  std::array<double, 3> ft_force = m_ft_sensor->get_forces();
-  std::array<double, 3> ft_torque = m_ft_sensor->get_torques();
-  Eigen::Vector6d wrench_sensor_in_sensor(ft_force[0], ft_force[1], ft_force[2], ft_torque[0], ft_torque[1], ft_torque[2]);
+  Eigen::Vector6d wrench_tool_in_world;
+  Eigen::VectorXd tau_j(m_nax);
+  Eigen::Matrix6Xd J_world_tool_in_world = m_chain_world_tool->getJacobian(m_q);
+  // Damped LS
+  Eigen::JacobiSVD<Eigen::Matrix6Xd> svd_torque(J_world_tool_in_world.transpose() + 1e-6 * Eigen::Matrix6d::Identity(),
+                                                Eigen::ComputeThinU | Eigen::ComputeThinV);
+  if (m_ft_source == FTSource::TORQUE) {
+    std::transform(m_joint_state_interfaces.at(2).begin(), m_joint_state_interfaces.at(2).end(), tau_j.head(m_nax).begin(),
+                   [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+    wrench_tool_in_world = get_wrench_from_torque(svd_torque, tau_j);
+    std::transform(wrench_tool_in_world.begin(), wrench_tool_in_world.end(), m_parameters.wrench.deadband.begin(),
+                   wrench_tool_in_world.begin(), [](const double w, const double deadband) {
+                     return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
+                   });
+    std::transform(wrench_tool_in_world.begin(), wrench_tool_in_world.end(), m_wrench_in_sensor_prec.begin(),
+                   wrench_tool_in_world.begin(), [this](const double w, const double w_prec) {
+                     return filters::exponentialSmoothing(w, w_prec, m_parameters.wrench.filter_alfa);
+                   });
+  } else {
+    Eigen::Vector6d wrench_sensor_in_sensor;
+    wrench_sensor_in_sensor = get_wrench_from_sensor();
 
-  if (wrench_sensor_in_sensor.hasNaN()) {
-    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
-                         "Force sensor contains NaN values. Full measure discarded and replaced with zero");
-    wrench_sensor_in_sensor.setZero();
-  } else if (wrench_sensor_in_sensor.cwiseAbs().maxCoeff() > 1e20) {
-    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
-                         "Force sensor contains overflowed values. Full measure discarded and replaced with zero");
-    wrench_sensor_in_sensor.setZero();
+    if (wrench_sensor_in_sensor.hasNaN()) {
+      RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
+                           "Force sensor contains NaN values. Full measure discarded and replaced with zero");
+      wrench_sensor_in_sensor.setZero();
+    } else if (wrench_sensor_in_sensor.cwiseAbs().maxCoeff() > 1e20) {
+      RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
+                           "Force sensor contains overflowed values. Full measure discarded and replaced with zero");
+      wrench_sensor_in_sensor.setZero();
+    }
+
+    Eigen::Affine3d T_base_tool = m_chain_base_tool->getTransformation(m_q.tail(m_nax));
+    Eigen::Affine3d T_base_sensor = m_chain_base_sensor->getTransformation(m_q.tail(m_nax));
+    Eigen::Affine3d T_tool_sensor = T_base_tool.inverse() * T_base_sensor;
+
+    // Wrench deadband
+    std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_parameters.wrench.deadband.begin(),
+                   wrench_sensor_in_sensor.begin(), [](const double w, const double deadband) {
+                     return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
+                   });
+
+    // Exponential filter
+    std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_wrench_in_sensor_prec.begin(),
+                   wrench_sensor_in_sensor.begin(), [this](const double w, const double w_prec) {
+                     return filters::exponentialSmoothing(w, w_prec, m_parameters.wrench.filter_alfa);
+                   });
+    m_wrench_in_sensor_prec = wrench_sensor_in_sensor;
+
+    Eigen::Vector6d wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor, T_tool_sensor);
+    wrench_tool_in_world = rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear()) - m_offset_wrench_tool_in_world;
   }
+
   Eigen::VectorXd q_start = m_q;
   Eigen::VectorXd qp_start = m_qp;
 
@@ -774,29 +872,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ************
   // ** Update **
   // ************
-
-  Eigen::Affine3d T_base_tool = m_chain_base_tool->getTransformation(m_q.tail(m_nax));
-  Eigen::Affine3d T_base_sensor = m_chain_base_sensor->getTransformation(m_q.tail(m_nax));
-  Eigen::Affine3d T_tool_sensor = T_base_tool.inverse() * T_base_sensor;
-
-  // Wrench deadband
-  std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_parameters.wrench.deadband.begin(),
-                 wrench_sensor_in_sensor.begin(), [](const double w, const double deadband) {
-                   return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
-                 });
-
-  // Exponential filter
-  std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_wrench_in_sensor_prec.begin(),
-                 wrench_sensor_in_sensor.begin(), [this](const double w, const double w_prec) {
-                   return filters::exponentialSmoothing(w, w_prec, m_parameters.wrench.filter_alfa);
-                 });
-  m_wrench_in_sensor_prec = wrench_sensor_in_sensor;
-
-  Eigen::Vector6d wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor, T_tool_sensor);
-  Eigen::Vector6d wrench_tool_in_world =
-    rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear()) - m_offset_wrench_tool_in_world;
-
-  Eigen::Matrix6Xd J_world_tool_in_world = m_chain_world_tool->getJacobian(m_q);
 
   Eigen::Vector6d cart_vel_error_tool_target_in_world;
   cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
@@ -824,18 +899,24 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   std::optional<Eigen::VectorXd> solution_qp = clik(clik_data);
   if (!solution_qp.has_value()) {
-    RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
-    RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\ncart_vel_error_tool_target_in_world\n"
-                                                    << cart_vel_error_tool_target_in_world.transpose()
-                                                    << "\nwrench_tool_in_world\n"
-                                                    << wrench_tool_in_world.transpose() << "\nwrench_tool_in_tool\n"
-                                                    << wrench_tool_in_tool.transpose() << "\nwrench_sensor_in_sensor\n"
-                                                    << wrench_sensor_in_sensor.transpose());
-    this->on_deactivate(rclcpp_lifecycle::State());
-    throw std::runtime_error("Controller crashed");
+    RCLCPP_FATAL_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
+                          "Cannot find a solution for the CLIK QP problem. Keeping position actual");
+    // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\ncart_vel_error_tool_target_in_world\n"
+    // << cart_vel_error_tool_target_in_world.transpose()
+    // << "\nwrench_tool_in_world\n"
+    // << wrench_tool_in_world.transpose() << "\nwrench_tool_in_tool\n");
+    // this->on_deactivate(rclcpp_lifecycle::State());
+    // throw std::runtime_error("Controller crashed");
+    // TODO: trova soluzione più intelligente
+    m_qp.setZero();
+    m_qpp.setZero();
+  } else {
+    Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
+    Eigen::Vector6d xepp = solution_qp.value().tail<M_SE3>();
+    m_qpp = qepp;
+    m_qp += qepp * m_dt;
+    m_q += m_qp * m_dt; // Symplectic Euler
   }
-  Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
-  Eigen::Vector6d xepp = solution_qp.value().tail<M_SE3>();
 
   Eigen::Vector6d dist;
   rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);
@@ -844,39 +925,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_elastoplastic_model->restore();
     RCLCPP_INFO(get_node()->get_logger(), "Restore elastic state");
   }
-
-
-  // Scaling due to joint velocity limits
-  // Eigen::VectorXd qp = m_qp.tail(m_nax) + qepp.tail(m_nax) * m_dt;
-  // double scaling_vel = 1.0;
-  // for(size_t idx = 0; idx < m_nax; idx++)
-  // {
-  //   scaling_vel = std::max(scaling_vel,std::abs(qp(idx))/m_limits.vel(idx));
-  // }
-  // if(scaling_vel > 1)
-  // {
-  //   RCLCPP_WARN(get_node()->get_logger(), "Joint velocity greater than limits (ratio = %4f). Applying scaling", scaling_vel);
-  //   qepp = clik(twist_next_tool_world_in_world/scaling_vel);
-  //   if (qepp.hasNaN())
-  //   {
-  //     RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
-  //     //return controller_interface::return_type::ERROR;
-  //     this->on_deactivate(rclcpp_lifecycle::State());
-  //     throw std::runtime_error("Controller crashed");
-  //   }
-  // }
-
-  Eigen::Vector6d tmp;
-  rdyn::getFrameDistanceQuat(m_chain_world_tool->getTransformation(m_q), reference_target_T_world_tool, tmp);
-  RCLCPP_INFO_STREAM(m_node_support->get_logger(), "x - x_ref" << tmp.transpose());
-  RCLCPP_INFO_STREAM(m_node_support->get_logger(),
-                     "xp - xp_ref" << (twist_tool_world_in_world - reference_target_twist_tool_world_in_world).transpose());
-
-  // Ik integration
-  // m_q += m_qp * m_dt + 0.5 * qepp * std::pow(m_dt, 2);
-  m_qpp = qepp;
-  m_qp += qepp * m_dt;
-  m_q += m_qp * m_dt; // Symplectic Euler
 
   if (m_mobile_base.enabled) {
     Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
@@ -949,7 +997,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   m_q_prec = m_q;
   m_qp_prec = m_qp;
-  m_qpp_prec = qepp;
+  m_qpp_prec = m_qpp;
 
   // *************
   // ** PUBLISH **
@@ -970,16 +1018,16 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     std::ranges::copy(qp_start.tail(m_nax), joint_state_msg.velocity.begin());
     m_estim_joint_state->publish(joint_state_msg);
 
-    geometry_msgs::msg::WrenchStamped msg_wrench_in_tool;
-    msg_wrench_in_tool.header.frame_id = m_parameters.frames.tool;
-    msg_wrench_in_tool.header.stamp = time_now;
-    msg_wrench_in_tool.wrench.force.x = wrench_tool_in_tool[0];
-    msg_wrench_in_tool.wrench.force.y = wrench_tool_in_tool[1];
-    msg_wrench_in_tool.wrench.force.z = wrench_tool_in_tool[2];
-    msg_wrench_in_tool.wrench.torque.x = wrench_tool_in_tool[3];
-    msg_wrench_in_tool.wrench.torque.y = wrench_tool_in_tool[4];
-    msg_wrench_in_tool.wrench.torque.z = wrench_tool_in_tool[5];
-    m_pub_wrench_in_tool->publish(msg_wrench_in_tool);
+    // geometry_msgs::msg::WrenchStamped msg_wrench_in_tool;
+    // msg_wrench_in_tool.header.frame_id = m_parameters.frames.tool;
+    // msg_wrench_in_tool.header.stamp = time_now;
+    // msg_wrench_in_tool.wrench.force.x = wrench_tool_in_tool[0];
+    // msg_wrench_in_tool.wrench.force.y = wrench_tool_in_tool[1];
+    // msg_wrench_in_tool.wrench.force.z = wrench_tool_in_tool[2];
+    // msg_wrench_in_tool.wrench.torque.x = wrench_tool_in_tool[3];
+    // msg_wrench_in_tool.wrench.torque.y = wrench_tool_in_tool[4];
+    // msg_wrench_in_tool.wrench.torque.z = wrench_tool_in_tool[5];
+    // m_pub_wrench_in_tool->publish(msg_wrench_in_tool);
 
     geometry_msgs::msg::WrenchStamped msg_wrench_in_world;
     msg_wrench_in_world.header.frame_id = m_parameters.frames.map;
@@ -1046,11 +1094,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     target_twist_msg = tf2::toMsg(reference_target_twist_tool_world_in_world);
     m_interp_twist_pub->publish(target_twist_msg);
 
-    std_msgs::msg::Float64MultiArray clik_msg;
-    clik_msg.data.resize(solution_qp.value().size());
-    std::copy(qepp.begin(), qepp.end(), clik_msg.data.begin());
-    std::copy(xepp.begin(), xepp.end(), std::next(clik_msg.data.begin(), m_full_nax));
-    m_clik_result->publish(clik_msg);
+    // std_msgs::msg::Float64MultiArray clik_msg;
+    // clik_msg.data.resize(solution_qp.value().size());
+    // std::copy(qepp.begin(), qepp.end(), clik_msg.data.begin());
+    // std::copy(xepp.begin(), xepp.end(), std::next(clik_msg.data.begin(), m_full_nax));
+    // m_clik_result->publish(clik_msg);
   }
 
   std_msgs::msg::Float64MultiArray mode_msg;
@@ -1243,18 +1291,18 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
 
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
     RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << status);
-    RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
-                                                    << "\nacc_non_linear:\n"
-                                                    << acc_non_linear_in_world << "\nT_world_tool\n"
-                                                    << a_data.T_world_tool.matrix() << "\ntwist_tool_world_in_world\n"
-                                                    << a_data.twist_tool_world_in_world
-                                                    << "\nm_delta_elastoplastic_in_world.velocity\n"
-                                                    << m_delta_elastoplastic_in_world.velocity);
-    RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
-                                                    << "## m_W ## " << m_W.diagonal() << "## G ## " << sot.G() << "\n## F ##"
-                                                    << sot.F().transpose() << "\n## eq_set.CE() ## " << eq_set.CE()
-                                                    << "\n ## eq_set.ce() ## " << eq_set.ce().transpose() << "\n## CI ## "
-                                                    << ineq_set.CI() << "\n## ci ##" << ineq_set.ci().transpose());
+    // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
+    // << "\nacc_non_linear:\n"
+    // << acc_non_linear_in_world << "\nT_world_tool\n"
+    // << a_data.T_world_tool.matrix() << "\ntwist_tool_world_in_world\n"
+    // << a_data.twist_tool_world_in_world
+    // << "\nm_delta_elastoplastic_in_world.velocity\n"
+    // << m_delta_elastoplastic_in_world.velocity);
+    // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
+    // << "## m_W ## " << m_W.diagonal() << "## G ## " << sot.G() << "\n## F ##"
+    // << sot.F().transpose() << "\n## eq_set.CE() ## " << eq_set.CE()
+    // << "\n ## eq_set.ce() ## " << eq_set.ce().transpose() << "\n## CI ## "
+    // << ineq_set.CI() << "\n## ci ##" << ineq_set.ci().transpose());
     return std::nullopt;
   }
 
@@ -1281,8 +1329,6 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
     });
     // return std::nullopt;
   }
-
-  RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "task_minimize_cart_vel cost: " << task_minimize_cart_vel.cost(solutionQP));
 
   m_computed_target_acc_tool_world_in_world = solutionQP.tail<M_SE3>();
   return solutionQP;

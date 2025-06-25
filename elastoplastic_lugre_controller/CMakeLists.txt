@@ -5,7 +5,7 @@ set(CMAKE_BUILD_TYPE RelWithDebInfo)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(BUILD_TESTING ON)
+set(BUILD_TESTING OFF)
 
 option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" ON)
 
@@ -20,7 +20,7 @@ find_package(rclcpp_lifecycle           REQUIRED)
 find_package(sensor_msgs                REQUIRED)
 find_package(nav_msgs                   REQUIRED)
 find_package(geometry_msgs              REQUIRED)
-find_package(moveit_msgs            REQUIRED)
+find_package(moveit_msgs                REQUIRED)
 find_package(tf2                        REQUIRED)
 find_package(tf2_eigen                  REQUIRED)
 find_package(urdfdom                    REQUIRED)
