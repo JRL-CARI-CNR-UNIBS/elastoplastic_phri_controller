@@ -58,10 +58,10 @@ private:
   template<typename T>
   using InterfaceReference = std::vector<std::vector<std::reference_wrapper<T>>>;
 
-  std::array<InterfaceReference<hardware_interface::LoanedStateInterface>, 2> m_joint_state_interfaces;
-  std::array<InterfaceReference<hardware_interface::LoanedCommandInterface>, 2> m_joint_command_interfaces;
-  std::array<InterfaceReference<hardware_interface::LoanedStateInterface>, 2> m_mobile_base_state_interfaces;
-  std::array<InterfaceReference<hardware_interface::LoanedCommandInterface>, 2> m_mobile_base_command_interfaces;
+  InterfaceReference<hardware_interface::LoanedStateInterface> m_joint_state_interfaces;
+  InterfaceReference<hardware_interface::LoanedCommandInterface> m_joint_command_interfaces;
+  InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
+  InterfaceReference<hardware_interface::LoanedCommandInterface> m_mobile_base_command_interfaces;
 
   size_t m_joint_reference_interfaces_size;
 
@@ -86,7 +86,7 @@ private:
   void update_base_pose_from_tf();
 
   // Debug publishers
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_world;
+  std::array<rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr, 2> m_pub_wrench_in_world;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_tool;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cart_vel_error;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
@@ -94,7 +94,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_computed_twist_pub;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr m_pub_joint_reference;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_fk_world_tool;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_fk_base_tool;
+  std::array<rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr, 2> m_pub_fk_base_tool;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_interp_pose_pub;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_computed_pose_pub;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_z;
@@ -122,17 +122,16 @@ private:
   std::array<rdyn::ChainPtr, 2> m_chain_world_tools;
 
   struct Side {
-    constexpr static unsigned int LEFT = 0;
-    constexpr static unsigned int RIGHT = 1;
-    constexpr static std::array<int, 2> arms() { return std::array<int, 2>{LEFT, RIGHT}; }
+    constexpr static unsigned int LEFT = 0;  // --> first N elements of joint vectors
+    constexpr static unsigned int RIGHT = 1; // --> last N elements of joint vectors
+    constexpr static std::array<int, 2> arms() { return std::array<int, 2>({{LEFT, RIGHT}}); }
     constexpr static unsigned int BASE = 2;
   };
-  std::array<size_t, 2> m_side_select;
 
 
-  std::array<std::vector<std::string>, 2> m_joint_names;
+  std::vector<std::string> m_joint_names;
 
-  std::array<size_t, 2> m_nax_side;
+  std::array<size_t, 2> m_nax_s;
   size_t m_nax;
   size_t m_full_nax;
 
@@ -150,7 +149,7 @@ private:
   Eigen::VectorXd m_q_prec;
   Eigen::VectorXd m_qp_prec;
   Eigen::VectorXd m_qpp_prec;
-  std::array<Eigen::Vector6d, 2> m_wrench_in_sensor_prec;
+  Eigen::Vector12d m_wrench_in_sensor_prec;
 
   Eigen::Affine3d m_T_world_base;
 
@@ -190,10 +189,10 @@ private:
 
 
   struct Limits {
-    std::array<Eigen::VectorXd, 2> pos_upper;
-    std::array<Eigen::VectorXd, 2> pos_lower;
-    std::array<Eigen::VectorXd, 2> vel;
-    std::array<Eigen::VectorXd, 2> acc;
+    Eigen::VectorXd pos_upper;
+    Eigen::VectorXd pos_lower;
+    Eigen::VectorXd vel;
+    Eigen::VectorXd acc;
   } m_limits;
 
   std::unique_ptr<ElastoplasticModel> m_elastoplastic_model;
@@ -206,9 +205,11 @@ private:
 
   struct ClikData {
     const Eigen::VectorXd &position_references, velocity_references;
-    const Eigen::Vector6d& twist_tool_world_in_world;
+    const Eigen::Vector12d& twist_tool_world_in_world;
+    const Eigen::Vector6d& twist_shared_world_in_world;
     //, next_twist_tool_world_in_world;
-    const Eigen::Affine3d& T_world_tool;
+    const std::array<Eigen::Affine3d, 2>& T_world_tool;
+    const Eigen::Affine3d& T_world_shared;
     //, next_T_world_tool;
     const Eigen::Vector6d& target_acc_tool_target_in_world;
     const Eigen::Matrix6Xd& J_world_tool_in_world;
@@ -227,19 +228,19 @@ private:
   utils::interpolation::Interpolator m_interpolator;
   rclcpp::Subscription<moveit_msgs::msg::CartesianTrajectory>::SharedPtr m_carteisan_trj_sub;
 
-  Eigen::Vector6d m_computed_target_acc_tool_world_in_world;
-  Eigen::Vector6d m_computed_target_twist_tool_world_in_world;
-  Eigen::Affine3d m_computed_target_T_world_tool;
+  Eigen::Vector6d m_computed_target_acc_shared_world_in_world;
+  Eigen::Vector6d m_computed_target_twist_shared_world_in_world;
+  Eigen::Affine3d m_computed_target_T_world_shared;
 
-  std::array<Eigen::VectorXd, 2> m_q2, m_qp2, m_qpp2;
+  // std::array<Eigen::VectorXd, 2> m_q2, m_qp2, m_qpp2;
 
-  std::array<Eigen::VectorXd, 2> split(const Eigen::VectorXd& q) {
-    std::array<Eigen::VectorXd, 2> q2{Eigen::VectorXd(m_mobile_base.nax() + m_nax_side[Side::LEFT]),
-                                      Eigen::VectorXd(m_mobile_base.nax() + m_nax_side[Side::RIGHT])};
-    q2[Side::LEFT] << q.head(m_mobile_base.nax()), q.segment(m_side_select[Side::LEFT], m_nax_side[Side::LEFT]);
-    q2[Side::RIGHT] << q.head(m_mobile_base.nax()), q.segment(m_side_select[Side::RIGHT], m_nax_side[Side::RIGHT]);
-    return q2;
-  }
+  // std::array<Eigen::VectorXd, 2> split(const Eigen::VectorXd& q) {
+  // std::array<Eigen::VectorXd, 2> q2{Eigen::VectorXd(m_mobile_base.nax() + m_nax_side[Side::LEFT]),
+  // Eigen::VectorXd(m_mobile_base.nax() + m_nax_side[Side::RIGHT])};
+  // q2[Side::LEFT] << q.head(m_mobile_base.nax()), q.segment(m_side_select[Side::LEFT], m_nax_side[Side::LEFT]);
+  // q2[Side::RIGHT] << q.head(m_mobile_base.nax()), q.segment(m_side_select[Side::RIGHT], m_nax_side[Side::RIGHT]);
+  // return q2;
+  // }
 
   // Da rivedere
   Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& fl, const Eigen::Affine3d& fr) {
@@ -249,10 +250,12 @@ private:
     return shared;
   }
 
-  Eigen::Affine3d get_shared_frame_from_chains(const std::array<rdyn::ChainPtr, 2>& chs,
-                                               const std::array<Eigen::VectorXd, 2>& q2) {
-    return get_shared_frame(chs[Side::LEFT]->getTransformation(q2[Side::LEFT]),
-                            chs[Side::RIGHT]->getTransformation(q2[Side::RIGHT]));
+
+  Eigen::Vector6d get_shared_twist(const Eigen::Vector12d& t) { return (t.head<6>() + t.tail<6>()) * 0.5; }
+
+  Eigen::Affine3d get_shared_frame_from_chains(const std::array<rdyn::ChainPtr, 2>& chs, const Eigen::VectorXd& q) {
+    return get_shared_frame(chs[Side::LEFT]->getTransformation(q.head(m_nax_s[Side::LEFT])),
+                            chs[Side::RIGHT]->getTransformation(q.tail(m_nax_s[Side::RIGHT])));
   }
 
   Eigen::Vector6d get_wrench(const int side) {
@@ -261,9 +264,21 @@ private:
     return Eigen::Vector6d({fx, fy, fz, tx, ty, tz});
   }
 
-  Eigen::Matrix6d get_grasp_matrix_twist(const Eigen::Vector3d& dp) {
-    Eigen::Matrix6d P;
-    P << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), rdyn::skew(dp), Eigen::Matrix3d::Identity();
+  Eigen::Vector12d get_wrenches() { return (Eigen::Vector12d() << get_wrench(Side::LEFT), get_wrench(Side::RIGHT)).finished(); }
+
+  Eigen::Matrix612d get_grasp_matrix_wrench(const std::array<Eigen::Vector6d, 2>& dp) {
+    Eigen::Matrix612d P;
+    P << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
+      rdyn::skew(dp[Side::LEFT].head<3>()), Eigen::Matrix3d::Identity(), rdyn::skew(dp[Side::RIGHT].head<3>()),
+      Eigen::Matrix3d::Identity();
+    return P;
+  }
+
+  Eigen::Matrix612d get_grasp_matrix_twist(const std::array<Eigen::Vector6d, 2>& dp) {
+    Eigen::Matrix612d P;
+    P << Eigen::Matrix3d::Identity(), rdyn::skew(dp[Side::LEFT].head<3>()), Eigen::Matrix3d::Identity(),
+      rdyn::skew(dp[Side::RIGHT].head<3>()), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
+      Eigen::Matrix3d::Identity();
     return P;
   }
 
