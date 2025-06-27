@@ -168,7 +168,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_ft_source = FTSource::FT_SENSOR;
   } else {
     m_ft_source = FTSource::TORQUE;
-    m_invert_torque = m_parameters.wrench.invert_torque;
+    m_invert_torque = m_parameters.wrench.invert_torque ? -1 : 1;
   }
 
   if (m_ft_source == FTSource::FT_SENSOR) {
