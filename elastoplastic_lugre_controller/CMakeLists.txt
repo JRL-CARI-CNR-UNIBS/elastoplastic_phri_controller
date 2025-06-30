@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(elastoplastic_lugre_controller)
-# set(CMAKE_BUILD_TYPE Debug)
-set(CMAKE_BUILD_TYPE RelWithDebInfo)
+set(CMAKE_BUILD_TYPE Debug)
+# set(CMAKE_BUILD_TYPE RelWithDebInfo)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -20,9 +20,10 @@ find_package(rclcpp_lifecycle           REQUIRED)
 find_package(sensor_msgs                REQUIRED)
 find_package(nav_msgs                   REQUIRED)
 find_package(geometry_msgs              REQUIRED)
-find_package(moveit_msgs            REQUIRED)
+find_package(moveit_msgs                REQUIRED)
 find_package(tf2                        REQUIRED)
 find_package(tf2_eigen                  REQUIRED)
+find_package(tf2_geometry_msgs          REQUIRED)
 find_package(urdfdom                    REQUIRED)
 find_package(generate_parameter_library REQUIRED)
 
@@ -78,6 +79,7 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   moveit_msgs
   tf2
   tf2_eigen
+  tf2_geometry_msgs
   urdfdom
   realtime_tools
   state_observers
@@ -96,7 +98,7 @@ target_include_directories(elastoplastic_controller PUBLIC
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
  # -ffast-math option is not added due to the std::isinf() function present in the code
-target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -funroll-loops -Wall -O3)
+target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -Wall)# -funroll-loops -O3)# -ftime-report)
 target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
 install(TARGETS elastoplastic_controller elastoplastic_parameters
