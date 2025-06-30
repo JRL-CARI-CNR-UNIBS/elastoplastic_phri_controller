@@ -22,7 +22,9 @@
 #include "rclcpp_lifecycle/lifecycle_publisher.hpp"
 #include "realtime_tools/realtime_buffer.hpp"
 #include "semantic_components/force_torque_sensor.hpp"
+#include "tf2_eigen/tf2_eigen.hpp"
 #include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_broadcaster.h"
 #include "tf2_ros/transform_listener.h"
 
 // ros msgs
@@ -78,6 +80,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_pub_timing;
 
+  std::shared_ptr<tf2_ros::TransformBroadcaster> m_tf_bcast;
   std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
@@ -132,6 +135,7 @@ private:
   std::vector<std::string> m_joint_names;
 
   std::array<size_t, 2> m_nax_s;
+  std::array<size_t, 2> m_idx_st;
   size_t m_nax;
   size_t m_full_nax;
 
@@ -212,10 +216,11 @@ private:
     const Eigen::Affine3d& T_world_shared;
     //, next_T_world_tool;
     const Eigen::Vector6d& target_acc_tool_target_in_world;
-    const Eigen::Matrix6Xd& J_world_tool_in_world;
+    const Eigen::Matrix12Xd& J_world_tool_in_world;
     const Eigen::Affine3d& target_T_world_tool;
     const Eigen::Vector6d& target_twist_tool_world_in_world;
-    const Eigen::Vector6d& wrench_tool_in_world;
+    const Eigen::Vector12d& wrench_tool_in_world;
+    const Eigen::Vector6d& wrench_shared_in_world;
   };
 
   double m_zp;
@@ -232,22 +237,11 @@ private:
   Eigen::Vector6d m_computed_target_twist_shared_world_in_world;
   Eigen::Affine3d m_computed_target_T_world_shared;
 
-  // std::array<Eigen::VectorXd, 2> m_q2, m_qp2, m_qpp2;
-
-  // std::array<Eigen::VectorXd, 2> split(const Eigen::VectorXd& q) {
-  // std::array<Eigen::VectorXd, 2> q2{Eigen::VectorXd(m_mobile_base.nax() + m_nax_side[Side::LEFT]),
-  // Eigen::VectorXd(m_mobile_base.nax() + m_nax_side[Side::RIGHT])};
-  // q2[Side::LEFT] << q.head(m_mobile_base.nax()), q.segment(m_side_select[Side::LEFT], m_nax_side[Side::LEFT]);
-  // q2[Side::RIGHT] << q.head(m_mobile_base.nax()), q.segment(m_side_select[Side::RIGHT], m_nax_side[Side::RIGHT]);
-  // return q2;
-  // }
-
+  Eigen::Affine3d m_T_left_shared;
+  Eigen::Affine3d m_T_right_shared_ideal;
   // Da rivedere
-  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& fl, const Eigen::Affine3d& fr) {
-    Eigen::Affine3d shared;
-    shared.translation() = (fl.translation() + fr.translation()) / 2.0;
-    shared.linear() = fl.linear();
-    return shared;
+  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left, const Eigen::Affine3d& T_world_right) {
+    return T_world_left * m_T_left_shared;
   }
 
 
@@ -259,28 +253,31 @@ private:
   }
 
   Eigen::Vector6d get_wrench(const int side) {
-    auto [fx, fy, fz] = m_ft_sensors[side]->get_forces();
-    auto [tx, ty, tz] = m_ft_sensors[side]->get_torques();
-    return Eigen::Vector6d({fx, fy, fz, tx, ty, tz});
+    geometry_msgs::msg::Wrench w;
+    m_ft_sensors[side]->get_values_as_message(w);
+    return Eigen::Vector6d({w.force.x, w.force.y, w.force.z, w.torque.x, w.torque.y, w.torque.z});
   }
 
   Eigen::Vector12d get_wrenches() { return (Eigen::Vector12d() << get_wrench(Side::LEFT), get_wrench(Side::RIGHT)).finished(); }
 
-  Eigen::Matrix612d get_grasp_matrix_wrench(const std::array<Eigen::Vector6d, 2>& dp) {
-    Eigen::Matrix612d P;
-    P << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
-      rdyn::skew(dp[Side::LEFT].head<3>()), Eigen::Matrix3d::Identity(), rdyn::skew(dp[Side::RIGHT].head<3>()),
-      Eigen::Matrix3d::Identity();
-    return P;
-  }
+  Eigen::Matrix612d m_grasp_matrix_wrench;
+  Eigen::Matrix612d m_grasp_matrix_twist;
 
-  Eigen::Matrix612d get_grasp_matrix_twist(const std::array<Eigen::Vector6d, 2>& dp) {
-    Eigen::Matrix612d P;
-    P << Eigen::Matrix3d::Identity(), rdyn::skew(dp[Side::LEFT].head<3>()), Eigen::Matrix3d::Identity(),
-      rdyn::skew(dp[Side::RIGHT].head<3>()), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
-      Eigen::Matrix3d::Identity();
-    return P;
-  }
+  // Eigen::Matrix612d get_grasp_matrix_wrench(const std::array<Eigen::Vector3d, 2>& dp) {
+  //   Eigen::Matrix612d P;
+  //   P << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
+  //     rdyn::skew(dp[Side::LEFT].head<3>()), Eigen::Matrix3d::Identity(), rdyn::skew(dp[Side::RIGHT].head<3>()),
+  //     Eigen::Matrix3d::Identity();
+  //   return P;
+  // }
+
+  // Eigen::Matrix612d get_grasp_matrix_twist(const std::array<Eigen::Vector3d, 2>& dp) {
+  //   Eigen::Matrix612d P;
+  //   P << Eigen::Matrix3d::Identity(), rdyn::skew(dp[Side::LEFT].head<3>()), Eigen::Matrix3d::Identity(),
+  //     rdyn::skew(dp[Side::RIGHT].head<3>()), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
+  //     Eigen::Matrix3d::Identity();
+  //   return P;
+  // }
 
   // Eigen::Vector6d get_wrench() {
   //   auto [fxl, fyl, fzl] = m_ft_sensors[Side::LEFT]->get_forces();
