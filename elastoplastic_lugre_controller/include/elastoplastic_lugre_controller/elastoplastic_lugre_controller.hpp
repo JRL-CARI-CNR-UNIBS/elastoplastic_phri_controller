@@ -50,6 +50,7 @@
 
 namespace elastoplastic
 {
+template <typename T> using Couple = std::array<T, 2>;
 
 class ElastoplasticController : public controller_interface::ChainableControllerInterface
 {
@@ -67,7 +68,7 @@ private:
 
   size_t m_joint_reference_interfaces_size;
 
-  std::array<std::unique_ptr<semantic_components::ForceTorqueSensor>, 2> m_ft_sensors;
+  Couple<std::unique_ptr<semantic_components::ForceTorqueSensor>> m_ft_sensors;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_mobile_base_target;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_mobile_base_odometry;
@@ -121,28 +122,31 @@ private:
   enum class RDStatus { OK, ERROR, EMPTY } m_robot_description_configuration{ElastoplasticController::RDStatus::EMPTY};
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
 
-  std::array<rdyn::ChainPtr, 2> m_chain_base_tools;
-  std::array<rdyn::ChainPtr, 2> m_chain_base_sensors;
-  std::array<rdyn::ChainPtr, 2> m_chain_world_tools;
+  Couple<rdyn::ChainPtr> m_chain_base_tools;
+  Couple<rdyn::ChainPtr> m_chain_base_sensors;
+  Couple<rdyn::ChainPtr> m_chain_world_tools;
 
   struct Side {
     constexpr static unsigned int LEFT = 0;  // --> first N elements of joint vectors
     constexpr static unsigned int RIGHT = 1; // --> last N elements of joint vectors
     constexpr static std::array<int, 2> arms() { return std::array<int, 2>({{LEFT, RIGHT}}); }
-    constexpr static unsigned int BASE = 2;
+    constexpr static unsigned int COMMON = 2;
+    constexpr static unsigned int BASE = 3;
   };
 
 
   std::vector<std::string> m_joint_names;
 
-  std::array<size_t, 2> m_nax_s;
-  std::array<size_t, 2> m_idx_st;
+  Couple<size_t> m_nax_s;
+  std::array<size_t, 4> m_split_nax;
+  std::array<size_t, 3> m_idx_st;
   size_t m_nax;
   size_t m_full_nax;
 
   Eigen::VectorXd m_q;
   Eigen::VectorXd m_qp;
   Eigen::VectorXd m_qpp;
+  Couple<std::vector<unsigned int>> m_sel;
 
   double m_dt;
 
@@ -151,9 +155,6 @@ private:
   Eigen::MatrixXd m_W; // Weight matrix for CLIK
   
   Eigen::VectorXd m_initial_q;
-  Eigen::VectorXd m_q_prec;
-  Eigen::VectorXd m_qp_prec;
-  Eigen::VectorXd m_qpp_prec;
   Eigen::Vector12d m_wrench_in_sensor_prec;
 
   Eigen::Affine3d m_T_world_base;
@@ -169,7 +170,7 @@ private:
   const std::vector<std::string> m_allowed_interface_types {
                                                            hardware_interface::HW_IF_POSITION,
                                                            hardware_interface::HW_IF_VELOCITY};
-  std::array<bool, 2> m_used_command_interfaces;
+  Couple<bool> m_used_command_interfaces;
 
 
   struct FloatBaseData {
@@ -241,14 +242,12 @@ private:
   Eigen::Affine3d m_T_left_shared;
   Eigen::Affine3d m_T_right_shared_ideal;
   // Da rivedere
-  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left, const Eigen::Affine3d& T_world_right) {
-    return T_world_left * m_T_left_shared;
-  }
+  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left) { return T_world_left * m_T_left_shared; }
 
-  Eigen::Affine3d get_shared_frame_from_chains(const std::array<rdyn::ChainPtr, 2>& chs, const Eigen::VectorXd& q) {
-    return get_shared_frame(chs[Side::LEFT]->getTransformation(q.segment(m_idx_st[Side::LEFT], m_nax_s[Side::LEFT])),
-                            chs[Side::RIGHT]->getTransformation(q.tail(m_nax_s[Side::RIGHT])));
-  }
+  // Eigen::Affine3d get_shared_frame_from_chains(const std::array<rdyn::ChainPtr, 2>& chs, const Eigen::VectorXd& q) {
+  // return get_shared_frame(chs[Side::LEFT]->getTransformation(q.segment(m_idx_st[Side::LEFT], m_nax_s[Side::LEFT])),
+  // chs[Side::RIGHT]->getTransformation(q.tail(m_nax_s[Side::RIGHT])));
+  // }
 
   Eigen::Vector6d get_wrench(const int side) {
     geometry_msgs::msg::Wrench w;
@@ -260,30 +259,6 @@ private:
 
   Eigen::Matrix612d m_grasp_matrix_wrench;
   Eigen::Matrix612d m_grasp_matrix_twist;
-
-  // Eigen::Matrix612d get_grasp_matrix_wrench(const std::array<Eigen::Vector3d, 2>& dp) {
-  //   Eigen::Matrix612d P;
-  //   P << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
-  //     rdyn::skew(dp[Side::LEFT].head<3>()), Eigen::Matrix3d::Identity(), rdyn::skew(dp[Side::RIGHT].head<3>()),
-  //     Eigen::Matrix3d::Identity();
-  //   return P;
-  // }
-
-  // Eigen::Matrix612d get_grasp_matrix_twist(const std::array<Eigen::Vector3d, 2>& dp) {
-  //   Eigen::Matrix612d P;
-  //   P << Eigen::Matrix3d::Identity(), rdyn::skew(dp[Side::LEFT].head<3>()), Eigen::Matrix3d::Identity(),
-  //     rdyn::skew(dp[Side::RIGHT].head<3>()), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
-  //     Eigen::Matrix3d::Identity();
-  //   return P;
-  // }
-
-  // Eigen::Vector6d get_wrench() {
-  //   auto [fxl, fyl, fzl] = m_ft_sensors[Side::LEFT]->get_forces();
-  //   auto [txl, tyl, tzl] = m_ft_sensors[Side::LEFT]->get_torques();
-  //   auto [fxr, fyr, fzr] = m_ft_sensors[Side::RIGHT]->get_forces();
-  //   auto [txr, tyr, tzr] = m_ft_sensors[Side::RIGHT]->get_torques();
-  //   return Eigen::Vector12d({fxl, fyl, fzl, txl, tyl, tzl, fxr, fyr, fzr, txr, tyr, tzr});
-  // }
 
 
 public:

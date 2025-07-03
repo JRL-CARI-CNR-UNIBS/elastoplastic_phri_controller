@@ -47,6 +47,13 @@ elastoplastic_controller:
         not_empty<>: []
       }
     }
+    fork: {
+      type: string,
+      description: "Last frame before bifurcation",
+      validation: {
+        not_empty<>: []
+      }
+    }
     tools: {
       type: string_array,
       description: "Tool frame",
@@ -79,6 +86,11 @@ elastoplastic_controller:
       type: string_array,
       default_value: [],
       description: "Robot joints arm right"
+    }
+    common: {
+      type: string_array,
+      default_value: [],
+      description: "Joints common between the two arms"
     }
   kalman_filter:
     manipulator:
