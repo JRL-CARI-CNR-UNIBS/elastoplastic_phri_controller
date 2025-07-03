@@ -93,6 +93,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_tool;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cart_vel_error;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_shared_in_world;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_interp_twist_pub;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_computed_twist_pub;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr m_pub_joint_reference;
@@ -157,8 +158,8 @@ private:
 
   Eigen::Affine3d m_T_world_base;
 
-  Eigen::Vector6d m_offset_wrench_sensor_in_sensor;
-  Eigen::Vector6d m_offset_wrench_tool_in_world;
+  Eigen::Vector12d m_offset_wrench_sensor_in_sensor;
+  Eigen::Vector12d m_offset_wrench_tool_in_world;
   std::future<bool> m_offset_future;
 
   state_observer::KalmanFilter m_base_position_filter;
@@ -244,11 +245,8 @@ private:
     return T_world_left * m_T_left_shared;
   }
 
-
-  Eigen::Vector6d get_shared_twist(const Eigen::Vector12d& t) { return (t.head<6>() + t.tail<6>()) * 0.5; }
-
   Eigen::Affine3d get_shared_frame_from_chains(const std::array<rdyn::ChainPtr, 2>& chs, const Eigen::VectorXd& q) {
-    return get_shared_frame(chs[Side::LEFT]->getTransformation(q.head(m_nax_s[Side::LEFT])),
+    return get_shared_frame(chs[Side::LEFT]->getTransformation(q.segment(m_idx_st[Side::LEFT], m_nax_s[Side::LEFT])),
                             chs[Side::RIGHT]->getTransformation(q.tail(m_nax_s[Side::RIGHT])));
   }
 

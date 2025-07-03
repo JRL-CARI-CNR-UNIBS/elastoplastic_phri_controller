@@ -74,9 +74,9 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
   if (m_mobile_base.enabled) {
     urdf::ModelInterfaceSharedPtr mobile_base_model = urdf::parseURDF(utils::MOBILE_BASE_URDF);
     rdyn::ChainPtr chain_world_base = rdyn::createChain(*mobile_base_model, "x_base", "mount_link", {0, 0, -9.806});
-
-    m_chain_world_tools[Side::LEFT] = rdyn::joinChains(chain_world_base, m_chain_base_tools[Side::LEFT]);
-    m_chain_world_tools[Side::RIGHT] = rdyn::joinChains(chain_world_base, m_chain_base_tools[Side::RIGHT]);
+    for (const auto& side : Side::arms()) {
+      m_chain_world_tools[side] = rdyn::joinChains(chain_world_base, m_chain_base_tools[side]);
+    }
   } else {
     m_chain_world_tools[Side::LEFT] =
       rdyn::createChain(*urdf_model, m_parameters.frames.map, m_parameters.frames.tools[Side::LEFT], gravity);
@@ -209,6 +209,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_computed_pose_pub = this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>("~/computed_pose", 5);
     m_computed_twist_pub = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/computed_twist", 10);
     m_estim_joint_state = this->get_node()->create_publisher<sensor_msgs::msg::JointState>("~/estimated_joints", 10);
+    m_pub_wrench_shared_in_world = this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("~/wrench_shared", 10);
   }
 
   m_state_interfaces_names.reserve(m_allowed_interface_types.size());
@@ -485,6 +486,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     m_computed_pose_pub->on_activate();
     m_computed_twist_pub->on_activate();
     m_estim_joint_state->on_activate();
+    m_pub_wrench_shared_in_world->on_activate();
   }
 
   m_last_odom_msg_time = this->get_node()->get_clock()->now();
@@ -511,8 +513,12 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   Eigen::Affine3d T_world_right =
     m_chain_world_tools[Side::RIGHT]->getTransformation(m_q.segment(m_idx_st[Side::RIGHT], m_nax_s[Side::RIGHT]));
   Eigen::Affine3d T_world_shared;
+  Eigen::Vector6d left_right_distance; // vector from left to right
+  rdyn::getFrameDistance(T_world_left, T_world_right, left_right_distance);
   T_world_shared.translation() = (T_world_left.translation() + T_world_right.translation()) / 2.0;
-  T_world_shared.linear() = T_world_left.linear();
+  T_world_shared.linear() =
+    T_world_left.linear() *
+    Eigen::AngleAxisd(left_right_distance.tail<3>().norm() / 2, left_right_distance.tail<3>().normalized()).toRotationMatrix();
   m_T_left_shared = T_world_left.inverse() * T_world_shared;
   m_T_right_shared_ideal = T_world_right.inverse() * T_world_shared;
 
@@ -523,41 +529,48 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_grasp_matrix_twist << Eigen::Matrix3d::Identity(), rdyn::skew(m_T_left_shared.translation()), Eigen::Matrix3d::Identity(),
     rdyn::skew(m_T_right_shared_ideal.translation()), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(),
     Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity();
+  m_grasp_matrix_twist *= 0.5;
 
-  m_computed_target_T_world_shared = get_shared_frame_from_chains(m_chain_world_tools, m_q.tail(m_nax));
+  m_computed_target_T_world_shared = get_shared_frame_from_chains(m_chain_world_tools, m_q);
   m_computed_target_acc_shared_world_in_world.setZero();
   m_computed_target_twist_shared_world_in_world.setZero();
 
   m_logis_prec = 0;
 
   // TODO: Restore wrench offset
-  // m_offset_future = std::async(std::launch::async, [this](void) -> bool {
-  //   // Compensate force offset
-  //   m_offset_wrench_sensor_in_sensor.setZero();
-  //   const double offset_force_window = std::round(m_parameters.offset_force_window * get_update_rate());
-  //   for (int idx = 0; idx < offset_force_window; ++idx) {
-  //     Eigen::Vector6d wr = get_wrench();
-  //     std::transform(wr.begin(), wr.end(), m_parameters.wrench.deadband.begin(), wr.begin(),
-  //                    [](const double w, const double deadband) {
-  //                      return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
-  //                    });
-  //     std::transform(wr.begin(), wr.end(), m_offset_wrench_sensor_in_sensor.begin(), m_offset_wrench_sensor_in_sensor.begin(),
-  //                    std::plus<double>{});
-  //     std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
-  //   }
-  //   m_offset_wrench_sensor_in_sensor /= offset_force_window;
+  m_offset_future = std::async(std::launch::async, [this](void) -> bool {
+    // Compensate force offset
+    m_offset_wrench_sensor_in_sensor.setZero();
 
-  //   // Transform wrench offset in world T_tool_sensor
-  //   Eigen::Vector6d offset_wrench_tool_in_tool =
-  //     rdyn::spatialDualTranformation(m_offset_wrench_sensor_in_sensor, m_chain_base_tools->getTransformation(m_q).inverse() *
-  //                                                                        m_chain_base_sensor->getTransformation(m_q));
-  //   m_offset_wrench_tool_in_world =
-  //     rdyn::spatialRotation(offset_wrench_tool_in_tool, m_chain_world_tools->getTransformation(m_q).linear());
+    const double offset_force_window = std::round(m_parameters.offset_force_window * get_update_rate());
+    for (int idx = 0; idx < offset_force_window; ++idx) {
+      Eigen::Vector12d wr = get_wrenches();
+      std::transform(wr.begin(), wr.end(), m_parameters.wrench.deadband.begin(), wr.begin(),
+                     [](const double w, const double deadband) {
+                       return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
+                     });
+      std::transform(wr.begin(), wr.end(), m_offset_wrench_sensor_in_sensor.begin(), m_offset_wrench_sensor_in_sensor.begin(),
+                     std::plus<double>{});
+      std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
+    }
+    m_offset_wrench_sensor_in_sensor /= offset_force_window;
 
-  //   RCLCPP_INFO(get_node()->get_logger(), "Wrench Offset computed");
-  //   return true;
-  // });
-  m_offset_wrench_tool_in_world.setZero(); // Temp
+    // Transform wrench offset in world T_tool_sensor
+    for (const auto& side : Side::arms()) {
+      Eigen::Vector6d offset_wrench_tool_in_tool = rdyn::spatialDualTranformation(
+        m_offset_wrench_sensor_in_sensor.segment<6>(side * 6),
+        m_chain_base_tools[side]->getTransformation(m_q.segment(m_idx_st[side], m_nax_s[side])).inverse() *
+          m_chain_base_sensors[side]->getTransformation(m_q.segment(m_idx_st[side], m_nax_s[side])));
+      m_offset_wrench_tool_in_world.segment<6>(side * 6) =
+        rdyn::spatialRotation(offset_wrench_tool_in_tool,
+                              m_chain_world_tools[side]->getTransformation(m_q.segment(m_idx_st[side], m_nax_s[side])).linear());
+    }
+
+    RCLCPP_INFO_STREAM(get_node()->get_logger(), "Wrench Offset computed:\n" << m_offset_wrench_tool_in_world);
+    return true;
+  });
+
+  // m_offset_wrench_tool_in_world.setZero(); // Temp
 
   m_base_position_filter.initialize((Eigen::Vector6d() << m_q.head<3>(), m_qp.head<3>()).finished());
   m_joint_filter.initialize(
@@ -645,19 +658,19 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   rclcpp::Time t_start = get_node()->get_clock()->now();
 
   // TODO: Rimetti quando viene sistemato l'offset di forza
-  // if (m_offset_future.wait_for(0s) != std::future_status::ready) {
-  // RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000, "[Waiting] Computing Offset Force");
-  // bool result{true};
-  // for (size_t idx = 0; idx < m_nax; ++idx) {
-  // result &=
-  // m_joint_command_interfaces.at(0).at(idx).get().set_value(m_joint_state_interfaces.at(0).at(idx).get().get_value());
-  // }
-  // if (!result) {
-  // RCLCPP_ERROR(get_node()->get_logger(), "Could not copy state interface position into command interfaces");
-  // return controller_interface::return_type::ERROR;
-  // }
-  // return controller_interface::return_type::OK;
-  // }
+  if (m_offset_future.wait_for(0s) != std::future_status::ready) {
+    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000, "[Waiting] Computing Offset Force");
+    bool result{true};
+    for (size_t idx = 0; idx < m_nax; ++idx) {
+      result &=
+        m_joint_command_interfaces.at(0).at(idx).get().set_value(m_joint_state_interfaces.at(0).at(idx).get().get_value());
+    }
+    if (!result) {
+      RCLCPP_ERROR(get_node()->get_logger(), "Could not copy state interface position into command interfaces");
+      return controller_interface::return_type::ERROR;
+    }
+    return controller_interface::return_type::OK;
+  }
 
 
   // **********
@@ -810,7 +823,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
 #endif
 
-  Eigen::Affine3d T_world_shared = get_shared_frame_from_chains(m_chain_world_tools, m_q.tail(m_nax));
+  Eigen::Affine3d T_world_shared = get_shared_frame_from_chains(m_chain_world_tools, m_q);
   m_tf_bcast->sendTransform([&]() -> geometry_msgs::msg::TransformStamped {
     geometry_msgs::msg::TransformStamped t = tf2::eigenToTransform(T_world_shared);
     t.header.frame_id = m_parameters.frames.map;
@@ -856,20 +869,25 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                    return filters::exponentialSmoothing(w, w_prec, m_parameters.wrench.filter_alfa);
                  });
 
-  Eigen::Vector12d wrench_tool_in_world;
+  Eigen::Vector12d wrench_tool_in_tool, wrench_tool_in_world;
   for (const auto& side : Side::arms()) {
     Eigen::Affine3d T_base_tool = m_chain_base_tools[side]->getTransformation(m_q.segment(m_idx_st[side], m_nax_s[side]));
     Eigen::Affine3d T_base_sensor = m_chain_base_sensors[side]->getTransformation(m_q.segment(m_idx_st[side], m_nax_s[side]));
     Eigen::Affine3d T_tool_sensor = T_base_tool.inverse() * T_base_sensor;
 
-    Eigen::Vector6d wrench_tool_in_tool;
-    wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor.segment<6>(side * 6), T_tool_sensor);
+    // Eigen::Vector6d wrench_tool_in_tool;
+    wrench_tool_in_tool.segment<6>(side * 6) =
+      rdyn::spatialDualTranformation(wrench_sensor_in_sensor.segment<6>(side * 6), T_tool_sensor);
 
     wrench_tool_in_world.segment<6>(side * 6) =
-      rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool[side].linear()) - m_offset_wrench_tool_in_world;
+      rdyn::spatialRotation(wrench_tool_in_tool.segment<6>(side * 6), T_world_tool[side].linear()) -
+      m_offset_wrench_tool_in_world.segment<6>(side * 6);
   }
   m_wrench_in_sensor_prec = wrench_sensor_in_sensor;
   Eigen::Vector6d wrench_shared_in_world = m_grasp_matrix_wrench * wrench_tool_in_world;
+  RCLCPP_INFO_STREAM(get_node()->get_logger(), "wrenches\nshared: " << wrench_shared_in_world << "\ntools\n"
+                                                                    << wrench_tool_in_world << "\nsensors\n"
+                                                                    << wrench_sensor_in_sensor);
 
   Eigen::Matrix12Xd J_world_tool_in_world = Eigen::Matrix12Xd::Zero(12, m_nax);
   J_world_tool_in_world.topLeftCorner(6, m_nax_s[Side::LEFT]) =
@@ -1077,6 +1095,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     msg_wrench_in_world.wrench.torque.z = wrench_tool_in_world[11];
     m_pub_wrench_in_world[Side::RIGHT]->publish(msg_wrench_in_world);
 
+    geometry_msgs::msg::WrenchStamped msg_wrench_shared;
+    tf2::toMsg(wrench_shared_in_world.head<3>(), msg_wrench_shared.wrench.force);
+    tf2::toMsg(wrench_shared_in_world.tail<3>(), msg_wrench_shared.wrench.torque);
+    m_pub_wrench_shared_in_world->publish(msg_wrench_shared);
 
     m_pub_cart_vel_error->publish(tf2::toMsg(cart_vel_error_shared_target_in_world));
     m_pub_twist_in_world->publish(tf2::toMsg(twist_shared_world_in_world));
@@ -1210,6 +1232,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   task_cart_vel.A().rightCols(M_SE3) = Eigen::Matrix6d::Identity() * m_dt;
   task_cart_vel.b() = (m_computed_target_twist_shared_world_in_world - a_data.target_twist_tool_world_in_world);
 
+  elastoplastic::Task task_minimize_joint_vel(prb_dim, m_nax);
+  task_minimize_joint_vel.A().leftCols(m_nax) = Eigen::MatrixXd::Identity(m_nax, m_nax) * m_dt;
+  task_minimize_joint_vel.b() = m_qp;
+
   // Task Cartesian : Minimize difference between the real target and the computed one
   Eigen::Vector6d ref_p_err;
   rdyn::getFrameDistanceQuat(m_computed_target_T_world_shared, a_data.target_T_world_tool, ref_p_err);
@@ -1290,6 +1316,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   sot.push_task(task_joint_vel);
   sot.push_task(task_joint_pos);
   sot.push_task(task_minimize_joint_acc);
+  sot.push_task(task_minimize_joint_vel);
 
   /********************
    ** EQ Constraints **
