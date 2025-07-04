@@ -224,7 +224,7 @@ private:
   Eigen::Vector6d get_wrench_from_sensor() {
     auto [fx, fy, fz] = m_ft_sensor->get_forces();
     auto [tx, ty, tz] = m_ft_sensor->get_torques();
-    return Eigen::Vector6d({fx, fy, fz, tx, ty, tz});
+    return Eigen::Vector6d({-fx, -fy, -fz, -tx, -ty, -tz});
   }
 
   bool m_invert_torque;

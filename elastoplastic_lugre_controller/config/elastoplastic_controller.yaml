@@ -7,11 +7,9 @@ elastoplastic_controller:
     cmd_vel_topic: "/cmd_vel"
     ft_sensor_name: wrist_right_ft_sensor
     frames:
-      # map: map
       map: base_footprint
       base: base_footprint
       tool: arm_right_tool_link
-      # sensor: arm_right_tool_link
       sensor: wrist_right_ft_sensor_link
     joints:
       - arm_right_1_joint
@@ -66,7 +64,7 @@ elastoplastic_controller:
       deadband: [1.0,1.0,1.0,1.0,1.0,1.0]
       filter_alfa: 0.1
       source: "ft_sensor" #"torque"
-      invert_torque: true
+      invert_torque: true # used only for if source==ft_sensor
     impedance:
       enable_axis: [true, true, true, false, false, false]
       inertia:
@@ -108,6 +106,6 @@ elastoplastic_controller:
       joint_task:
         kp: 1e1 # 1e1
         kv: 1e2 # 1e2
-    debug: 
+    debug:
       log: false
       pub: true
