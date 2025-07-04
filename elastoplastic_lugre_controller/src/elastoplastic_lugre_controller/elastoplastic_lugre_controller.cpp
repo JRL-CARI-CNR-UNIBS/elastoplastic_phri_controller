@@ -411,6 +411,11 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     return controller_interface::CallbackReturn::FAILURE;
   }
 
+  if (m_param_listener->is_old(m_parameters)) {
+    m_parameters = m_param_listener->get_params();
+    m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters, get_update_rate()));
+  }
+
   m_elastoplastic_model->clear();
   m_delta_elastoplastic_in_world.clear();
 
@@ -649,7 +654,7 @@ void ElastoplasticController::get_odometry_callback(const nav_msgs::msg::Odometr
 
 
 controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time& time,
-                                                                                     const rclcpp::Duration& /*period*/) {
+                                                                                     const rclcpp::Duration& period) {
   rclcpp::Time t_start = get_node()->get_clock()->now();
 
   if (m_offset_future.wait_for(0s) != std::future_status::ready) {
@@ -671,7 +676,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ** Read **
   // **********
 
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE_
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
   // Base state
   if (m_mobile_base.enabled) {
@@ -716,7 +721,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     // m_q(2) = Eigen::AngleAxisd(m_T_world_base.linear()).angle();
   }
 #endif
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR_
+
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
   // Manipulator State
   Eigen::VectorXd q_qp_in(2 * m_nax), q_qp_out(2 * m_nax);
@@ -725,9 +731,13 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), q_qp_in.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
   // Kalman filter
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN_
+#ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
   q_qp_out = m_joint_filter.update(q_qp_in, m_qpp.tail(m_nax));
   m_q.tail(m_nax) = q_qp_out.head(m_nax);
   m_qp.tail(m_nax) = q_qp_out.tail(m_nax);
+#endif
+
 #endif
 
   Eigen::Affine3d T_world_tool = m_chain_world_tool->getTransformation(m_q);
@@ -810,9 +820,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::VectorXd tau_j(m_nax);
   Eigen::Matrix6Xd J_world_tool_in_world = m_chain_world_tool->getJacobian(m_q);
   // Damped LS
-  Eigen::JacobiSVD<Eigen::Matrix6Xd> svd_torque(J_world_tool_in_world.transpose() + 1e-6 * Eigen::Matrix6d::Identity(),
-                                                Eigen::ComputeThinU | Eigen::ComputeThinV);
   if (m_ft_source == FTSource::TORQUE) {
+    Eigen::JacobiSVD<Eigen::Matrix6Xd> svd_torque(J_world_tool_in_world.transpose(), Eigen::ComputeThinU | Eigen::ComputeThinV);
     std::transform(m_joint_state_interfaces.at(2).begin(), m_joint_state_interfaces.at(2).end(), tau_j.head(m_nax).begin(),
                    [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
     wrench_tool_in_world = get_wrench_from_torque(svd_torque, tau_j);
@@ -940,10 +949,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     // If the QP works, this shouldn't be necessary
     for (size_t idx = 0; idx < M_SE2; ++idx) {
       if (std::abs(m_mobile_base.velocity_in_base(idx)) > m_mobile_base.vel_limits(idx)) {
-        RCLCPP_WARN_STREAM(this->get_node()->get_logger(),
-                           "Saturation of Velocity on base linear direction "
-                             << idx << ": " << m_mobile_base.velocity_in_base(idx) << " should be "
-                             << utils::sgn(m_mobile_base.velocity_in_base(idx)) * m_mobile_base.vel_limits(idx));
+        // RCLCPP_WARN_STREAM(this->get_node()->get_logger(),
+        // "Saturation of Velocity on base linear direction "
+        // << idx << ": " << m_mobile_base.velocity_in_base(idx) << " should be "
+        // << utils::sgn(m_mobile_base.velocity_in_base(idx)) * m_mobile_base.vel_limits(idx));
       }
     }
     // END - Check Saturation Base
@@ -958,10 +967,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_qp(idx + (m_full_nax - m_nax)) =
       std::max(-m_limits.vel(idx), std::min(m_limits.vel(idx), m_qp(idx + (m_full_nax - m_nax))));
     if (!utils::almost_equal(q, m_q(idx + (m_full_nax - m_nax)))) {
-      RCLCPP_WARN(get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld", idx);
+      // RCLCPP_WARN(get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld", idx);
     }
     if (!utils::almost_equal(dq, m_qp(idx + (m_full_nax - m_nax)))) {
-      RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld", idx);
+      // RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld", idx);
     }
   }
   // END - Saturation Manipulator
@@ -1114,7 +1123,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   rclcpp::Time t_end = get_node()->get_clock()->now();
   std_msgs::msg::Float64 cycle_time_msg;
-  cycle_time_msg.data = static_cast<double>((t_end - t_start).nanoseconds()) / 1e-3; // As [ms]
+  //cycle_time_msg.data = static_cast<double>((t_end - t_start).nanoseconds()) / 1e-3; // As [ms]
+  cycle_time_msg.data = period.seconds();
   m_pub_timing->publish(cycle_time_msg);
 
   return controller_interface::return_type::OK;
@@ -1124,6 +1134,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_data) {
 
   Eigen::Vector6d acc_non_linear_in_world = m_chain_world_tool->getDTwistNonLinearPartTool(m_q, m_qp);
+  Eigen::Vector6d enabled_axis = m_elastoplastic_model->get_enabled_axis();
 
   auto t_start_qp = get_node()->get_clock()->now();
   const unsigned int prb_dim = m_full_nax + M_SE3;
@@ -1171,8 +1182,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
                            invM * K *
                              (twist_error_tool_world_in_world * m_dt +
-                              m_elastoplastic_model->z() * pose_error_tool_world_in_world.normalized()) -
-                           invM * (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
+                              m_elastoplastic_model->z() *
+                                pose_error_tool_world_in_world.cwiseProduct(enabled_axis).normalized() +
+                              pose_error_tool_world_in_world.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
+                           invM * (a_data.wrench_tool_in_world);
 
   /****************
    ** Task Stack **
@@ -1320,15 +1333,15 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   }
 
   // Should be useless but...
-  if (ineq_set.violations(solutionQP) != 0) {
-    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Constraint violated:");
-    auto ineq_violated = ineq_set.which_violations(solutionQP);
-    std::for_each(ineq_violated.begin(), ineq_violated.end(), [this, &solutionQP](const InequalityConstraint& ineq) {
-      RCLCPP_ERROR_STREAM(get_node()->get_logger(),
-                          " - " << ineq.description() << " | values: " << ineq.value(solutionQP).transpose());
-    });
-    // return std::nullopt;
-  }
+  // if (ineq_set.violations(solutionQP) != 0) {
+  // RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Constraint violated:");
+  // auto ineq_violated = ineq_set.which_violations(solutionQP);
+  // std::for_each(ineq_violated.begin(), ineq_violated.end(), [this, &solutionQP](const InequalityConstraint& ineq) {
+  // RCLCPP_ERROR_STREAM(get_node()->get_logger(),
+  // " - " << ineq.description() << " | values: " << ineq.value(solutionQP).transpose());
+  // });
+  // return std::nullopt;
+  // }
 
   m_computed_target_acc_tool_world_in_world = solutionQP.tail<M_SE3>();
   return solutionQP;
