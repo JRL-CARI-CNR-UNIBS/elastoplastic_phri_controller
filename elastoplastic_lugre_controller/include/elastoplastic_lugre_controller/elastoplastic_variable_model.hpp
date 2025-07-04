@@ -50,7 +50,7 @@ private:
   double m_z_kmax;
   double m_z_start;
 
-  double m_z;
+  Eigen::Vector6d m_z;
 
   boost::circular_buffer<double> m_reset_buffer;
   double m_reset_threshold;
@@ -62,7 +62,7 @@ private:
   Eigen::Vector6d m_enable_axis;
 
   Eigen::Matrix6d compute_k(const double z) const;
-  double compute_zp(const double z, const double u, const double dt) const;
+  Eigen::Vector6d compute_zp(const Eigen::Vector6d& z, const Eigen::Vector6d& u, const double dt) const;
   Eigen::Matrix6d compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_a_b) const;
 
 
@@ -78,7 +78,7 @@ public:
   double alpha(const double z) const;
   double alpha() const;
   void clear();
-  double z() const;
+  Eigen::Vector6d z() const;
   bool is_plastic() const;
   bool became_plastic() const;
   bool to_restore() const;
@@ -90,7 +90,7 @@ public:
   Eigen::Vector6d compute_impedance(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
                                     const Eigen::Affine3d& T_a_b) const;
   std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> compute_variable_matrices(const Eigen::Affine3d& T_a_b) const;
-  double update_z(const double uin, const double period);
+  Eigen::Vector6d update_z(const Eigen::Vector6d& uin, const double period);
   std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d> update(const Eigen::Vector6d& x, const Eigen::Vector6d& v,
                                                                        const Eigen::Vector6d& f, const Eigen::Affine3d T_a_b,
                                                                        const double period);

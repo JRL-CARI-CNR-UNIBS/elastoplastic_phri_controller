@@ -411,6 +411,11 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     return controller_interface::CallbackReturn::FAILURE;
   }
 
+  if (m_param_listener->is_old(m_parameters)) {
+    m_parameters = m_param_listener->get_params();
+    m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters, get_update_rate()));
+  }
+
   m_elastoplastic_model->clear();
   m_delta_elastoplastic_in_world.clear();
 
@@ -879,7 +884,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector6d d_pose;
   rdyn::getFrameDistanceQuat(T_world_tool, m_computed_target_T_world_tool, d_pose);
   d_pose.normalize();
-  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world.dot(d_pose), m_dt);
+  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world, m_dt);
   bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
                                             cart_vel_error_tool_target_in_world);
   if (reset) {
@@ -1005,8 +1010,18 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   if (m_parameters.debug.pub) {
     auto time_now = this->get_node()->get_clock()->now();
     std_msgs::msg::Float64MultiArray msg_z;
-    msg_z.data.push_back(m_elastoplastic_model->z());
-    msg_z.data.push_back(m_zp);
+    msg_z.data.push_back(m_elastoplastic_model->z()(0));
+    msg_z.data.push_back(m_elastoplastic_model->z()(1));
+    msg_z.data.push_back(m_elastoplastic_model->z()(2));
+    msg_z.data.push_back(m_elastoplastic_model->z()(3));
+    msg_z.data.push_back(m_elastoplastic_model->z()(4));
+    msg_z.data.push_back(m_elastoplastic_model->z()(5));
+    msg_z.data.push_back(m_zp(0));
+    msg_z.data.push_back(m_zp(1));
+    msg_z.data.push_back(m_zp(2));
+    msg_z.data.push_back(m_zp(3));
+    msg_z.data.push_back(m_zp(4));
+    msg_z.data.push_back(m_zp(5));
     m_pub_z->publish(msg_z);
 
     sensor_msgs::msg::JointState joint_state_msg;
@@ -1169,9 +1184,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
   task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
   task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
-                           invM * K *
-                             (twist_error_tool_world_in_world * m_dt +
-                              m_elastoplastic_model->z() * pose_error_tool_world_in_world.normalized()) -
+                           invM * K * (twist_error_tool_world_in_world * m_dt + m_elastoplastic_model->z()) -
                            invM * (a_data.wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()));
 
   /****************
