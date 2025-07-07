@@ -72,9 +72,9 @@ Eigen::Vector6d ElastoplasticModel::compute_zp(const Eigen::Vector6d& z, const E
 
 Eigen::Matrix6d ElastoplasticModel::compute_k(const double z) const { return m_k * (1 - alpha(z)); }
 
-Eigen::Matrix6d ElastoplasticModel::compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_a_b) const {
+Eigen::Matrix6d ElastoplasticModel::compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_b_a) const {
   Eigen::Matrix6d T6; // [[T, 0], [0, T]]
-  T6 << T_a_b.linear(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Zero(), T_a_b.linear();
+  T6 << T_b_a.linear(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Zero(), T_b_a.linear();
   return T6 * M * T6.transpose();
 }
 

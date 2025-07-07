@@ -63,7 +63,7 @@ private:
 
   Eigen::Matrix6d compute_k(const double z) const;
   Eigen::Vector6d compute_zp(const Eigen::Vector6d& z, const Eigen::Vector6d& u, const double dt) const;
-  Eigen::Matrix6d compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_a_b) const;
+  Eigen::Matrix6d compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_b_a) const;
 
 
 #ifdef BUILD_TESTING
