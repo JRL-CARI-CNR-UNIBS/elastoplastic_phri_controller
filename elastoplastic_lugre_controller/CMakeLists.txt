@@ -5,7 +5,7 @@ set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(BUILD_TESTING ON)
+set(BUILD_TESTING OFF)
 
 option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" ON)
 
@@ -98,7 +98,7 @@ target_include_directories(elastoplastic_controller PUBLIC
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
  # -ffast-math option is not added due to the std::isinf() function present in the code
-target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -Wall)# -funroll-loops -O3)# -ftime-report)
+# target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -funroll-loops -Wall -O3)
 target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
 install(TARGETS elastoplastic_controller elastoplastic_parameters

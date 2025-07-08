@@ -4,6 +4,7 @@
 #include "Eigen/Dense"
 #include "eiquadprog/eiquadprog-fast.hpp"
 #include <numeric>
+#include <set>
 #include <variant>
 
 namespace elastoplastic {
@@ -57,9 +58,10 @@ public:
     clear();
   }
   Eigen::MatrixXd G() const { return m_G; }
-  Eigen::MatrixXd F() const { return m_F; }
+  Eigen::VectorXd F() const { return m_F; }
   double level_step() const { return m_level_step; }
   int new_level(void) { return ++m_level; }
+  int level(void) const { return m_level; }
   void push_task(Task& t, const double relative_task_weight = 1.0) {
     auto [G, F] = t.update_task();
     m_G += G * relative_task_weight * std::pow(m_level_step, m_level);

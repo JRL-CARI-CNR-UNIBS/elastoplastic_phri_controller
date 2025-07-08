@@ -233,10 +233,10 @@ elastoplastic_controller:
   wrench:
     deadband: {
       type: double_array,
-      default_value: [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],
-      description: "Wrench deadband. [force_deadband(x,y,z), torque_deadband(x,y,z)]",
+      default_value: [0.0,0.0],
+      description: "Wrench deadband. [force_deadband, torque_deadband]",
       validation: {
-        fixed_size<>: 12,
+        fixed_size<>: 2,
         lower_element_bounds<>: 0.0
       }
     }

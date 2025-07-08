@@ -85,13 +85,14 @@ private:
   std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
+  std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> m_support_node_exec;
   rclcpp::Node::SharedPtr m_node_support; // tf and log
   std::binary_semaphore m_node_semaph{0};
   void update_base_pose_from_tf();
 
   // Debug publishers
   std::array<rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr, 2> m_pub_wrench_in_world;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_in_tool;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_admittance_force;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cart_vel_error;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_twist_in_world;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::WrenchStamped>::SharedPtr m_pub_wrench_shared_in_world;
@@ -106,7 +107,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_weights;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_result;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr m_estim_joint_state;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr m_pub_alfa;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr m_pub_reset_buffer;
 
   enum Mode {
     ELASTIC = 0,
@@ -230,8 +231,6 @@ private:
   utils::Logistic m_logistic;
   double m_logis_prec;
 
-  eiquadprog::solvers::EiquadprogFast m_eiquadprog;
-
   utils::interpolation::Interpolator m_interpolator;
   rclcpp::Subscription<moveit_msgs::msg::CartesianTrajectory>::SharedPtr m_carteisan_trj_sub;
 
@@ -252,7 +251,7 @@ private:
   Eigen::Vector6d get_wrench(const int side) {
     geometry_msgs::msg::Wrench w;
     m_ft_sensors[side]->get_values_as_message(w);
-    return Eigen::Vector6d({w.force.x, w.force.y, w.force.z, w.torque.x, w.torque.y, w.torque.z});
+    return Eigen::Vector6d({-w.force.x, -w.force.y, -w.force.z, -w.torque.x, -w.torque.y, -w.torque.z});
   }
 
   Eigen::Vector12d get_wrenches() { return (Eigen::Vector12d() << get_wrench(Side::LEFT), get_wrench(Side::RIGHT)).finished(); }

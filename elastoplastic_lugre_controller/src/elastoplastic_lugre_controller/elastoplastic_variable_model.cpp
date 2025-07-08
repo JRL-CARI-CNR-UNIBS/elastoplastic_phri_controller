@@ -26,15 +26,16 @@ double ElastoplasticModel::alpha(const double z) const {
   }
 }
 
-double ElastoplasticModel::alpha() const { return alpha(m_z); }
+double ElastoplasticModel::alpha() const { return alpha(m_z.norm()); }
 
 void ElastoplasticModel::clear() {
-  m_z = 0;
+  m_z.setZero();
+  m_reset_buffer.clear();
 }
 
-double ElastoplasticModel::z() const { return m_z; }
+Eigen::Vector6d ElastoplasticModel::z() const { return m_z; }
 
-bool ElastoplasticModel::is_plastic() const { return m_z >= m_z_kmax; }
+bool ElastoplasticModel::is_plastic() const { return m_z.norm() >= m_z_kmax; }
 
 bool ElastoplasticModel::became_plastic() const { return !m_was_plastic && is_plastic(); }
 
@@ -43,10 +44,11 @@ bool ElastoplasticModel::to_restore() const { return m_to_restore; }
 void ElastoplasticModel::restore() { m_to_restore = false; }
 
 std::pair<double, double> ElastoplasticModel::get_reset_buffer_status() const {
-  return std::make_pair(std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0), m_reset_buffer.full());
+  return std::make_pair(std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0.0), m_reset_buffer.full());
 }
 
-double ElastoplasticModel::compute_zp(const double z, const double u, const double /*dt*/) const {
+Eigen::Vector6d ElastoplasticModel::compute_zp(const Eigen::Vector6d& z, const Eigen::Vector6d& u, const double /*dt*/) const {
+
   auto aswitch = [this](const double z) {
     const double& z_ss = 1.00 * m_z_kmax;
     const double& z_ba = 1.02 * m_z_kmax;
@@ -58,7 +60,7 @@ double ElastoplasticModel::compute_zp(const double z, const double u, const doub
       return 0.5 * std::sin(M_PI * ((z - (z_ba + z_ss) / 2) / (z_ba - z_ss))) + 0.5;
     }
   };
-  double zp = u * (1 - alpha(z) * z / m_z_max * utils::sgn(u)) * aswitch(z);
+  Eigen::Vector6d zp = (u - alpha(z.norm()) * z / m_z_max * u.norm()) * aswitch(z.norm());
   // * (-0.5 * std ::atan(1000 * (z - m_z_kmax)) / M_PI_2 + 0.5);
   // if (z < m_z_max && z + zp * dt > m_z_max) {
   //   zp = (m_z_max - z) / dt;
@@ -73,14 +75,14 @@ double ElastoplasticModel::compute_zp(const double z, const double u, const doub
 
 Eigen::Matrix6d ElastoplasticModel::compute_k(const double z) const { return m_k * (1 - alpha(z)); }
 
-Eigen::Matrix6d ElastoplasticModel::compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_a_b) const {
+Eigen::Matrix6d ElastoplasticModel::compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_b_a) const {
   Eigen::Matrix6d T6; // [[T, 0], [0, T]]
-  T6 << T_a_b.linear(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Zero(), T_a_b.linear();
+  T6 << T_b_a.linear(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Zero(), T_b_a.linear();
   return T6 * M * T6.transpose();
 }
 
 std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> ElastoplasticModel::compute_variable_matrices(const Eigen::Affine3d& T_a_b) const {
-  Eigen::Matrix6d k_in_base = compute_coeff_in_b(compute_k(m_z), T_a_b);
+  Eigen::Matrix6d k_in_base = compute_coeff_in_b(compute_k(m_z.norm()), T_a_b);
   Eigen::Matrix6d d_in_base = compute_coeff_in_b(m_d, T_a_b);
 
   return std::make_tuple(k_in_base, d_in_base);
@@ -96,44 +98,23 @@ Eigen::Vector6d ElastoplasticModel::compute_impedance(const Eigen::Vector6d& x, 
   return m_inertia_inv * (fe - k_in_base * x - d_in_base * v);
 }
 
-double ElastoplasticModel::update_z(const double uin, const double period) {
+Eigen::Vector6d ElastoplasticModel::update_z(const Eigen::Vector6d& uin, const double period) {
   m_was_plastic = is_plastic();
-  double ret_zp = this->compute_zp(m_z, uin, period);
-  m_z =
-    utils::rk4([this, &period](const double& xin, const double& puin) -> double { return this->compute_zp(xin, puin, period); },
-               m_z, uin, period);
+  Eigen::Vector6d ret_zp = this->compute_zp(m_z, uin, period);
+  // m_z =
+  // utils::rk4([this, &period](const double& xin, const double& puin) -> double { return this->compute_zp(xin, puin, period); },
+  // m_z, uin, period);
+  m_z += ret_zp * period;
   // m_z = std::max(0.0, m_z); // Non dovrebbe servire, però...
   m_to_restore |= this->is_plastic();
   return ret_zp;
 }
 
-[[deprecated("Usa un modello che non va bene")]] std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d>
-ElastoplasticModel::update(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
-                           const Eigen::Affine3d T_a_b, const double period) {
-  Eigen::Vector6d xspp = compute_impedance(x, v, f, T_a_b);
-  Eigen::Vector6d fe = f.cwiseProduct(m_enable_axis);
-  double Pin = fe.transpose() * v;
-  // Integrate z
-  this->update_z(Pin, period);
-  // Saturation
-  // m_z = std::max(0.0, m_z); // Non dovrebbe essere necessario
-  // Integrate acc
-  auto [xs, xsp] = utils::rk4_double(
-    [this, T_a_b](const Eigen::Vector6d& xin, const Eigen::Vector6d& vin, const Eigen::Vector6d& uin) -> Eigen::Vector6d {
-      return this->compute_impedance(xin, vin, uin, T_a_b);
-    },
-    x, v, f, period);
-  // std::cout << "xpp: " << xspp.transpose() << "\nxsp: " << xsp.transpose() << std::endl;
-  return std::make_tuple(xs, xsp, xspp);
-}
-
-
 bool ElastoplasticModel::reset(const Eigen::Vector6d& f, const Eigen::Vector6d& v) {
   if (is_plastic()) {
     m_reset_buffer.push_back(f.dot(v));
     if (m_reset_buffer.full() && std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0.0) < m_reset_threshold) {
-      m_reset_buffer.clear();
-      m_z = 0;
+      clear();
       return true;
     }
   }

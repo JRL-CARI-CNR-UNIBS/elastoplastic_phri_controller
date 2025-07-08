@@ -1,4 +1,4 @@
-elastoplastic_lugre_controller:
+elastoplastic_controller:
   ros__parameters:
     type: elastoplastic_controller/ElastoplasticController
     use_sim_time: True
@@ -7,10 +7,9 @@ elastoplastic_lugre_controller:
     cmd_vel_topic: "/cmd_vel"
     ft_sensor_name: wrist_right_ft_sensor
     frames:
-      # map: map
       map: base_footprint
       base: base_footprint
-      tool: wrist_right_ft_tool_link
+      tool: arm_right_tool_link
       sensor: wrist_right_ft_sensor_link
     joints:
       - arm_right_1_joint
@@ -20,6 +19,24 @@ elastoplastic_lugre_controller:
       - arm_right_5_joint
       - arm_right_6_joint
       - arm_right_7_joint
+    kalman_filter:
+      manipulator:
+        position:
+          - 1e-3
+          - 1e-3
+          - 1e-3
+          - 1e-3
+          - 1e-3
+          - 1e-3
+          - 1e-3
+        velocity:
+          - 1e0
+          - 1e0
+          - 1e0
+          - 1e0
+          - 1e0
+          - 1e0
+          - 1e0
     acceleration_limits_coeff: 5.0
     command_interfaces:
       - position
@@ -27,6 +44,7 @@ elastoplastic_lugre_controller:
     state_interfaces:
       - position
       - velocity
+      # - torque
     mobile_base:
       enabled: false
       enable_z_rotation: false
@@ -45,6 +63,8 @@ elastoplastic_lugre_controller:
     wrench:
       deadband: [1.0,1.0,1.0,1.0,1.0,1.0]
       filter_alfa: 0.1
+      source: "ft_sensor" #"torque"
+      invert_torque: true # used only for if source==ft_sensor
     impedance:
       enable_axis: [true, true, true, false, false, false]
       inertia:
@@ -55,33 +75,37 @@ elastoplastic_lugre_controller:
         - 1.0
         - 1.0
       k:
-        - 100.0
-        - 100.0
-        - 100.0
-        - 100.0
-        - 100.0
-        - 100.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
       d:
-        - 50.0
-        - 50.0
-        - 50.0
-        - 50.0
-        - 50.0
-        - 50.0
-      z_max: 0.1
-      z_kmax: 0.1
-      z_start: 0.05
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
+      z_max:   0.15 # [0.15, 0.15] # 0.1
+      z_kmax:  0.14 # [0.14, 0.14] # 0.1
+      z_start: 0.1  # [0.1, 0.1]   # 0.05
       logistic:
         max: 1.0
         slope: 10.0
         inflection: 0.5
-      leak_coefficient: 0.05
-      plastic_restoration: true
+      leak_coefficient: 0.02
+      reset:
+        time: 10.0
+        threshold: 1e-2
+      plastic_restoration: false
+    offset_force_window: 1.0 # seconds
     clik:
       alpha_gain: 1.0e6
       joint_task:
-        kp: 1e1
-        kv: 1e2
+        kp: 1e1 # 1e1
+        kv: 1e2 # 1e2
     debug:
-      log: true
+      log: false
       pub: true
