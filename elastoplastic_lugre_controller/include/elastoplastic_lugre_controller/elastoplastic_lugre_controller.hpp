@@ -211,8 +211,6 @@ private:
   utils::Logistic m_logistic;
   double m_logis_prec;
 
-  eiquadprog::solvers::EiquadprogFast m_eiquadprog;
-
   utils::interpolation::Interpolator m_interpolator;
   rclcpp::Subscription<moveit_msgs::msg::CartesianTrajectory>::SharedPtr m_carteisan_trj_sub;
 

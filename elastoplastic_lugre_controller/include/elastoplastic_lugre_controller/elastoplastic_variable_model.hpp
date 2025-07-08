@@ -26,12 +26,11 @@ struct ElastoplasticModelData {
   double z_kmax;
   double z_start;
 
-  double leak_coefficient;
   double reset_threshold;
   size_t buffer_size;
 
   std::vector<bool> enable_axis;
-  ElastoplasticModelData() : z_max(0.0), z_kmax(0.0), z_start(0.0), leak_coefficient(0.0) {
+  ElastoplasticModelData() : z_max(0.0), z_kmax(0.0), z_start(0.0) {
     inertia_inv.setZero();
     k.setZero();
     d.setZero();

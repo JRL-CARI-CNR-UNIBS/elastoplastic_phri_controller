@@ -291,13 +291,6 @@ elastoplastic_controller:
         gt_eq<>: 0
       }
     }
-    leak_coefficient: {
-      type: double,
-      description: "Leak coefficient for the pseudo-tank",
-      validation: {
-        gt_eq<>: 0
-      }
-    }
     reset:
       time: {
         type: double,

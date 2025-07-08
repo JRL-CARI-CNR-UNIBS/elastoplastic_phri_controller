@@ -654,7 +654,7 @@ std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_ex
 
 
 controller_interface::return_type ElastoplasticController::update_reference_from_subscribers(const rclcpp::Time& /*time*/,
-                                                                                             const rclcpp::Duration& period) {
+                                                                                             const rclcpp::Duration& /*period*/) {
   /* "Joint trajectory available only in chainable mode with joint_trajectory_controller" */
 
   std::copy(m_q.tail(m_nax).begin(), m_q.tail(m_nax).end(), reference_interfaces_.begin());     // position
@@ -669,7 +669,7 @@ void ElastoplasticController::get_odometry_callback(const nav_msgs::msg::Odometr
 
 
 controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time& time,
-                                                                                     const rclcpp::Duration& /*period*/) {
+                                                                                     const rclcpp::Duration& period) {
   rclcpp::Time t_start = get_node()->get_clock()->now();
 
   if (m_offset_future.wait_for(0s) != std::future_status::ready) {
@@ -938,8 +938,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   std::optional<Eigen::VectorXd> solution_qp = clik(clik_data);
   if (!solution_qp.has_value()) {
-    RCLCPP_FATAL_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
-                          "Cannot find a solution for the CLIK QP problem. Keeping position actual");
+    RCLCPP_ERROR_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
+                          "Cannot find a solution for the CLIK QP problem. Keeping actual position");
     // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "\ncart_vel_error_tool_target_in_world\n"
     // << cart_vel_error_tool_target_in_world.transpose()
     // << "\nwrench_tool_in_world\n"
@@ -1139,11 +1139,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     target_twist_msg = tf2::toMsg(reference_target_twist_tool_world_in_world);
     m_interp_twist_pub->publish(target_twist_msg);
 
-    // std_msgs::msg::Float64MultiArray clik_msg;
-    // clik_msg.data.resize(solution_qp.value().size());
-    // std::copy(qepp.begin(), qepp.end(), clik_msg.data.begin());
-    // std::copy(xepp.begin(), xepp.end(), std::next(clik_msg.data.begin(), m_full_nax));
-    // m_clik_result->publish(clik_msg);
+    std_msgs::msg::Float64 buffer_msg;
+    double tmp;
+    std::tie(buffer_msg.data, tmp) = m_elastoplastic_model->get_reset_buffer_status();
+    m_pub_reset_buffer->publish(buffer_msg);
   }
 
   std_msgs::msg::Float64MultiArray mode_msg;
@@ -1329,6 +1328,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   ineq_set.push_constraint(ineq_qp_max);
   ineq_set.push_constraint(ineq_qpp_min);
   ineq_set.push_constraint(ineq_qpp_max);
+
   ineq_set.compute_set();
 
   /***********
@@ -1338,19 +1338,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   auto [solutionQP, status] = solver.solve();
 
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
-    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << status);
-    // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
-    // << "\nacc_non_linear:\n"
-    // << acc_non_linear_in_world << "\nT_world_tool\n"
-    // << a_data.T_world_tool.matrix() << "\ntwist_tool_world_in_world\n"
-    // << a_data.twist_tool_world_in_world
-    // << "\nm_delta_elastoplastic_in_world.velocity\n"
-    // << m_delta_elastoplastic_in_world.velocity);
-    // RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
-    // << "## m_W ## " << m_W.diagonal() << "## G ## " << sot.G() << "\n## F ##"
-    // << sot.F().transpose() << "\n## eq_set.CE() ## " << eq_set.CE()
-    // << "\n ## eq_set.ce() ## " << eq_set.ce().transpose() << "\n## CI ## "
-    // << ineq_set.CI() << "\n## ci ##" << ineq_set.ci().transpose());
+    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status : " << status);
     return std::nullopt;
   }
 

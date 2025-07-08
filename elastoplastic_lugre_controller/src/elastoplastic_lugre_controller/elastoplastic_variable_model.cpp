@@ -28,7 +28,10 @@ double ElastoplasticModel::alpha(const double z) const {
 
 double ElastoplasticModel::alpha() const { return alpha(m_z.norm()); }
 
-void ElastoplasticModel::clear() { m_z.setZero(); }
+void ElastoplasticModel::clear() {
+  m_z.setZero();
+  m_reset_buffer.clear();
+}
 
 Eigen::Vector6d ElastoplasticModel::z() const { return m_z; }
 
@@ -41,7 +44,7 @@ bool ElastoplasticModel::to_restore() const { return m_to_restore; }
 void ElastoplasticModel::restore() { m_to_restore = false; }
 
 std::pair<double, double> ElastoplasticModel::get_reset_buffer_status() const {
-  return std::make_pair(std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0), m_reset_buffer.full());
+  return std::make_pair(std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0.0), m_reset_buffer.full());
 }
 
 Eigen::Vector6d ElastoplasticModel::compute_zp(const Eigen::Vector6d& z, const Eigen::Vector6d& u, const double /*dt*/) const {
@@ -107,13 +110,11 @@ Eigen::Vector6d ElastoplasticModel::update_z(const Eigen::Vector6d& uin, const d
   return ret_zp;
 }
 
-
 bool ElastoplasticModel::reset(const Eigen::Vector6d& f, const Eigen::Vector6d& v) {
   if (is_plastic()) {
     m_reset_buffer.push_back(f.dot(v));
     if (m_reset_buffer.full() && std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0.0) < m_reset_threshold) {
-      m_reset_buffer.clear();
-      m_z.setZero();
+      clear();
       return true;
     }
   }
