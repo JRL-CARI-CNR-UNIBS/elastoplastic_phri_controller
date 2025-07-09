@@ -509,7 +509,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     m_clik_result->on_activate();
     m_pub_wrench_in_world[Side::LEFT]->on_activate();
     m_pub_wrench_in_world[Side::RIGHT]->on_activate();
-    m_pub_wrench_in_tool->on_activate();
     m_pub_z->on_activate();
     m_pub_cart_vel_error->on_activate();
     m_pub_twist_in_world->on_activate();
@@ -678,7 +677,7 @@ void ElastoplasticController::get_odometry_callback(const nav_msgs::msg::Odometr
 
 
 controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time& time,
-                                                                                     const rclcpp::Duration& /*period*/) {
+                                                                                     const rclcpp::Duration& period) {
   rclcpp::Time t_start = get_node()->get_clock()->now();
 
   if (m_offset_future.wait_for(0s) != std::future_status::ready) {
@@ -939,7 +938,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector6d pose_error;
   rdyn::getFrameDistanceQuat(T_world_shared, m_computed_target_T_world_shared, pose_error);
   pose_error.normalize();
-  m_zp = m_elastoplastic_model->update_z(cart_vel_error_shared_target_in_world.dot(pose_error), m_dt);
+  m_zp = m_elastoplastic_model->update_z(cart_vel_error_shared_target_in_world, m_dt);
   bool reset = m_elastoplastic_model->reset(wrench_shared_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
                                             cart_vel_error_shared_target_in_world);
   if (reset) {
