@@ -377,6 +377,11 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   m_tf_bcast = std::make_shared<tf2_ros::TransformBroadcaster>(get_node()->shared_from_this());
 
+  std::fill_n(m_deadbands.begin(), 3, m_parameters.wrench.deadband[0]);
+  std::fill_n(std::next(m_deadbands.begin(), 3), 3, m_parameters.wrench.deadband[1]);
+  std::fill_n(std::next(m_deadbands.begin(), 6), 3, m_parameters.wrench.deadband[2]);
+  std::fill_n(std::next(m_deadbands.begin(), 9), 3, m_parameters.wrench.deadband[3]);
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -573,10 +578,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     const double offset_force_window = std::round(m_parameters.offset_force_window * get_update_rate());
     for (int idx = 0; idx < offset_force_window; ++idx) {
       Eigen::Vector12d wr = get_wrenches();
-      std::transform(wr.begin(), wr.end(), m_parameters.wrench.deadband.begin(), wr.begin(),
-                     [](const double w, const double deadband) {
-                       return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
-                     });
+      std::transform(wr.begin(), wr.end(), m_deadbands.begin(), wr.begin(), [](const double w, const double deadband) {
+        return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
+      });
       std::transform(wr.begin(), wr.end(), m_offset_wrench_sensor_in_sensor.begin(), m_offset_wrench_sensor_in_sensor.begin(),
                      std::plus<double>{});
       std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
@@ -882,7 +886,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ************
 
   // Wrench deadband
-  std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_parameters.wrench.deadband.begin(),
+  std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_deadbands.begin(),
                  wrench_sensor_in_sensor.begin(), [](const double w, const double deadband) {
                    return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
                  });

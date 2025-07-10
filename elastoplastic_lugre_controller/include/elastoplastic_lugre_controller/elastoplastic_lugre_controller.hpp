@@ -228,6 +228,8 @@ private:
 
   Eigen::Vector6d m_zp;
 
+  std::array<double, 12> m_deadbands;
+
   utils::Logistic m_logistic;
   double m_logis_prec;
 
