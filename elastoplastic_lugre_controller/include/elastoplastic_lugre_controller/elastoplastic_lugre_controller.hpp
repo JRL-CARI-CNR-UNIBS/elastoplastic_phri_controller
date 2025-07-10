@@ -99,8 +99,8 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_interp_twist_pub;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_computed_twist_pub;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr m_pub_joint_reference;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_pub_fk_world_tool;
-  std::array<rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr, 2> m_pub_fk_base_tool;
+  Couple<rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr> m_pub_fk_world_tool;
+  Couple<rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr> m_pub_fk_base_tool;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_interp_pose_pub;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_computed_pose_pub;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_z;
@@ -138,11 +138,11 @@ private:
 
   std::vector<std::string> m_joint_names;
 
-  Couple<size_t> m_nax_s;
-  std::array<size_t, 4> m_split_nax;
+  Couple<size_t> m_nax_s;            // number of axis for each single full chain
+  std::array<size_t, 4> m_split_nax; // number of axis for each part. Order based on `Side`
   std::array<size_t, 3> m_idx_st;
-  size_t m_nax;
-  size_t m_full_nax;
+  size_t m_nax;      // number of axis, without mobile base
+  size_t m_full_nax; // number of axis + 3 for mobile base
 
   Eigen::VectorXd m_q;
   Eigen::VectorXd m_qp;

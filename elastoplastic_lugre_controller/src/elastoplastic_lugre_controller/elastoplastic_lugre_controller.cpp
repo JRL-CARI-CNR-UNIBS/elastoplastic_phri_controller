@@ -52,19 +52,29 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
   RCLCPP_DEBUG(get_node()->get_logger(), "URDF model created");
 
   Eigen::Vector3d gravity({m_parameters.gravity.at(0), m_parameters.gravity.at(1), m_parameters.gravity.at(2)});
-  rdyn::ChainPtr chain_base_fork = rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.fork, gravity);
+  // rdyn::ChainPtr chain_base_fork = rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.fork, gravity);
 
-  rdyn::ChainPtr chain_fork_tool =
-    rdyn::createChain(*urdf_model, m_parameters.frames.fork, m_parameters.frames.tools[Side::LEFT], gravity);
-  m_chain_base_tools[Side::LEFT] = rdyn::joinChains(chain_base_fork, chain_fork_tool);
-  chain_fork_tool = rdyn::createChain(*urdf_model, m_parameters.frames.fork, m_parameters.frames.tools[Side::RIGHT], gravity);
-  m_chain_base_tools[Side::RIGHT] = rdyn::joinChains(chain_base_fork, chain_fork_tool);
+  // rdyn::ChainPtr chain_fork_tool =
+  //   rdyn::createChain(*urdf_model, m_parameters.frames.fork, m_parameters.frames.tools[Side::LEFT], gravity);
+  // m_chain_base_tools[Side::LEFT] = rdyn::joinChains(chain_base_fork, chain_fork_tool);
+  // chain_fork_tool = rdyn::createChain(*urdf_model, m_parameters.frames.fork, m_parameters.frames.tools[Side::RIGHT], gravity);
+  // m_chain_base_tools[Side::RIGHT] = rdyn::joinChains(chain_base_fork, chain_fork_tool);
 
-  rdyn::ChainPtr chain_fork_sensor =
-    rdyn::createChain(*urdf_model, m_parameters.frames.fork, m_parameters.frames.sensors[Side::LEFT], gravity);
-  m_chain_base_sensors[Side::LEFT] = rdyn::joinChains(chain_base_fork, chain_fork_sensor);
-  chain_fork_sensor = rdyn::createChain(*urdf_model, m_parameters.frames.fork, m_parameters.frames.sensors[Side::RIGHT], gravity);
-  m_chain_base_sensors[Side::RIGHT] = rdyn::joinChains(chain_base_fork, chain_fork_sensor);
+  m_chain_base_tools[Side::LEFT] =
+    rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.tools[Side::LEFT], gravity);
+  m_chain_base_tools[Side::RIGHT] =
+    rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.tools[Side::RIGHT], gravity);
+
+  // rdyn::ChainPtr chain_fork_sensor =
+  //   rdyn::createChain(*urdf_model, m_parameters.frames.fork, m_parameters.frames.sensors[Side::LEFT], gravity);
+  // m_chain_base_sensors[Side::LEFT] = rdyn::joinChains(chain_base_fork, chain_fork_sensor);
+  // chain_fork_sensor = rdyn::createChain(*urdf_model, m_parameters.frames.fork, m_parameters.frames.sensors[Side::RIGHT],
+  // gravity); m_chain_base_sensors[Side::RIGHT] = rdyn::joinChains(chain_base_fork, chain_fork_sensor);
+
+  m_chain_base_sensors[Side::LEFT] =
+    rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.sensors[Side::LEFT], gravity);
+  m_chain_base_sensors[Side::RIGHT] =
+    rdyn::createChain(*urdf_model, m_parameters.frames.base, m_parameters.frames.sensors[Side::RIGHT], gravity);
 
 
   if (std::ranges::find(m_chain_base_tools, nullptr) != m_chain_base_tools.end()) {
@@ -231,7 +241,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_pub_cart_vel_error = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/cart_vel_error", 10);
     m_pub_twist_in_world = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/twist_in_world", 10);
     m_pub_joint_reference = this->get_node()->create_publisher<sensor_msgs::msg::JointState>("~/joint_references", 10);
-    m_pub_fk_world_tool = this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>("~/fk_world_tool", rclcpp::QoS(10));
+    m_pub_fk_world_tool[Side::LEFT] =
+      this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>("~/fk_world_tool/left", rclcpp::QoS(10));
+    m_pub_fk_world_tool[Side::RIGHT] =
+      this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>("~/fk_world_tool/right", rclcpp::QoS(10));
     m_pub_fk_base_tool[Side::LEFT] =
       this->get_node()->create_publisher<geometry_msgs::msg::PoseStamped>("~/fk_base_tool/left", rclcpp::QoS(10));
     m_pub_fk_base_tool[Side::RIGHT] =
@@ -243,6 +256,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_computed_twist_pub = this->get_node()->create_publisher<geometry_msgs::msg::Twist>("~/computed_twist", 10);
     m_estim_joint_state = this->get_node()->create_publisher<sensor_msgs::msg::JointState>("~/estimated_joints", 10);
     m_pub_wrench_shared_in_world = this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("~/wrench_shared", 10);
+    m_pub_reset_buffer = this->get_node()->create_publisher<std_msgs::msg::Float64>("~/reset_buffer_status", 10);
   }
 
   m_state_interfaces_names.reserve(m_allowed_interface_types.size());
@@ -454,6 +468,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   if (m_param_listener->is_old(m_parameters)) {
     m_parameters = m_param_listener->get_params();
     m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters, get_update_rate()));
+    std_msgs::msg::String::SharedPtr rd = std::make_shared<std_msgs::msg::String>();
+    rd->data = this->get_robot_description();
+    configure_after_robot_description_callback(rd);
   }
 
   m_elastoplastic_model->clear();
@@ -518,7 +535,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     m_pub_cart_vel_error->on_activate();
     m_pub_twist_in_world->on_activate();
     m_pub_joint_reference->on_activate();
-    m_pub_fk_world_tool->on_activate();
+    m_pub_fk_world_tool[Side::LEFT]->on_activate();
+    m_pub_fk_world_tool[Side::RIGHT]->on_activate();
     m_pub_fk_base_tool[Side::LEFT]->on_activate();
     m_pub_fk_base_tool[Side::RIGHT]->on_activate();
     m_pub_weights->on_activate();
@@ -528,6 +546,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     m_computed_twist_pub->on_activate();
     m_estim_joint_state->on_activate();
     m_pub_wrench_shared_in_world->on_activate();
+    m_pub_reset_buffer->on_activate();
   }
 
   m_last_odom_msg_time = this->get_node()->get_clock()->now();
@@ -583,7 +602,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
       });
       std::transform(wr.begin(), wr.end(), m_offset_wrench_sensor_in_sensor.begin(), m_offset_wrench_sensor_in_sensor.begin(),
                      std::plus<double>{});
-      std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
+      // std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
+      rclcpp::Rate(get_update_rate()).sleep();
     }
     m_offset_wrench_sensor_in_sensor /= offset_force_window;
 
@@ -634,6 +654,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
 
   m_elastoplastic_model->clear();
   m_delta_elastoplastic_in_world.clear();
+
+  m_support_node_exec->cancel();
+  m_tf_base_pose_recovery_thread->join();
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -913,9 +936,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   }
   m_wrench_in_sensor_prec = wrench_sensor_in_sensor;
   Eigen::Vector6d wrench_shared_in_world = m_grasp_matrix_wrench * wrench_tool_in_world;
-  RCLCPP_INFO_STREAM(get_node()->get_logger(), "wrenches\nshared: " << wrench_shared_in_world << "\ntools\n"
-                                                                    << wrench_tool_in_world << "\nsensors\n"
-                                                                    << wrench_sensor_in_sensor);
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(), "wrenches\nshared: " << wrench_shared_in_world << "\ntools\n"
+  //                                                                   << wrench_tool_in_world << "\nsensors\n"
+  //                                                                   << wrench_sensor_in_sensor);
 
   Eigen::Matrix12Xd Jtmp = Eigen::Matrix12Xd::Zero(12, m_full_nax);
   Jtmp.topLeftCorner(6, m_nax_s[Side::LEFT] + m_split_nax[Side::BASE]) =
@@ -965,12 +988,18 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   std::optional<Eigen::VectorXd> solution_qp = clik(clik_data);
   if (!solution_qp.has_value()) {
-    RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
-    this->on_deactivate(rclcpp_lifecycle::State());
-    throw std::runtime_error("Controller crashed");
+    // RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
+    // this->on_deactivate(rclcpp_lifecycle::State());
+    // throw std::runtime_error("Controller crashed");
+    m_qp.setZero();
+    m_qpp.setZero();
+  } else {
+    Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
+    Eigen::Vector12d xepp = solution_qp.value().tail<12>();
+    m_qpp = qepp;
+    m_qp += qepp * m_dt;
+    m_q += m_qp * m_dt; // Symplectic Euler
   }
-  Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
-  Eigen::Vector12d xepp = solution_qp.value().tail<12>();
 
 
   Eigen::Vector6d dist;
@@ -980,33 +1009,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_elastoplastic_model->restore();
     RCLCPP_INFO(get_node()->get_logger(), "Restore elastic state");
   }
-
-
-  // Scaling due to joint velocity limits
-  // Eigen::VectorXd qp = m_qp.tail(m_nax) + qepp.tail(m_nax) * m_dt;
-  // double scaling_vel = 1.0;
-  // for(size_t idx = 0; idx < m_nax; idx++)
-  // {
-  //   scaling_vel = std::max(scaling_vel,std::abs(qp(idx))/m_limits.vel(idx));
-  // }
-  // if(scaling_vel > 1)
-  // {
-  //   RCLCPP_WARN(get_node()->get_logger(), "Joint velocity greater than limits (ratio = %4f). Applying scaling", scaling_vel);
-  //   qepp = clik(twist_next_tool_world_in_world/scaling_vel);
-  //   if (qepp.hasNaN())
-  //   {
-  //     RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
-  //     //return controller_interface::return_type::ERROR;
-  //     this->on_deactivate(rclcpp_lifecycle::State());
-  //     throw std::runtime_error("Controller crashed");
-  //   }
-  // }
-
-  // Ik integration
-  // m_q += m_qp * m_dt + 0.5 * qepp * std::pow(m_dt, 2);
-  m_qpp = qepp;
-  m_qp += qepp * m_dt;
-  m_q += m_qp * m_dt; // Symplectic Euler
 
   if (m_mobile_base.enabled) {
     Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
@@ -1039,12 +1041,12 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       std::max(m_limits.pos_lower(idx), std::min(m_limits.pos_upper(idx), m_q(idx + (m_full_nax - m_nax))));
     m_qp(idx + (m_full_nax - m_nax)) =
       std::max(-m_limits.vel(idx), std::min(m_limits.vel(idx), m_qp(idx + (m_full_nax - m_nax))));
-    if (!utils::almost_equal(q, m_q(idx + (m_full_nax - m_nax)))) {
-      // RCLCPP_WARN(get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld", idx);
-    }
-    if (!utils::almost_equal(dq, m_qp(idx + (m_full_nax - m_nax)))) {
-      // RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld", idx);
-    }
+    // if (!utils::almost_equal(q, m_q(idx + (m_full_nax - m_nax)))) {
+    //   // RCLCPP_WARN(get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld", idx);
+    // }
+    // if (!utils::almost_equal(dq, m_qp(idx + (m_full_nax - m_nax)))) {
+    //   // RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld", idx);
+    // }
   }
   // END - Saturation Manipulator
 
@@ -1156,14 +1158,21 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_pub_joint_reference->publish(jref_msg);
 
     geometry_msgs::msg::PoseStamped fk_msg;
-    // Eigen::Affine3d fk = m_chain_world_tools->getTransformation(m_q);
-    // fk_msg.header.stamp = time_now;
-    // fk_msg.header.frame_id = m_parameters.frames.map;
-    // fk_msg.pose = Eigen::toMsg(fk);
-    // m_pub_fk_world_tool->publish(fk_msg);
+    Eigen::Affine3d fk;
+    fk = m_chain_world_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT]));
+    fk_msg.header.stamp = time_now;
+    fk_msg.header.frame_id = m_parameters.frames.map;
+    fk_msg.pose = Eigen::toMsg(fk);
+    m_pub_fk_world_tool[Side::LEFT]->publish(fk_msg);
+
+    fk = m_chain_world_tools[Side::RIGHT]->getTransformation(m_q(m_sel[Side::RIGHT]));
+    fk_msg.header.stamp = time_now;
+    fk_msg.header.frame_id = m_parameters.frames.map;
+    fk_msg.pose = Eigen::toMsg(fk);
+    m_pub_fk_world_tool[Side::RIGHT]->publish(fk_msg);
 
 
-    Eigen::Affine3d fk = m_chain_base_tools[Side::LEFT]->getTransformation(m_q.segment(m_mobile_base.nax(), m_nax_s[Side::LEFT]));
+    fk = m_chain_base_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT]).tail(m_nax_s[Side::LEFT]));
     fk_msg.header.stamp = time_now;
     fk_msg.header.frame_id = m_parameters.frames.base;
     fk_msg.pose = Eigen::toMsg(fk);
