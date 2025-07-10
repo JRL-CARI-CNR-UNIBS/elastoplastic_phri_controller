@@ -23,7 +23,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_init() {
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-
 void ElastoplasticController::configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg) {
   if (m_robot_description_configuration == RDStatus::OK) {
     RCLCPP_DEBUG(get_node()->get_logger(), "New robot_description ignored");
@@ -49,6 +48,7 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
     m_robot_description_configuration = RDStatus::ERROR;
     return;
   }
+
   RCLCPP_DEBUG(get_node()->get_logger(), "URDF model created");
 
   Eigen::Vector3d gravity({m_parameters.gravity.at(0), m_parameters.gravity.at(1), m_parameters.gravity.at(2)});
@@ -155,10 +155,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   using namespace std::placeholders;
   m_mobile_base_pose_updated = false;
+  m_sub_mobile_base_odometry = this->get_node()->create_subscription<nav_msgs::msg::Odometry>(
+    m_parameters.mobile_base.odom, 1, std::bind(&ElastoplasticController::get_odometry_callback, this, _1));
   if (m_mobile_base.enabled) {
-    m_sub_mobile_base_odometry = this->get_node()->create_subscription<nav_msgs::msg::Odometry>(
-      m_parameters.mobile_base.odom, 1, std::bind(&ElastoplasticController::get_odometry_callback, this, _1));
-  } else {
     m_mobile_base_pose_updated = true;
   }
   m_pub_cmd_vel = this->get_node()->create_publisher<geometry_msgs::msg::Twist>(m_parameters.cmd_vel_topic, 1);
@@ -267,12 +266,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_kp_joint_task = m_parameters.clik.joint_task.kp;
   m_kv_joint_task = m_parameters.clik.joint_task.kv;
 
-  if (m_mobile_base.enabled) {
-    m_mobile_base.vel_limits = {m_parameters.mobile_base.max_vel.linear[0], m_parameters.mobile_base.max_vel.linear[1],
-                                m_parameters.mobile_base.max_vel.angular};
-    m_mobile_base.acc_limits = {m_parameters.mobile_base.max_acc_x, m_parameters.mobile_base.max_acc_y,
-                                m_parameters.mobile_base.max_acc_yaw};
-  }
+  m_mobile_base.vel_limits = {m_parameters.mobile_base.max_vel.linear[0], m_parameters.mobile_base.max_vel.linear[1],
+                              m_parameters.mobile_base.max_vel.angular};
+  m_mobile_base.acc_limits = {m_parameters.mobile_base.max_acc_x, m_parameters.mobile_base.max_acc_y,
+                              m_parameters.mobile_base.max_acc_yaw};
 
   m_logistic = {.max = m_parameters.impedance.logistic.max,
                 .slope = m_parameters.impedance.logistic.slope,
@@ -414,6 +411,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   if (m_param_listener->is_old(m_parameters)) {
     m_parameters = m_param_listener->get_params();
     m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters, get_update_rate()));
+    std_msgs::msg::String::SharedPtr rd = std::make_shared<std_msgs::msg::String>();
+    rd->data = this->get_robot_description();
+    configure_after_robot_description_callback(rd);
   }
 
   m_elastoplastic_model->clear();
