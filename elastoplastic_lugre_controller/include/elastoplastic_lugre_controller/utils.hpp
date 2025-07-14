@@ -27,7 +27,50 @@ struct Logistic {
   double get(const Eigen::Array3d& v) { return (max / (1 + Eigen::exp(slope * (v.abs() - inflection)))).minCoeff(); }
 };
 
+/* == LIE OPERATORS == */
+inline Eigen::Matrix3d hat(const Eigen::Vector3d& w) {
+  Eigen::Matrix3d W;
+  W << 0, -w.z(), w.y(), w.z(), 0, -w.x(), -w.y(), w.x(), 0;
+  return W;
+}
 
+inline Eigen::Vector3d vee(const Eigen::Matrix3d& W) { return Eigen::Vector3d({W(2, 1), W(0, 2), W(1, 0)}); }
+
+inline Eigen::Affine3d lieExp(const Eigen::Matrix<double, 6, 1>& xi) {
+  const Eigen::Vector3d omega = xi.template head<3>();
+  const Eigen::Vector3d v = xi.template tail<3>();
+  const double theta = omega.norm();
+
+  Eigen::Matrix3d R;
+  Eigen::Matrix3d J; // left‐Jacobian
+
+  // compute rotation and left‐Jacobian
+  if (theta < 1e-10) {
+    // small‐angle approximations
+    Eigen::Matrix3d W = hat(omega);
+    R = Eigen::Matrix3d::Identity() + W + 0.5 * (W * W);
+    J = Eigen::Matrix3d::Identity() + 0.5 * W + (1.0 / 6.0) * (W * W);
+  } else {
+    Eigen::Matrix3d W = hat(omega);
+    Eigen::Matrix3d W2 = W * W;
+    const double s = std::sin(theta);
+    const double c = std::cos(theta);
+
+    // Rodrigues’ formula
+    R = Eigen::Matrix3d::Identity() + (s / theta) * W + ((1 - c) / (theta * theta)) * W2;
+
+    // left‐Jacobian J = I + (1−cosθ)/θ² W + (θ−sinθ)/θ³ W²
+    J = Eigen::Matrix3d::Identity() + ((1 - c) / (theta * theta)) * W + ((theta - s) / (theta * theta * theta)) * W2;
+  }
+
+  // build the final transform
+  Eigen::Affine3d T = Eigen::Affine3d::Identity();
+  T.linear() = R;
+  T.translation() = J * v;
+  return T;
+}
+
+/* == FLOATS == */
 /**
  *  Floating point comparison
  *  https://www.learncpp.com/cpp-tutorial/relational-operators-and-floating-point-comparisons/

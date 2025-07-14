@@ -219,9 +219,9 @@ private:
     const Eigen::Affine3d& T_world_shared;
     //, next_T_world_tool;
     const Eigen::Vector6d& target_acc_tool_target_in_world;
-    const Eigen::Matrix12Xd& J_world_tool_in_world;
+    const Eigen::Matrix12Xd& J_world_tools_in_world;
     const Eigen::Affine3d& target_T_world_tool;
-    const Eigen::Vector6d& target_twist_tool_world_in_world;
+    const Eigen::Vector6d& target_twist_shared_world_in_world;
     const Eigen::Vector12d& wrench_tool_in_world;
     const Eigen::Vector6d& wrench_shared_in_world;
   };

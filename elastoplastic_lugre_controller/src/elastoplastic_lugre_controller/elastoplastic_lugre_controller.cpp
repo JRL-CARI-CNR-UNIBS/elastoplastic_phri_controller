@@ -958,7 +958,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::Matrix6Xd::Zero(6, m_split_nax[Side::LEFT]), //
     Jtmp.rightCols(m_split_nax[Side::RIGHT]).bottomRows<6>();
 
-
   Eigen::Vector6d twist_shared_world_in_world = m_grasp_matrix_twist * twist_tool_world_in_world;
 
   Eigen::Vector6d cart_vel_error_shared_target_in_world =
@@ -982,9 +981,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                      .T_world_tool = T_world_tool,
                      .T_world_shared = T_world_shared,
                      .target_acc_tool_target_in_world = reference_target_acc_shared_world_in_world,
-                     .J_world_tool_in_world = J_world_tool_in_world,
+                     .J_world_tools_in_world = J_world_tool_in_world,
+                     .J_base_tools_in_world = J_base_tool_in_world,
                      .target_T_world_tool = reference_target_T_world_shared,
-                     .target_twist_tool_world_in_world = reference_target_twist_shared_world_in_world,
+                     .target_twist_shared_world_in_world = reference_target_twist_shared_world_in_world,
                      .wrench_tool_in_world = wrench_tool_in_world,
                      .wrench_shared_in_world = wrench_shared_in_world};
 
@@ -1277,26 +1277,30 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
    ** Task Definitions **
    **********************/
 
-  elastoplastic::Task task_ref_relative(prb_dim, M_SE3);
   Eigen::Matrix612d idn612;
   idn612 << Eigen::Matrix6d::Identity(), -Eigen::Matrix6d::Identity();
-  task_ref_relative.A().rightCols(12) << idn612 * m_dt;
-  task_ref_relative.b() << idn612 * a_data.twist_tool_world_in_world;
+
+  // elastoplastic::Task task_ref_relative(prb_dim, M_SE3);
+  // task_ref_relative.A().rightCols<M_SE3>() << m_dt;
+  // task_ref_relative.b() << idn612 * a_data.twist_tool_world_in_world;
 
   // elastopastoplastic::Task task_cart_relative(prb_dim, m_full_nax);
   // task_cart_relative.A().leftCols(m_full_nax) << a_data.J_world_tool_in_world
 
   // Task Cartesian : Minimize cartesian distance from reference twist
-  // task_cart_vel.A().rightCols(M_SE3) = Eigen::Matrix6d::Identity() * m_dt;
-  // task_cart_vel.b() = (m_computed_target_twist_shared_world_in_world - a_data.target_twist_tool_world_in_world);
+  task_cart_vel.A().rightCols(M_SE3) = Eigen::Matrix6d::Identity() * m_dt;
+  task_cart_vel.b() = (m_computed_target_twist_shared_world_in_world - a_data.target_twist_shared_world_in_world);
 
-  elastoplastic::Task task_keep_relative_tf(prb_dim, m_full_nax);
-  Eigen::Affine3d T_left_right = m_T_left_shared * m_T_right_shared_ideal.inverse();
-  task_keep_relative_tf.A().leftCols(m_full_nax) = idn612 * a_data.J_world_tool_in_world; // FIXME: dimensioni
-  task_keep_relative_tf.b() = idn612 * acc_non_linear_in_world +
-                              (a_data.twist_tool_world_in_world.tail<6>() - a_data.twist_tool_world_in_world.head<6>()) +
-                              utils::vector_from_affine(a_data.T_world_tool[Side::LEFT].inverse() *
-                                                        a_data.T_world_tool[Side::RIGHT] * T_left_right.inverse());
+  // Task cartesian: relative distances between end effectors
+  elastoplastic::Task task_keep_relative_tf(prb_dim, M_SE3);
+  Eigen::Vector6d dist_left_from_right_ideal;
+  rdyn::getFrameDistance(m_T_left_shared.inverse(), m_T_right_shared_ideal.inverse(), dist_left_from_right_ideal);
+  Eigen::Vector6d dist_left_from_right;
+  rdyn::getFrameDistance(a_data.T_world_tool[Side::LEFT], a_data.T_world_tool[Side::RIGHT], dist_left_from_right);
+  task_keep_relative_tf.A().leftCols(m_full_nax) = idn612 * a_data.J_world_tools_in_world * std::pow(m_dt, 2) * 0.5;
+  task_keep_relative_tf.b() = idn612 * acc_non_linear_in_world * std::pow(m_dt, 2) * 0.5 +
+                              idn612 * a_data.twist_tool_world_in_world * m_dt + dist_left_from_right -
+                              dist_left_from_right_ideal;
 
   elastoplastic::Task task_minimize_joint_vel(prb_dim, m_nax);
   task_minimize_joint_vel.A().leftCols(m_nax) = Eigen::MatrixXd::Identity(m_nax, m_nax) * m_dt;
@@ -1305,7 +1309,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   // Task Cartesian : Minimize difference between the real target and the computed one
   Eigen::Vector6d ref_p_err;
   rdyn::getFrameDistanceQuat(m_computed_target_T_world_shared, a_data.target_T_world_tool, ref_p_err);
-  task_cart_pos.A().rightCols<12>() = G_twist * 0.5 * std::pow(m_dt, 2);
+  task_cart_pos.A().rightCols<6>() = G_twist * 0.5 * std::pow(m_dt, 2);
   task_cart_pos.b() << ref_p_err + m_computed_target_twist_shared_world_in_world * m_dt;
 
   // Task Cartesian:
@@ -1325,7 +1329,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   rdyn::getFrameDistanceQuat(a_data.T_world_shared, m_computed_target_T_world_shared, pose_error_shared_world_in_world);
 
   Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
-  task_admittance.A() << adm * G_twist * a_data.J_world_tool_in_world, -adm * G_twist;
+  task_admittance.A() << adm * G_twist * a_data.J_world_tools_in_world, -adm;
   task_admittance.b() << adm * G_twist * acc_non_linear_in_world + invM * D * twist_error_shared_world_in_world +
                            invM * K *
                              (twist_error_shared_world_in_world * m_dt +
@@ -1342,9 +1346,9 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
     sot.push_task(task_cart_pos, 1e1);
   }
   // FIXME: to correct
+  sot.push_task(task_cart_vel);
   sot.push_task(task_keep_relative_tf);
-  sot.push_task(task_ref_relative);
-  // sot.push_task(task_cart_vel);
+  // sot.push_task(task_ref_relative);
   sot.new_level();
   sot.push_task(task_minimize_cart_acc);
 
@@ -1385,8 +1389,12 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
    ** EQ Constraints **
    ********************/
   elastoplastic::Task task_fixed_torso(prb_dim, m_split_nax[Side::COMMON]);
-  task_fixed_torso.A().middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]).setIdentity();
-  task_fixed_torso.b().segment(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]).setZero();
+  task_fixed_torso.A().middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
+    Eigen::MatrixXd::Identity(m_split_nax[Side::COMMON], m_split_nax[Side::COMMON]) * std::pow(m_dt, 2) * 0.5;
+  task_fixed_torso.b().segment(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
+    m_qp(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON])) +
+    m_q(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON])) -
+    m_initial_q(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]));
 
   elastoplastic::EqualitySet eq_set(prb_dim);
   eq_set.push_constraint(task_admittance);
