@@ -119,20 +119,70 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   pose.translation() = (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * std::pow(s, 3) +
                        (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) * std::pow(s, 2) + delta_time * v0 * s + p0;
 
-  /* Slerp */
-  // Eigen::Quaterniond qi(m_plan.pose.at(idx - 1).linear());
-  // Eigen::Quaterniond qe(m_plan.pose.at(idx).linear());
-  // Eigen::Quaterniond qres = qi.slerp(s, qe);
-  // Eigen::AngleAxisd axang = Eigen::AngleAxisd(qi.inverse() * qe);
-  // o_pose.linear() = qres.toRotationMatrix();
-  // o_twist.tail<3>() = axang.axis() * axang.angle() / delta_time;
-  // o_acc.tail<3>().setZero();
-  Eigen::Vector3d pinterp =
-    interpolateRotationVector(m_plan.pose.at(idx - 1).linear(), m_plan.pose.at(idx).linear(), m_plan.twist.at(idx - 1).tail<3>(),
-                              m_plan.twist.at(idx).tail<3>(), s, delta_time);
-  pose.linear() = m_plan.pose.at(idx - 1).linear() * Eigen::AngleAxisd(pinterp.norm(), pinterp.normalized()).toRotationMatrix();
-  twist.tail<3>() = pinterp / delta_time;
-  acc.tail<3>().setZero();
+  const Eigen::Quaterniond r0 = Eigen::Quaterniond(m_plan.pose.at(idx - 1).linear());
+  const Eigen::Quaterniond r1 = Eigen::Quaterniond(m_plan.pose.at(idx).linear());
+  const Eigen::Vector3d vr0 = m_plan.twist.at(idx - 1).tail<3>();
+  const Eigen::Vector3d vr1 = m_plan.twist.at(idx).tail<3>();
+
+  auto rotateVector = [](const Eigen::Quaterniond& q, const Eigen::Vector3d& v) {
+    // Eigen::Quaterniond p(0., v.x(), v.y(), v.z());
+    // return (q * p * q.conjugate()).vec();
+    return q.conjugate() * v;
+  };
+
+  Eigen::Vector3d w0 = 0.5 * delta_time * rotateVector(r0, vr0);
+  Eigen::Vector3d w1 = 0.5 * delta_time * rotateVector(r1, vr1);
+
+  // ensure shortest‐path quaternion
+  Eigen::Quaterniond q1m = r1;
+  if (r0.dot(q1m) < 0.0)
+    q1m.coeffs() *= -1.0;
+
+  // “delta” in the Lie algebra
+  Eigen::Vector3d delta = quat_log(r0.conjugate() * q1m);
+
+  // Hermite coefficients
+  Eigen::Vector3d C = w0;
+  Eigen::Vector3d B = 3.0 * delta - 2.0 * w0 - w1;
+  Eigen::Vector3d A = -2.0 * delta + w0 + w1;
+
+  Eigen::Vector3d X = ((A * s + B) * s + C) * s;
+  Eigen::Vector3d Xp = ((3.0 * A * s + 2.0 * B) * s + C);
+
+  // map back to S3 and prepend q0
+  pose.linear() = (r0 * quat_exp(X)).normalized().toRotationMatrix();
+  twist.tail<3>() = r0.toRotationMatrix() * left_jacobian(X) * Xp;
+
+  /* Hermitian Cubic Spline */
+  // double w1 = 3 * s * s - 2 * s * s * s;
+  // double w2 = s * s * s - 2 * s * s + s;
+  // double w3 = s * s * s - s * s;
+
+  // double q1 = (6 * s - 6 * s * s) / delta_time;
+  // double q2 = (3 * s * s - 4 * s + 1) / delta_time;
+  // double q3 = (3 * s * s - 2 * s) / delta_time;
+
+  // double m1 = (6 - 12 * s) / std::pow(delta_time, 2);
+  // double m2 = (6 * s - 4) / std::pow(delta_time, 2);
+  // double m3 = (6 * s - 2) / std::pow(delta_time, 2);
+
+  // Eigen::AngleAxisd r1_sub_r0 = Eigen::AngleAxisd(r1.inverse() * r0);
+  // Eigen::Vector3d wvec = w1 * r1_sub_r0.angle() * r1_sub_r0.axis() + w2 * vr0 + w3 * vr1;
+  // pose.linear() = Eigen::AngleAxisd(wvec.norm(), wvec.normalized()).toRotationMatrix() * r0;
+  // if (v1 == v0) {
+  //   twist.tail<3>() = v0;
+  //   acc.tail<3>().setZero();
+  // } else {
+  //   twist.tail<3>() = q1 * r1_sub_r0.angle() * r1_sub_r0.axis() + q2 * vr0 + q3 * vr1;
+  //   acc.tail<3>() = m1 * r1_sub_r0.angle() * r1_sub_r0.axis() + m2 * vr0 + m3 * vr1;
+  // }
+
+
+  // Eigen::Vector3d pinterp =
+  // interpolateRotationVector(m_plan.pose.at(idx - 1).linear(), m_plan.pose.at(idx).linear(),
+  // m_plan.twist.at(idx - 1).tail<3>(), m_plan.twist.at(idx).tail<3>(), s, delta_time); pose.linear() =
+  // m_plan.pose.at(idx - 1).linear() * Eigen::AngleAxisd(pinterp.norm(),
+  // pinterp.normalized()).toRotationMatrix(); twist.tail<3>() = pinterp / delta_time; acc.tail<3>().setZero();
 
 
   /* Lie Spline ?? */
