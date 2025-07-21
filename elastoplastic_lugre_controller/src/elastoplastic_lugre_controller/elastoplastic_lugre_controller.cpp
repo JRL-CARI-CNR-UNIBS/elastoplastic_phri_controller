@@ -326,6 +326,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_mobile_base.acc_limits = {m_parameters.mobile_base.max_acc_x, m_parameters.mobile_base.max_acc_y,
                                 m_parameters.mobile_base.max_acc_yaw};
   }
+  m_cartesian_pos_limits = Eigen::Map<Eigen::Vector6d>(m_parameters.cartesian_limits.position.data(), 6);
 
   m_logistic = {.max = m_parameters.impedance.logistic.max,
                 .slope = m_parameters.impedance.logistic.slope,
@@ -391,7 +392,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_node_support->get_logger().set_level(rclcpp::Logger::Level::Debug);
   }
 
-  m_tf_bcast = std::make_shared<tf2_ros::TransformBroadcaster>(get_node()->shared_from_this());
+  m_tf_bcast = std::make_shared<tf2_ros::StaticTransformBroadcaster>(get_node()->shared_from_this());
 
   std::fill_n(m_deadbands.begin(), 3, m_parameters.wrench.deadband[0]);
   std::fill_n(std::next(m_deadbands.begin(), 3), 3, m_parameters.wrench.deadband[1]);
@@ -569,24 +570,32 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   Eigen::Affine3d T_world_right = m_chain_world_tools[Side::RIGHT]->getTransformation(m_q(m_sel[Side::RIGHT]));
   Eigen::Affine3d T_world_shared;
   Eigen::Vector6d left_right_distance; // vector from left to right
-  rdyn::getFrameDistance(T_world_left, T_world_right, left_right_distance);
+  utils::get_frame_distance(T_world_left, T_world_right, left_right_distance);
   T_world_shared.translation() = (T_world_left.translation() + T_world_right.translation()) / 2.0;
   T_world_shared.linear() =
     T_world_left.linear() *
     Eigen::AngleAxisd(left_right_distance.tail<3>().norm() / 2, left_right_distance.tail<3>().normalized()).toRotationMatrix();
   m_T_left_shared = T_world_left.inverse() * T_world_shared;
   m_T_right_shared_ideal = T_world_right.inverse() * T_world_shared;
+  m_tf_bcast->sendTransform([&]() -> geometry_msgs::msg::TransformStamped {
+    geometry_msgs::msg::TransformStamped t = tf2::eigenToTransform(m_T_left_shared);
+    t.header.frame_id = m_parameters.frames.tools[Side::LEFT];
+    t.child_frame_id = "shared";
+    return t;
+  }());
 
   m_grasp_matrix_wrench << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(),
-    Eigen::Matrix3d::Zero(), rdyn::skew(m_T_left_shared.translation()), Eigen::Matrix3d::Identity(),
-    rdyn::skew(m_T_right_shared_ideal.translation()), Eigen::Matrix3d::Identity();
+    Eigen::Matrix3d::Zero(), rdyn::skew(-m_T_left_shared.translation()), Eigen::Matrix3d::Identity(),
+    rdyn::skew(-m_T_right_shared_ideal.translation()), Eigen::Matrix3d::Identity();
 
-  m_grasp_matrix_twist << Eigen::Matrix3d::Identity(), rdyn::skew(m_T_left_shared.translation()), Eigen::Matrix3d::Identity(),
-    rdyn::skew(m_T_right_shared_ideal.translation()), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(),
+  m_grasp_matrix_twist << Eigen::Matrix3d::Identity(), rdyn::skew(-m_T_left_shared.translation()), Eigen::Matrix3d::Identity(),
+    rdyn::skew(-m_T_right_shared_ideal.translation()), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(),
     Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity();
   m_grasp_matrix_twist *= 0.5;
 
-  m_computed_target_T_world_shared = get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT])));
+  m_computed_target_T_world_shared =
+    get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT])),
+                     m_chain_world_tools[Side::RIGHT]->getTransformation(m_q(m_sel[Side::RIGHT])));
   m_computed_target_acc_shared_world_in_world.setZero();
   m_computed_target_twist_shared_world_in_world.setZero();
 
@@ -639,7 +648,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
   m_qpp.setZero();
 
-  m_computed_target_T_world_shared = get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT])));
+  m_computed_target_T_world_shared =
+    get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT])),
+                     m_chain_world_tools[Side::RIGHT]->getTransformation(m_q(m_sel[Side::RIGHT])));
   m_computed_target_acc_shared_world_in_world.setZero();
   m_computed_target_twist_shared_world_in_world.setZero();
   m_joint_state_interfaces.clear();
@@ -859,30 +870,35 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       reference_target_acc_shared_world_in_world.setZero();
       reference_target_twist_shared_world_in_world.setZero();
       reference_target_T_world_shared =
-        get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_initial_q(m_sel[Side::LEFT])));
+        get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_initial_q(m_sel[Side::LEFT])),
+                         m_chain_world_tools[Side::RIGHT]->getTransformation(m_initial_q(m_sel[Side::RIGHT])));
     }
   } else {
     reference_target_acc_shared_world_in_world.setZero();
     reference_target_twist_shared_world_in_world.setZero();
     reference_target_T_world_shared =
-      get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_initial_q(m_sel[Side::LEFT])));
+      get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_initial_q(m_sel[Side::LEFT])),
+                       m_chain_world_tools[Side::RIGHT]->getTransformation(m_initial_q(m_sel[Side::RIGHT])));
   }
   if (m_mobile_base.enabled) {
     full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(reference_target_twist_shared_world_in_world);
     full_position_references.head<M_SE2>() = utils::base_velocity_from_twist(utils::vector_from_affine(
       reference_target_T_world_shared *
-      get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_initial_q(m_sel[Side::LEFT]))).inverse()));
+      get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_initial_q(m_sel[Side::LEFT])),
+                       m_chain_world_tools[Side::RIGHT]->getTransformation(m_initial_q(m_sel[Side::RIGHT])))
+        .inverse()));
   }
 
 #endif
 
-  Eigen::Affine3d T_world_shared = get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT])));
-  m_tf_bcast->sendTransform([&]() -> geometry_msgs::msg::TransformStamped {
-    geometry_msgs::msg::TransformStamped t = tf2::eigenToTransform(T_world_shared);
-    t.header.frame_id = m_parameters.frames.map;
-    t.child_frame_id = "shared";
-    return t;
-  }());
+  Eigen::Affine3d T_world_shared = get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT])),
+                                                    m_chain_world_tools[Side::RIGHT]->getTransformation(m_q(m_sel[Side::RIGHT])));
+  // m_tf_bcast->sendTransform([&]() -> geometry_msgs::msg::TransformStamped {
+  // geometry_msgs::msg::TransformStamped t = tf2::eigenToTransform(T_world_shared);
+  // t.header.frame_id = m_parameters.frames.map;
+  // t.child_frame_id = "shared";
+  // return t;
+  // }());
 
   /* FT state */
   Eigen::Vector12d wrench_sensor_in_sensor = get_wrenches();
@@ -905,6 +921,14 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   m_computed_target_T_world_shared =
     rdyn::spatialIntegration(m_computed_target_T_world_shared, m_computed_target_twist_shared_world_in_world, m_dt);
+
+  // WARNING: needed even if the virtual link should be rigid?
+  Eigen::Vector3d p_right_shared = (T_world_tool[Side::RIGHT].inverse() * T_world_shared).translation();
+  Eigen::Vector3d p_left_shared = (T_world_tool[Side::LEFT].inverse() * T_world_shared).translation();
+  m_grasp_matrix_wrench.block<3, 3>(3, 6) = rdyn::skew(-p_right_shared);
+  m_grasp_matrix_wrench.block<3, 3>(3, 0) = rdyn::skew(-p_left_shared);
+  m_grasp_matrix_twist.block<3, 3>(0, 9) = rdyn::skew(-p_right_shared);
+  m_grasp_matrix_twist.block<3, 3>(0, 3) = rdyn::skew(-p_left_shared);
 
   // ************
   // ** Update **
@@ -958,13 +982,26 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::Matrix6Xd::Zero(6, m_split_nax[Side::LEFT]), //
     Jtmp.rightCols(m_split_nax[Side::RIGHT]).bottomRows<6>();
 
+  Eigen::Matrix12Xd Jbtw = Eigen::Matrix12Xd::Zero(12, m_full_nax);
+  Jbtw.topLeftCorner(6, m_nax_s[Side::LEFT]) =
+    m_chain_base_tools[Side::LEFT]->getJacobian(m_q(m_sel[Side::LEFT]).tail(m_nax_s[Side::LEFT]));
+  Jbtw.bottomRightCorner(6, m_nax_s[Side::RIGHT]) =
+    m_chain_base_tools[Side::RIGHT]->getJacobian(m_q(m_sel[Side::RIGHT]).tail(m_nax_s[Side::RIGHT]));
+  Eigen::Matrix12Xd J_base_tool_in_world(12, m_nax);
+  J_base_tool_in_world << Jbtw.middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]).topRows<6>(),
+    Jbtw.middleCols(m_idx_st[Side::LEFT], m_split_nax[Side::LEFT]).topRows<6>(),
+    Eigen::Matrix6Xd::Zero(6, m_split_nax[Side::RIGHT]), //
+    Jbtw.middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]).topRows<6>(),
+    Eigen::Matrix6Xd::Zero(6, m_split_nax[Side::LEFT]), //
+    Jbtw.rightCols(m_split_nax[Side::RIGHT]).bottomRows<6>();
+
   Eigen::Vector6d twist_shared_world_in_world = m_grasp_matrix_twist * twist_tool_world_in_world;
 
   Eigen::Vector6d cart_vel_error_shared_target_in_world =
     (twist_shared_world_in_world - m_computed_target_twist_shared_world_in_world)
       .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
   // Eigen::Vector6d pose_error;
-  // rdyn::getFrameDistanceQuat(T_world_shared, m_computed_target_T_world_shared, pose_error);
+  // utils::get_frame_distance(T_world_shared, m_computed_target_T_world_shared, pose_error);
   // pose_error.normalize();
   m_zp = m_elastoplastic_model->update_z(cart_vel_error_shared_target_in_world, m_dt);
   bool reset = m_elastoplastic_model->reset(wrench_shared_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
@@ -1005,7 +1042,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
 
   Eigen::Vector6d dist;
-  rdyn::getFrameDistanceQuat(T_world_shared, reference_target_T_world_shared, dist);
+  utils::get_frame_distance(T_world_shared, reference_target_T_world_shared, dist);
   if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() && dist.head<3>().norm() < 1e-2 &&
       dist.tail<3>().norm() < 1.0 && m_parameters.impedance.plastic_restoration) {
     m_elastoplastic_model->restore();
@@ -1110,6 +1147,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     std::ranges::copy(qp_start.tail(m_nax), joint_state_msg.velocity.begin());
     m_estim_joint_state->publish(joint_state_msg);
 
+    std_msgs::msg::Float64MultiArray qepp_msg;
+    qepp_msg.data.resize(m_qpp.size());
+    std::ranges::copy(m_qpp, qepp_msg.data.begin());
+    m_clik_result->publish(qepp_msg);
 
     // geometry_msgs::msg::WrenchStamped msg_wrench_in_tool;
     // msg_wrench_in_tool.header.frame_id = m_parameters.frames.tool;
@@ -1145,6 +1186,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     geometry_msgs::msg::WrenchStamped msg_wrench_shared;
     tf2::toMsg(wrench_shared_in_world.head<3>(), msg_wrench_shared.wrench.force);
     tf2::toMsg(wrench_shared_in_world.tail<3>(), msg_wrench_shared.wrench.torque);
+    msg_wrench_shared.header.stamp = time_now;
+    msg_wrench_shared.header.frame_id = m_parameters.frames.map;
     m_pub_wrench_shared_in_world->publish(msg_wrench_shared);
 
     m_pub_cart_vel_error->publish(tf2::toMsg(cart_vel_error_shared_target_in_world));
@@ -1181,7 +1224,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_pub_fk_base_tool[Side::LEFT]->publish(fk_msg);
 
 
-    fk = m_chain_base_tools[Side::RIGHT]->getTransformation(m_q.tail(m_nax_s[Side::RIGHT]));
+    fk = m_chain_base_tools[Side::RIGHT]->getTransformation(m_q(m_sel[Side::RIGHT]).tail(m_nax_s[Side::RIGHT]));
     fk_msg.pose = Eigen::toMsg(fk);
     m_pub_fk_base_tool[Side::RIGHT]->publish(fk_msg);
 
@@ -1265,12 +1308,11 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   elastoplastic::Task task_cart_vel(prb_dim, M_SE3);
   elastoplastic::Task task_cart_pos(prb_dim, M_SE3);
   elastoplastic::Task task_minimize_cart_acc(prb_dim, M_SE3);
+  elastoplastic::Task task_minimize_cart_vel(prb_dim, M_SE3);
   elastoplastic::Task task_joint_pos(prb_dim, m_full_nax);
   elastoplastic::Task task_joint_vel(prb_dim, m_full_nax);
   elastoplastic::Task task_minimize_joint_acc(prb_dim, m_full_nax);
   elastoplastic::Task task_admittance(prb_dim, M_SE3);
-
-  Eigen::Matrix612d& G_twist = m_grasp_matrix_twist;
 
 
   /**********************
@@ -1293,14 +1335,19 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
 
   // Task cartesian: relative distances between end effectors
   elastoplastic::Task task_keep_relative_tf(prb_dim, M_SE3);
-  Eigen::Vector6d dist_left_from_right_ideal;
-  rdyn::getFrameDistance(m_T_left_shared.inverse(), m_T_right_shared_ideal.inverse(), dist_left_from_right_ideal);
-  Eigen::Vector6d dist_left_from_right;
-  rdyn::getFrameDistance(a_data.T_world_tool[Side::LEFT], a_data.T_world_tool[Side::RIGHT], dist_left_from_right);
-  task_keep_relative_tf.A().leftCols(m_full_nax) = idn612 * a_data.J_world_tools_in_world * std::pow(m_dt, 2) * 0.5;
-  task_keep_relative_tf.b() = idn612 * acc_non_linear_in_world * std::pow(m_dt, 2) * 0.5 +
-                              idn612 * a_data.twist_tool_world_in_world * m_dt + dist_left_from_right -
-                              dist_left_from_right_ideal;
+  Eigen::Vector6d dist_right_left_ideal_in_shared, dist_right_left_ideal_in_world;
+  utils::get_frame_distance(m_T_left_shared.inverse(), m_T_right_shared_ideal.inverse(), dist_right_left_ideal_in_shared);
+  dist_right_left_ideal_in_world = rdyn::spatialRotation(dist_right_left_ideal_in_shared, a_data.T_world_shared.linear());
+  Eigen::Vector6d dist_right_left_in_world;
+  utils::get_frame_distance(a_data.T_world_tool[Side::LEFT], a_data.T_world_tool[Side::RIGHT], dist_right_left_in_world);
+  task_keep_relative_tf.A().leftCols(m_full_nax) = idn612 * a_data.J_world_tools_in_world * m_dt * m_dt * 0.5;
+  task_keep_relative_tf.b() = idn612 * acc_non_linear_in_world * m_dt * m_dt * 0.5 +
+                              idn612 * a_data.twist_tool_world_in_world * m_dt + dist_right_left_in_world -
+                              dist_right_left_ideal_in_world;
+
+  elastoplastic::Task task_keep_relative_vel(prb_dim, M_SE3);
+  task_keep_relative_vel.A().leftCols(m_full_nax) = idn612 * a_data.J_world_tools_in_world * m_dt;
+  task_keep_relative_vel.b() = idn612 * acc_non_linear_in_world * m_dt + idn612 * a_data.twist_tool_world_in_world;
 
   elastoplastic::Task task_minimize_joint_vel(prb_dim, m_nax);
   task_minimize_joint_vel.A().leftCols(m_nax) = Eigen::MatrixXd::Identity(m_nax, m_nax) * m_dt;
@@ -1308,8 +1355,8 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
 
   // Task Cartesian : Minimize difference between the real target and the computed one
   Eigen::Vector6d ref_p_err;
-  rdyn::getFrameDistanceQuat(m_computed_target_T_world_shared, a_data.target_T_world_tool, ref_p_err);
-  task_cart_pos.A().rightCols<6>() = G_twist * 0.5 * std::pow(m_dt, 2);
+  utils::get_frame_distance(m_computed_target_T_world_shared, a_data.target_T_world_tool, ref_p_err);
+  task_cart_pos.A().rightCols<6>() = Eigen::Matrix6d::Identity() * 0.5 * std::pow(m_dt, 2);
   task_cart_pos.b() << ref_p_err + m_computed_target_twist_shared_world_in_world * m_dt;
 
   // Task Cartesian:
@@ -1326,11 +1373,11 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   Eigen::Vector6d twist_error_shared_world_in_world =
     a_data.twist_shared_world_in_world - m_computed_target_twist_shared_world_in_world;
   Eigen::Vector6d pose_error_shared_world_in_world;
-  rdyn::getFrameDistanceQuat(a_data.T_world_shared, m_computed_target_T_world_shared, pose_error_shared_world_in_world);
+  utils::get_frame_distance(a_data.T_world_shared, m_computed_target_T_world_shared, pose_error_shared_world_in_world);
 
   Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
-  task_admittance.A() << adm * G_twist * a_data.J_world_tools_in_world, -adm;
-  task_admittance.b() << adm * G_twist * acc_non_linear_in_world + invM * D * twist_error_shared_world_in_world +
+  task_admittance.A() << adm * m_grasp_matrix_twist * a_data.J_world_tools_in_world, -adm;
+  task_admittance.b() << adm * m_grasp_matrix_twist * acc_non_linear_in_world + invM * D * twist_error_shared_world_in_world +
                            invM * K *
                              (twist_error_shared_world_in_world * m_dt +
                               (m_elastoplastic_model->z() +
@@ -1347,8 +1394,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   }
   // FIXME: to correct
   sot.push_task(task_cart_vel);
-  sot.push_task(task_keep_relative_tf);
-  // sot.push_task(task_ref_relative);
+  // sot.push_task(task_keep_relative_tf);
+  sot.push_task(task_keep_relative_vel);
+  sot.new_level();
+  sot.push_task(task_admittance);
   sot.new_level();
   sot.push_task(task_minimize_cart_acc);
 
@@ -1389,15 +1438,20 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
    ** EQ Constraints **
    ********************/
   elastoplastic::Task task_fixed_torso(prb_dim, m_split_nax[Side::COMMON]);
+  // task_fixed_torso.A().middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
+  // Eigen::MatrixXd::Identity(m_split_nax[Side::COMMON], m_split_nax[Side::COMMON]) * std::pow(m_dt, 2) * 0.5;
+  // task_fixed_torso.b().segment(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
+  // m_qp(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON])) +
+  // m_q(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON])) -
+  // m_initial_q(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]));
+
   task_fixed_torso.A().middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
-    Eigen::MatrixXd::Identity(m_split_nax[Side::COMMON], m_split_nax[Side::COMMON]) * std::pow(m_dt, 2) * 0.5;
+    Eigen::MatrixXd::Identity(m_split_nax[Side::COMMON], m_split_nax[Side::COMMON]) * m_dt;
   task_fixed_torso.b().segment(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
-    m_qp(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON])) +
-    m_q(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON])) -
-    m_initial_q(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]));
+    m_qp(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]));
 
   elastoplastic::EqualitySet eq_set(prb_dim);
-  eq_set.push_constraint(task_admittance);
+  // eq_set.push_constraint(task_admittance);
   eq_set.push_constraint(task_fixed_torso);
   eq_set.compute_set();
 
@@ -1411,6 +1465,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   elastoplastic::InequalityConstraint ineq_qp_min(prb_dim, m_full_nax, "Joint Velocity Min");
   elastoplastic::InequalityConstraint ineq_q_max(prb_dim, m_nax, "Joint Position Max");
   elastoplastic::InequalityConstraint ineq_q_min(prb_dim, m_nax, "Joint Position Min");
+  elastoplastic::InequalityConstraint ineq_x_max(prb_dim, M_SE3, "Cartesian Position Max");
+  elastoplastic::InequalityConstraint ineq_x_min(prb_dim, M_SE3, "Cartesian Position Min");
+  elastoplastic::InequalityConstraint ineq_xpp_max(prb_dim, M_SE3, "Cartesian Acceleration Max");
+  elastoplastic::InequalityConstraint ineq_xpp_min(prb_dim, M_SE3, "Cartesian Acceleration Min");
 
   // Velocity
   ineq_qp_min.CI().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
@@ -1432,6 +1490,27 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
 
   ineq_q_max.CI().block(0, m_mobile_base.nax(), m_nax, m_nax) << -Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt;
   ineq_q_max.ci().head(m_nax) = m_limits.pos_upper - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
+
+  // Cartesian Constraints
+  // Position
+  // ineq_x_min.CI().rightCols<M_SE3>() = Eigen::Matrix6d::Identity() * 0.5 * m_dt * m_dt;
+  // ineq_x_min.ci() = m_computed_target_twist_shared_world_in_world * m_dt +
+  // utils::vector_from_affine(m_computed_target_T_world_shared) +
+  // utils::vector_from_affine(m_T_world_base * utils::affine_from_vector(m_cartesian_pos_limits));
+
+  // ineq_x_max.CI().rightCols<M_SE3>() = -Eigen::Matrix6d::Identity() * 0.5 * m_dt * m_dt;
+  // ineq_x_max.ci() = -m_computed_target_twist_shared_world_in_world * m_dt -
+  // utils::vector_from_affine(m_computed_target_T_world_shared) +
+  // utils::vector_from_affine(m_T_world_base * utils::affine_from_vector(m_cartesian_pos_limits));
+
+  // Acceleration
+  ineq_xpp_min.CI().rightCols<M_SE3>() = Eigen::Matrix6d::Identity();
+  ineq_xpp_min.ci() = Eigen::VectorXd::Constant(6, 1000);
+  //(m_grasp_matrix_twist * a_data.J_base_tools_in_world * m_limits.vel) * m_parameters.acceleration_limits_coeff;
+
+  ineq_xpp_max.CI().rightCols<M_SE3>() = -Eigen::Matrix6d::Identity();
+  ineq_xpp_max.ci() = Eigen::VectorXd::Constant(6, 1000);
+  //(m_grasp_matrix_twist * a_data.J_base_tools_in_world * m_limits.vel) * m_parameters.acceleration_limits_coeff;
 
   // Move base limits to world
   if (m_mobile_base.enabled) {
@@ -1457,16 +1536,26 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   ineq_set.push_constraint(ineq_qp_max);
   ineq_set.push_constraint(ineq_qpp_min);
   ineq_set.push_constraint(ineq_qpp_max);
+  // ineq_set.push_constraint(ineq_x_min);
+  // ineq_set.push_constraint(ineq_x_max);
+  ineq_set.push_constraint(ineq_xpp_min);
+  ineq_set.push_constraint(ineq_xpp_max);
   ineq_set.compute_set();
 
   /***********
    ** Solve **
    ***********/
+  sot.symmetrize();
+  sot.regularize();
+  // LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(), 2.0,
+  //                          "There are " << ineq_set.redundancies() << " in the inquality constraints");
   elastoplastic::SolverQP solver(prb_dim, sot, eq_set, ineq_set);
   auto [solutionQP, status] = solver.solve();
 
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
-    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << status);
+    // RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << status);
+    LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(), 1.0,
+                             "Problem unfeasible. Solver status: " << status);
     return std::nullopt;
   }
 

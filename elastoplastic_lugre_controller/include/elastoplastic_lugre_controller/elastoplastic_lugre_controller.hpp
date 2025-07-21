@@ -24,7 +24,7 @@
 #include "semantic_components/force_torque_sensor.hpp"
 #include "tf2_eigen/tf2_eigen.hpp"
 #include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_broadcaster.h"
+#include "tf2_ros/static_transform_broadcaster.h"
 #include "tf2_ros/transform_listener.h"
 
 // ros msgs
@@ -81,7 +81,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_pub_timing;
 
-  std::shared_ptr<tf2_ros::TransformBroadcaster> m_tf_bcast;
+  std::shared_ptr<tf2_ros::StaticTransformBroadcaster> m_tf_bcast;
   std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
@@ -127,12 +127,16 @@ private:
   Couple<rdyn::ChainPtr> m_chain_base_sensors;
   Couple<rdyn::ChainPtr> m_chain_world_tools;
 
+  // struct Side {
+  // constexpr static unsigned int LEFT = 0;  // --> first N elements of joint vectors
+  // constexpr static unsigned int RIGHT = 1; // --> last N elements of joint vectors
+  // constexpr static std::array<int, 2> arms() { return std::array<int, 2>({{LEFT, RIGHT}}); }
+  // constexpr static unsigned int COMMON = 2;
+  // constexpr static unsigned int BASE = 3;
+  // };
   struct Side {
-    constexpr static unsigned int LEFT = 0;  // --> first N elements of joint vectors
-    constexpr static unsigned int RIGHT = 1; // --> last N elements of joint vectors
+    enum { LEFT = 0, RIGHT = 1, COMMON = 2, BASE = 3 };
     constexpr static std::array<int, 2> arms() { return std::array<int, 2>({{LEFT, RIGHT}}); }
-    constexpr static unsigned int COMMON = 2;
-    constexpr static unsigned int BASE = 3;
   };
 
 
@@ -201,6 +205,7 @@ private:
     Eigen::VectorXd vel;
     Eigen::VectorXd acc;
   } m_limits;
+  Eigen::Vector6d m_cartesian_pos_limits;
 
   std::unique_ptr<ElastoplasticModel> m_elastoplastic_model;
 
@@ -220,6 +225,7 @@ private:
     //, next_T_world_tool;
     const Eigen::Vector6d& target_acc_tool_target_in_world;
     const Eigen::Matrix12Xd& J_world_tools_in_world;
+    const Eigen::Matrix12Xd& J_base_tools_in_world;
     const Eigen::Affine3d& target_T_world_tool;
     const Eigen::Vector6d& target_twist_shared_world_in_world;
     const Eigen::Vector12d& wrench_tool_in_world;
@@ -243,7 +249,17 @@ private:
   Eigen::Affine3d m_T_left_shared;
   Eigen::Affine3d m_T_right_shared_ideal;
   // Da rivedere
-  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left) { return T_world_left * m_T_left_shared; }
+  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left, const Eigen::Affine3d& /*T_world_right*/) {
+    return T_world_left * m_T_left_shared;
+  }
+  // Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left, const Eigen::Affine3d& T_world_right) {
+  // Eigen::Affine3d T_world_shared;
+  // T_world_shared.translation() = 0.5 * (T_world_left.translation() + T_world_right.translation());
+  // Eigen::AngleAxisd aa_left_shared(T_world_left.linear().transpose() * T_world_right.linear());
+  // aa_left_shared.angle() *= 0.5;
+  // T_world_shared.linear() = T_world_left.linear() * aa_left_shared.toRotationMatrix();
+  // return T_world_shared;
+  // }
 
   // Eigen::Affine3d get_shared_frame_from_chains(const std::array<rdyn::ChainPtr, 2>& chs, const Eigen::VectorXd& q) {
   // return get_shared_frame(chs[Side::LEFT]->getTransformation(q.segment(m_idx_st[Side::LEFT], m_nax_s[Side::LEFT])),
@@ -253,7 +269,8 @@ private:
   Eigen::Vector6d get_wrench(const int side) {
     geometry_msgs::msg::Wrench w;
     m_ft_sensors[side]->get_values_as_message(w);
-    return Eigen::Vector6d({-w.force.x, -w.force.y, -w.force.z, -w.torque.x, -w.torque.y, -w.torque.z});
+    double s = m_parameters.ft_invert_sign ? -1.0 : 1.0;
+    return Eigen::Vector6d({s * w.force.x, s * w.force.y, s * w.force.z, s * w.torque.x, s * w.torque.y, s * w.torque.z});
   }
 
   Eigen::Vector12d get_wrenches() { return (Eigen::Vector12d() << get_wrench(Side::LEFT), get_wrench(Side::RIGHT)).finished(); }

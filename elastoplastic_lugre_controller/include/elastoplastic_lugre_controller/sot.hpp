@@ -2,6 +2,7 @@
 #define ELASTOPLASTIC_CONTORLLER__SOT_HPP
 
 #include "Eigen/Dense"
+// #define EIQGUADPROG_TRACE_SOLVER
 #include "eiquadprog/eiquadprog-fast.hpp"
 #include <numeric>
 #include <set>
@@ -72,6 +73,8 @@ public:
     m_F = Eigen::VectorXd::Zero(m_prb_dim);
     m_level = 0;
   }
+  void symmetrize(void) { m_G = (m_G + m_G.transpose()) * 0.5; }
+  void regularize(const double eps = 1e-8) { m_G.diagonal() += Eigen::VectorXd::Constant(m_prb_dim, eps); }
 };
 
 using EqualityConstraint = Task;
@@ -205,6 +208,10 @@ public:
     std::copy_if(m_neq.begin(), m_neq.end(), std::back_inserter(v),
                  [&x](const InequalityConstraint& ineq) { return ineq.violations(x); });
     return v;
+  }
+  int redundancies() {
+    Eigen::BDCSVD<Eigen::MatrixXd> svd(m_CI, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    return std::max(m_CI.rows(), m_CI.cols()) - svd.nonzeroSingularValues();
   }
 };
 

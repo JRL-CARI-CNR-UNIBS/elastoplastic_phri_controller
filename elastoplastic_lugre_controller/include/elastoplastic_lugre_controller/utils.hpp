@@ -5,6 +5,38 @@
 #include "elastoplastic_lugre_controller/elastoplastic_variable_model.hpp"
 #include "elastoplastic_parameters.hpp"
 
+// Helpers to get unique names when using __LINE__
+#define _CONCAT(a, b) a##b
+#define UNIQUE_NAME(base) _CONCAT(base, __LINE__)
+
+// Throttled INFO with a call-count
+#define LOG_ERROR_THROTTLE_COUNT(logger, clock, period_sec, message)                                                             \
+  do {                                                                                                                           \
+    /* static variables per call-site */                                                                                         \
+    static rclcpp::Time UNIQUE_NAME(_last_time_) = rclcpp::Time(0, 0, RCL_ROS_TIME);                                             \
+    static size_t UNIQUE_NAME(_call_count_) = 0;                                                                                 \
+                                                                                                                                 \
+    /* increment counter */                                                                                                      \
+    UNIQUE_NAME(_call_count_)++;                                                                                                 \
+                                                                                                                                 \
+    /* current time */                                                                                                           \
+    auto UNIQUE_NAME(_now_) = clock->now();                                                                                      \
+                                                                                                                                 \
+    /* if enough time has elapsed… */                                                                                          \
+    if ((UNIQUE_NAME(_now_) - UNIQUE_NAME(_last_time_)).seconds() >= (period_sec)) {                                             \
+      /* log the count + your message */                                                                                         \
+      RCLCPP_ERROR_STREAM((logger), "Throttled over " << (period_sec)                                                            \
+                                                      << "s: "                                                                   \
+                                                         "("                                                                     \
+                                                      << UNIQUE_NAME(_call_count_) << " calls) " << message);                    \
+                                                                                                                                 \
+      /* reset */                                                                                                                \
+      UNIQUE_NAME(_last_time_) = UNIQUE_NAME(_now_);                                                                             \
+      UNIQUE_NAME(_call_count_) = 0;                                                                                             \
+    }                                                                                                                            \
+  } while (false)
+
+
 namespace Eigen {
 using Vector6d = Vector<double,6>;
 using Vector12d = Vector<double, 12>;
@@ -125,6 +157,32 @@ inline Eigen::Vector6d vector_from_affine(const Eigen::Affine3d& m) {
 }
 
 /**
+ * @brief Convert from 6d vector to Rototranslation matrix.
+ *        Angular convention: rotation vector (= angle * axis)
+ * @param v  6d vector [tx, ty, tz,  ωx,  ωy,  ωz] where ω = angle*axis
+ * @return   Affine3d with translation and rotation
+ */
+inline Eigen::Affine3d affine_from_vector(const Eigen::Vector6d& v) {
+  // Extract rotation-vector
+  Eigen::Vector3d rot = v.tail<3>();
+  double angle = rot.norm();
+
+  // Start with identity, set translation
+  Eigen::Affine3d m = Eigen::Affine3d::Identity();
+  m.translation() = v.head<3>();
+
+  // If there's a non-zero rotation, build the AngleAxis
+  if (angle > std::numeric_limits<double>::epsilon()) {
+    Eigen::Vector3d axis = rot / angle;
+    Eigen::AngleAxisd aa(angle, axis);
+    m.linear() = aa.toRotationMatrix();
+  }
+  // else leave m.linear() == identity
+
+  return m;
+}
+
+/**
  * \brief One Runge–Kutta-4 integration step.
  *
  * Template parameters are deduced automatically.
@@ -200,6 +258,12 @@ constexpr std::pair<T, T> rk4_double(Acc&& acc, // a = acc(x,v,u)
   const S s_next = s0 + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
 
   return {s_next.x, s_next.v};
+}
+
+inline void get_frame_distance(const Eigen::Affine3d& T_wa, const Eigen::Affine3d& T_wb, Eigen::Vector6d& v) {
+  v.head<3>() = T_wa.translation() - T_wb.translation();
+  Eigen::AngleAxisd aa(T_wb.linear().transpose() * T_wa.linear());
+  v.tail<3>() = T_wb.linear() * (aa.angle() * aa.axis());
 }
 
 inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& params, const double update_rate) {
