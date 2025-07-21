@@ -1,7 +1,7 @@
 elastoplastic_controller:
   ros__parameters:
     type: elastoplastic_controller/ElastoplasticController
-    use_sim_time: True
+    use_sim_time: False
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
@@ -61,8 +61,10 @@ elastoplastic_controller:
       max_acc_yaw: 50.0
       max_dec_yaw: 50.0
     wrench:
-      deadband: [1.0,1.0,1.0,1.0,1.0,1.0]
-      filter_alfa: 0.1
+      deadband:
+      - 1.0
+      - 1.0
+      filter_alfa: 0.2
       source: "ft_sensor" #"torque"
       invert_torque: true # used only for if source==ft_sensor
     impedance:
@@ -98,9 +100,9 @@ elastoplastic_controller:
       leak_coefficient: 0.02
       reset:
         time: 10.0
-        threshold: 1e-2
+        threshold: 1e0
       plastic_restoration: false
-    offset_force_window: 1.0 # seconds
+    offset_force_window: 2.0 # seconds
     clik:
       alpha_gain: 1.0e6
       joint_task:

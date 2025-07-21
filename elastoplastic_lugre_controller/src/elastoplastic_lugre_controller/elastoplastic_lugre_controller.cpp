@@ -4,6 +4,7 @@
 
 #include "control_toolbox/filters.hpp"
 #include "eiquadprog/eiquadprog-fast.hpp"
+
 #include "pluginlib/class_list_macros.hpp"
 #include "tf2_eigen/tf2_eigen.hpp"
 #include "tf2_ros/create_timer_ros.h"
@@ -176,7 +177,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   m_pub_controller_mode = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/mode", 5);
   if (m_parameters.debug.pub) {
-    m_clik_result = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/qepp", 5);
+    m_cmd_pose_pub = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/cmd_q", 5);
     m_pub_z = this->get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/z", 10);
     m_pub_wrench_in_world = this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("~/wrench_in_world", 10);
     m_pub_admittance_force = this->get_node()->create_publisher<geometry_msgs::msg::WrenchStamped>("~/admittance_force", 10);
@@ -335,6 +336,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_node_support->get_logger().set_level(rclcpp::Logger::Level::Debug);
   }
 
+  for (int idx = 0; idx < 6; ++idx) {
+    m_wrench_notch.push_back(std::make_shared<NotchFilter>(5, 1, get_update_rate()));
+  }
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -473,7 +478,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
   if (m_parameters.debug.pub) {
     RCLCPP_WARN(get_node()->get_logger(), "Debug-related publishers: ON");
-    m_clik_result->on_activate();
+    m_cmd_pose_pub->on_activate();
     m_pub_wrench_in_world->on_activate();
     m_pub_admittance_force->on_activate();
     m_pub_z->on_activate();
@@ -898,6 +903,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     wrench_tool_in_world = rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear()) - m_offset_wrench_tool_in_world;
   }
 
+  std::transform(wrench_tool_in_world.begin(), wrench_tool_in_world.end(), m_wrench_notch.begin(), wrench_tool_in_world.begin(),
+                 [](const double w, const std::shared_ptr<NotchFilter>& notch) { return notch->update(w); });
+
   Eigen::VectorXd q_start = m_q;
   Eigen::VectorXd qp_start = m_qp;
 
@@ -1067,6 +1075,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     std::ranges::copy(qp_start.tail(m_nax), joint_state_msg.velocity.begin());
     m_estim_joint_state->publish(joint_state_msg);
 
+    std_msgs::msg::Float64MultiArray cmd_q_msg;
+    cmd_q_msg.data.resize(m_q.size());
+    std::ranges::copy(m_q, cmd_q_msg.data.begin());
+    m_cmd_pose_pub->publish(cmd_q_msg);
+
     // geometry_msgs::msg::WrenchStamped msg_wrench_in_tool;
     // msg_wrench_in_tool.header.frame_id = m_parameters.frames.tool;
     // msg_wrench_in_tool.header.stamp = time_now;
@@ -1225,11 +1238,12 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
    ** Task Stack **
    ****************/
   elastoplastic::Stack sot(prb_dim);
+  double cart_vel_weight = 1e0;
   if (!m_elastoplastic_model->is_plastic() && m_elastoplastic_model->to_restore() && m_parameters.impedance.plastic_restoration) {
     RCLCPP_DEBUG_STREAM_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1, "Is restoring");
-    sot.push_task(task_cart_pos, 1e1);
+    sot.push_task(task_cart_pos, 5e1);
   }
-  sot.push_task(task_cart_vel);
+  sot.push_task(task_cart_vel); // TODO: trova modo intelligente per bilanciare cart pos/vel in funzione della velocità
   sot.new_level();
   sot.push_task(task_minimize_cart_acc);
 

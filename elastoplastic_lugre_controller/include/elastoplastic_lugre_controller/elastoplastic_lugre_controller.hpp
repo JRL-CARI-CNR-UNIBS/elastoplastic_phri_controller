@@ -3,6 +3,7 @@
 
 // local libs
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
+#include "elastoplastic_lugre_controller/notch_filter.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 #include "elastoplastic_parameters.hpp"
 #include "elastoplastic_variable_model.hpp"
@@ -99,7 +100,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr m_computed_pose_pub;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_z;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_pub_weights;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_clik_result;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_cmd_pose_pub;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr m_estim_joint_state;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr m_pub_reset_buffer;
 
@@ -231,6 +232,7 @@ private:
     return m_invert_torque * svd.solve(tau);
   }
 
+  std::vector<std::shared_ptr<NotchFilter>> m_wrench_notch;
 
 public:
   ElastoplasticController() {}

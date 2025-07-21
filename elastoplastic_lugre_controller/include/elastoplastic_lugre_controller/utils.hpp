@@ -4,6 +4,7 @@
 #include "Eigen/Core"
 #include "elastoplastic_lugre_controller/elastoplastic_variable_model.hpp"
 #include "elastoplastic_parameters.hpp"
+#include "filters/transfer_function.hpp"
 
 namespace Eigen {
 using Vector6d = Vector<double,6>;
@@ -153,6 +154,7 @@ constexpr std::pair<T, T> rk4_double(Acc&& acc, // a = acc(x,v,u)
 
   return {s_next.x, s_next.v};
 }
+
 
 inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& params, const double update_rate) {
   ElastoplasticModelData data;
