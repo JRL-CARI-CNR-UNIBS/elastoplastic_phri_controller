@@ -572,7 +572,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
       }
       offset_wrench_sensor_in_sensor /= offset_force_window;
 
-      // Transform wrench offset in world T_tool_sensor
+      // Transform wrench offset in world
       Eigen::Vector6d offset_wrench_tool_in_tool =
         rdyn::spatialDualTranformation(offset_wrench_sensor_in_sensor, m_chain_base_tool->getTransformation(m_q).inverse() *
                                                                          m_chain_base_sensor->getTransformation(m_q));
@@ -837,10 +837,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   /* FT state */
   Eigen::Vector6d wrench_tool_in_world;
-  Eigen::VectorXd tau_j(m_nax);
   Eigen::Matrix6Xd J_world_tool_in_world = m_chain_world_tool->getJacobian(m_q);
   // Damped LS
   if (m_ft_source == FTSource::TORQUE) {
+    Eigen::VectorXd tau_j(m_nax);
     Eigen::JacobiSVD<Eigen::Matrix6Xd> svd_torque(J_world_tool_in_world.transpose(), Eigen::ComputeThinU | Eigen::ComputeThinV);
     std::transform(m_joint_state_interfaces.at(2).begin(), m_joint_state_interfaces.at(2).end(), tau_j.head(m_nax).begin(),
                    [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
@@ -1206,15 +1206,15 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   // Task Cartesian : Minimize difference between the real target and the computed one
   Eigen::Vector6d ref_p_err;
   rdyn::getFrameDistanceQuat(m_computed_target_T_world_tool, a_data.target_T_world_tool, ref_p_err);
-  task_cart_pos.A().rightCols(M_SE3) = Eigen::Matrix6d::Identity() * 0.5 * std::pow(m_dt, 2);
+  task_cart_pos.A().rightCols<M_SE3>() = Eigen::Matrix6d::Identity() * 0.5 * std::pow(m_dt, 2);
   task_cart_pos.b() << ref_p_err + m_computed_target_twist_tool_world_in_world * m_dt;
 
   // Task Cartesian:
   elastoplastic::Task task_minimize_cart_vel(prb_dim, M_SE3);
-  task_minimize_cart_vel.A().rightCols(M_SE3) = Eigen::Matrix6d::Identity() * m_dt;
+  task_minimize_cart_vel.A().rightCols<M_SE3>() = Eigen::Matrix6d::Identity() * m_dt;
   task_minimize_cart_vel.b() << a_data.twist_tool_world_in_world;
 
-  task_minimize_cart_acc.A().rightCols(M_SE3).setIdentity();
+  task_minimize_cart_acc.A().rightCols<M_SE3>().setIdentity();
   task_minimize_cart_acc.b().setZero();
 
   // Task: Admittance
