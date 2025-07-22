@@ -89,9 +89,15 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
   m_limits.vel.resize(m_nax);
   m_limits.acc.resize(m_nax);
 
+  if (m_parameters.soft_limits.size() != m_nax) {
+    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "soft_limits parameters size != " << m_nax);
+    m_robot_description_configuration = RDStatus::ERROR;
+    return;
+  }
+
   for (size_t ax = 0; ax < m_nax; ++ax) {
-    m_limits.pos_upper(ax) = urdf_model->getJoint(m_parameters.joints.at(ax))->limits->upper;
-    m_limits.pos_lower(ax) = urdf_model->getJoint(m_parameters.joints.at(ax))->limits->lower;
+    m_limits.pos_upper(ax) = urdf_model->getJoint(m_parameters.joints.at(ax))->limits->upper - m_parameters.soft_limits.at(ax);
+    m_limits.pos_lower(ax) = urdf_model->getJoint(m_parameters.joints.at(ax))->limits->lower + m_parameters.soft_limits.at(ax);
 
     if (utils::almost_zero(m_limits.pos_upper(ax)) && utils::almost_zero(m_limits.pos_lower(ax))) {
       m_limits.pos_upper(ax) = std::numeric_limits<double>::infinity();
@@ -923,16 +929,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::Vector6d cart_vel_error_tool_target_in_world;
   cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
                                           .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
-  Eigen::Vector6d d_pose;
-  rdyn::getFrameDistanceQuat(T_world_tool, m_computed_target_T_world_tool, d_pose);
-  d_pose.normalize();
-  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world, m_dt);
-  bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
-                                            cart_vel_error_tool_target_in_world);
-  if (reset) {
-    RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
-  }
-  m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool;
 
   ClikData clik_data{.position_references = full_position_references,
                      .velocity_references = full_velocity_references,
@@ -964,6 +960,14 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_qp += qepp * m_dt;
     m_q += m_qp * m_dt; // Symplectic Euler
   }
+
+  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world, m_dt);
+  bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
+                                            cart_vel_error_tool_target_in_world);
+  if (reset) {
+    RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
+  }
+  m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool;
 
   Eigen::Vector6d dist;
   rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);
@@ -1237,12 +1241,20 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   /****************
    ** Task Stack **
    ****************/
-  elastoplastic::Stack sot(prb_dim);
+  constexpr double STACK_LEVEL_STEP = 1e-3;
+  constexpr int STACK_LEVEL_ZERO = 0;
+  elastoplastic::Stack sot(prb_dim, STACK_LEVEL_STEP, STACK_LEVEL_ZERO);
   double cart_vel_weight = 1e0;
+
+  /* Variable stack */
+  int cart_pos_level = STACK_LEVEL_ZERO + 1;
   if (!m_elastoplastic_model->is_plastic() && m_elastoplastic_model->to_restore() && m_parameters.impedance.plastic_restoration) {
     RCLCPP_DEBUG_STREAM_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1, "Is restoring");
-    sot.push_task(task_cart_pos, 5e1);
+    cart_pos_level -= 1;
   }
+  sot.insert_task(task_cart_pos, cart_pos_level, 1e2);
+
+  /* Constant stack */
   sot.push_task(task_cart_vel); // TODO: trova modo intelligente per bilanciare cart pos/vel in funzione della velocità
   sot.new_level();
   sot.push_task(task_minimize_cart_acc);

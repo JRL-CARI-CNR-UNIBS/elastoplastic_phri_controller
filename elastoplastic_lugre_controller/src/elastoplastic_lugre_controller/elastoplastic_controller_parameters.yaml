@@ -69,6 +69,11 @@ elastoplastic_controller:
     default_value: [],
     description: "Robot Joints",
   }
+  soft_limits: {
+    type: double_array,
+    default_value: [],
+    description: "joint constraint = |joint_limit| - soft_limit",
+  }
   kalman_filter:
     manipulator:
       position: {

@@ -17,6 +17,7 @@ private:
   Eigen::MatrixXd m_W;
 
 public:
+  Task() = delete;
   Task(const size_t problem_size, const size_t task_size)
       : m_prb_dim(problem_size), m_task_dim(task_size), m_Ad(task_size, problem_size), m_bd(task_size),
         m_W(task_size, task_size) {
@@ -34,7 +35,7 @@ public:
   double cost(const Eigen::VectorXd& x) const {
     return (x.transpose() * m_Ad.transpose() * m_W * m_Ad * x + m_bd.transpose() * m_W * m_Ad * x).eval()(0);
   }
-  std::pair<Eigen::MatrixXd, Eigen::VectorXd> update_task(void) {
+  std::pair<Eigen::MatrixXd, Eigen::VectorXd> update_task(void) const {
     Eigen::MatrixXd Gt = m_Ad.transpose() * m_W * m_Ad;
     Eigen::VectorXd Ft = m_bd.transpose() * m_W * m_Ad;
     return std::make_pair(Gt, Ft);
@@ -67,10 +68,19 @@ public:
     m_G += G * relative_task_weight * std::pow(m_level_step, m_level);
     m_F += F * relative_task_weight * std::pow(m_level_step, m_level);
   }
+  void insert_task(Task& t, const int level, const double relative_task_weight = 1.0) {
+    auto [G, F] = t.update_task();
+    m_G += G * relative_task_weight * std::pow(m_level_step, level);
+    m_F += F * relative_task_weight * std::pow(m_level_step, level);
+  }
+
   void clear(void) {
+    prepare();
+    m_level = 0;
+  }
+  void prepare(void) {
     m_G = Eigen::MatrixXd::Zero(m_prb_dim, m_prb_dim);
     m_F = Eigen::VectorXd::Zero(m_prb_dim);
-    m_level = 0;
   }
 };
 
@@ -89,6 +99,7 @@ private:
   }
 
 public:
+  EqualitySet() = delete;
   EqualitySet(const size_t problem_size) : m_prb_size(problem_size), m_CE(0, problem_size), m_ce(0) {}
   const Eigen::MatrixXd& CE() const { return m_CE; }
   const Eigen::VectorXd& ce() const { return m_ce; }
@@ -136,6 +147,8 @@ private:
   std::string m_description;
 
 public:
+  InequalityConstraint() = delete;
+
   InequalityConstraint(const size_t problem_size, const size_t constr_size, const std::string& description)
       : m_CI(constr_size, problem_size), m_ci(constr_size), m_prb_size(problem_size), m_constr_size(constr_size),
         m_description(description) {
@@ -172,6 +185,7 @@ private:
   }
 
 public:
+  InequalitySet() = delete;
   InequalitySet(const size_t problem_size) : m_prb_size(problem_size), m_CI(0, problem_size), m_ci(0) {}
   Eigen::MatrixXd CI() const { return m_CI; }
   Eigen::VectorXd ci() const { return m_ci; }
@@ -247,8 +261,10 @@ private:
   const InequalitySet& m_ineq;
 
 public:
+  SolverQP() = delete;
   SolverQP(const size_t problem_size, const Stack& stack, const EqualitySet& eq, const InequalitySet& ineq)
       : m_prb_dim(problem_size), m_stack(stack), m_eq(eq), m_ineq(ineq) {}
+
   std::pair<Eigen::VectorXd, SolverStatus> solve() {
     m_solver.reset(m_prb_dim, m_eq.size(), m_ineq.size());
     Eigen::VectorXd sol;
