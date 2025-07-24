@@ -1247,10 +1247,11 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   double cart_vel_weight = 1e0;
 
   /* Variable stack */
-  int cart_pos_level = STACK_LEVEL_ZERO + 1;
+  constexpr int CART_POS_LEVEL_OFFSET = 1;
+  int cart_pos_level = STACK_LEVEL_ZERO + CART_POS_LEVEL_OFFSET;
   if (!m_elastoplastic_model->is_plastic() && m_elastoplastic_model->to_restore() && m_parameters.impedance.plastic_restoration) {
     RCLCPP_DEBUG_STREAM_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1, "Is restoring");
-    cart_pos_level -= 1;
+    cart_pos_level -= CART_POS_LEVEL_OFFSET;
   }
   sot.insert_task(task_cart_pos, cart_pos_level, 1e2);
 
