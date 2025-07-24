@@ -909,8 +909,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     wrench_tool_in_world = rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear()) - m_offset_wrench_tool_in_world;
   }
 
-  std::transform(wrench_tool_in_world.begin(), wrench_tool_in_world.end(), m_wrench_notch.begin(), wrench_tool_in_world.begin(),
-                 [](const double w, const std::shared_ptr<NotchFilter>& notch) { return notch->update(w); });
+  // std::transform(wrench_tool_in_world.begin(), wrench_tool_in_world.end(), m_wrench_notch.begin(),
+  // wrench_tool_in_world.begin(),
+  // [](const double w, const std::shared_ptr<NotchFilter>& notch) { return notch->update(w); });
 
   Eigen::VectorXd q_start = m_q;
   Eigen::VectorXd qp_start = m_qp;
