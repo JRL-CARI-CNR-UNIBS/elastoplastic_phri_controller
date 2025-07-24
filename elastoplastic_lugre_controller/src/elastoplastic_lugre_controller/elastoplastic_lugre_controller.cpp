@@ -468,9 +468,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
   // Joint initialization
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   m_qpp.setZero();
 
 
@@ -541,7 +541,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
       Eigen::VectorXd tau_j;
       for (int idx = 0; idx < offset_force_window; ++idx) {
         std::transform(m_joint_state_interfaces.at(2).begin(), m_joint_state_interfaces.at(2).end(), tau_j.head(m_nax).begin(),
-                       [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+                       [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
         Eigen::Vector6d wr = get_wrench_from_torque(svd, tau_j);
         if (wr.head<3>().norm() < m_parameters.wrench.deadband[0]) {
           wr.head<3>().setZero();
@@ -602,9 +602,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
 controller_interface::CallbackReturn ElastoplasticController::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) {
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   m_qpp.setZero();
 
   m_computed_target_T_world_tool = m_chain_world_tool->getTransformation(m_q);
@@ -687,8 +687,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000, "[Waiting] Computing Offset Force");
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
-      result &=
-        m_joint_command_interfaces.at(0).at(idx).get().set_value(m_joint_state_interfaces.at(0).at(idx).get().get_value());
+      result &= m_joint_command_interfaces.at(0).at(idx).get().set_value(
+        m_joint_state_interfaces.at(0).at(idx).get().get_optional().value());
     }
     if (!result) {
       RCLCPP_ERROR(get_node()->get_logger(), "Could not copy state interface position into command interfaces");
@@ -753,9 +753,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // Manipulator State
   Eigen::VectorXd q_qp_in(2 * m_nax), q_qp_out(2 * m_nax);
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), q_qp_in.head(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), q_qp_in.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   // Kalman filter
 #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN_
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
@@ -849,7 +849,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::VectorXd tau_j(m_nax);
     Eigen::JacobiSVD<Eigen::Matrix6Xd> svd_torque(J_world_tool_in_world.transpose(), Eigen::ComputeThinU | Eigen::ComputeThinV);
     std::transform(m_joint_state_interfaces.at(2).begin(), m_joint_state_interfaces.at(2).end(), tau_j.head(m_nax).begin(),
-                   [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_value(); });
+                   [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
     wrench_tool_in_world = get_wrench_from_torque(svd_torque, tau_j);
     if (wrench_tool_in_world.head<3>().norm() < m_parameters.wrench.deadband[0]) {
       wrench_tool_in_world.head<3>().setZero();
