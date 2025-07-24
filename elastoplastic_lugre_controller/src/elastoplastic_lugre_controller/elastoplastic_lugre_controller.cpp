@@ -1364,7 +1364,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   auto [solutionQP, status] = solver.solve();
 
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
-    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status : " << status);
+    Eigen::LLT<Eigen::MatrixXd> chol(sot.G());
+    RCLCPP_ERROR_STREAM(get_node()->get_logger(),
+                        "Problem unfeasible. Solver status : " << status << ". Is G Positive Definite: "
+                                                               << (chol.info() == Eigen::ComputationInfo::Success));
     return std::nullopt;
   }
 
