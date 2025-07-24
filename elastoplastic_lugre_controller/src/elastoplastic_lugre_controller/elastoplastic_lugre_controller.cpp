@@ -1239,6 +1239,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
                               pose_error_tool_world_in_world.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
                            invM * (a_data.wrench_tool_in_world);
 
+  elastoplastic::Task task_minimize_joint_vel(prb_dim, m_full_nax);
+  task_minimize_joint_vel.A().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
+  task_minimize_joint_vel.b() << m_qp;
+
   /****************
    ** Task Stack **
    ****************/
@@ -1257,9 +1261,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   sot.insert_task(task_cart_pos, cart_pos_level, 1e2);
 
   /* Constant stack */
-  sot.push_task(task_cart_vel); // TODO: trova modo intelligente per bilanciare cart pos/vel in funzione della velocità
+  sot.push_task(task_cart_vel);
   sot.new_level();
   sot.push_task(task_minimize_cart_acc);
+  sot.new_level();
 
   // Weighting matrix
   m_W = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) / prb_dim * sot.G().trace();
@@ -1279,19 +1284,20 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   task_minimize_joint_acc.b().setZero();
 
   // Task: Joint Velocity
-  task_joint_vel.A().leftCols(m_full_nax) += -m_kv_joint_task * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
-  task_joint_vel.b() += m_kv_joint_task * (a_data.velocity_references - m_qp);
+  task_joint_vel.A().leftCols(m_full_nax) += -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
+  task_joint_vel.b() += (a_data.velocity_references - m_qp);
   task_joint_vel.W() = m_W.transpose() * m_W;
 
   // Task: Joint Position
-  task_joint_pos.A().leftCols(m_full_nax) +=
-    -m_kp_joint_task * 0.5 * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * std::pow(m_dt, 2);
-  task_joint_pos.b() += m_kp_joint_task * (a_data.position_references - (m_q + m_qp * m_dt));
+  task_joint_pos.A().leftCols(m_full_nax) += -0.5 * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * std::pow(m_dt, 2);
+  task_joint_pos.b() += (a_data.position_references - (m_q + m_qp * m_dt));
   task_joint_pos.W() = m_W.transpose() * m_W;
 
-  sot.push_task(task_joint_vel);
-  sot.push_task(task_joint_pos);
-  sot.push_task(task_minimize_joint_acc);
+  sot.push_task(task_joint_vel, m_kv_joint_task);
+  sot.push_task(task_joint_pos, m_kp_joint_task);
+  sot.new_level();
+  sot.push_task(task_minimize_joint_vel);
+  // sot.push_task(task_minimize_joint_acc);
 
   /********************
    ** EQ Constraints **
