@@ -14,6 +14,8 @@
   <!--  <depend>eiquadprog</depend> -->
   <depend>controller_interface</depend>
   <depend>hardware_interface</depend>
+  <depend>realtime_tools</depend>
+  <depend>control_msgs</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
