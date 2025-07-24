@@ -13,12 +13,14 @@ find_package(ament_cmake                REQUIRED)
 find_package(controller_interface       REQUIRED)
 find_package(hardware_interface         REQUIRED)
 find_package(control_toolbox            REQUIRED)
+find_package(control_msgs               REQUIRED)
 find_package(realtime_tools             REQUIRED)
 find_package(pluginlib                  REQUIRED)
 find_package(rclcpp                     REQUIRED)
 find_package(rclcpp_lifecycle           REQUIRED)
-find_package(sensor_msgs                REQUIRED)
+find_package(elastoplastic_msgs         REQUIRED)
 find_package(nav_msgs                   REQUIRED)
+find_package(sensor_msgs                REQUIRED)
 find_package(geometry_msgs              REQUIRED)
 find_package(moveit_msgs                REQUIRED)
 find_package(tf2                        REQUIRED)
@@ -69,17 +71,19 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   controller_interface
   hardware_interface
   control_toolbox
+  control_msgs
+  realtime_tools
   pluginlib
   rclcpp
   rclcpp_lifecycle
-  sensor_msgs
+  elastoplastic_msgs
   nav_msgs
+  sensor_msgs
   geometry_msgs
   moveit_msgs
   tf2
   tf2_eigen
   urdfdom
-  realtime_tools
   state_observers
   )
 
@@ -129,6 +133,7 @@ ament_export_dependencies(controller_interface
   realtime_tools
   control_toolbox
   state_observers
+  elastoplastic_msgs
 )
 
 if(BUILD_TESTING)

@@ -77,7 +77,7 @@ public:
   double alpha(const double z) const;
   double alpha() const;
   void clear();
-  Eigen::Vector6d z() const;
+  const Eigen::Vector6d& z() const;
   bool is_plastic() const;
   bool became_plastic() const;
   bool to_restore() const;

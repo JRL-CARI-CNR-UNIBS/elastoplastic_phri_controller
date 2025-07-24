@@ -33,7 +33,7 @@ void ElastoplasticModel::clear() {
   m_reset_buffer.clear();
 }
 
-Eigen::Vector6d ElastoplasticModel::z() const { return m_z; }
+const Eigen::Vector6d& ElastoplasticModel::z() const { return m_z; }
 
 bool ElastoplasticModel::is_plastic() const { return m_z.norm() >= m_z_kmax; }
 

@@ -368,8 +368,3 @@ elastoplastic_controller:
       description: "Enable debug logging",
       default_value: false
     }
-    pub: {
-      type: bool,
-      description: "Enable debug publishers",
-      default_value: false
-    }
