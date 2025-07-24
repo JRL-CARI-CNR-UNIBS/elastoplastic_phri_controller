@@ -971,7 +971,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   Eigen::Vector6d dist;
   rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);
-  if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() && dist.head<3>().norm() < 1e-2 &&
+  if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() && dist.head<3>().norm() < 1e-3 &&
       dist.tail<3>().norm() < 1.0 && m_parameters.impedance.plastic_restoration) {
     m_elastoplastic_model->restore();
     RCLCPP_INFO(get_node()->get_logger(), "Restore elastic state");
