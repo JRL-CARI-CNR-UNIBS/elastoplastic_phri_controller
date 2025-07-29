@@ -185,7 +185,7 @@ private:
     const Eigen::Vector6d& wrench_tool_in_world;
   };
 
-  Eigen::Vector6d m_zp;
+  double m_zp;
 
   utils::Logistic m_logistic;
   double m_logis_prec;
