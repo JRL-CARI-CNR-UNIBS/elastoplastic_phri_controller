@@ -893,7 +893,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ************
 
   Eigen::Vector6d cart_vel_error_tool_target_in_world;
-  cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
+  // cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
+  cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - reference_target_twist_tool_world_in_world)
                                           .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
 
   ClikData clik_data{.position_references = full_position_references,
@@ -1175,6 +1176,26 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   task_minimize_joint_vel.A().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   task_minimize_joint_vel.b() << m_qp;
 
+  /*
+   * Test tasks
+   */
+
+  Eigen::Vector6d ref_v_err = m_computed_target_twist_tool_world_in_world - a_data.target_twist_tool_world_in_world;
+  elastoplastic::Task task_cart_admittance(prb_dim, M_SE3);
+  task_cart_admittance.A().rightCols<M_SE3>() = adm;
+  task_cart_admittance.b() = invM * D * ref_v_err +
+                             invM * K *
+                               (m_computed_target_twist_tool_world_in_world * m_dt + m_elastoplastic_model->z() +
+                                ref_p_err.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
+                             invM * (a_data.wrench_tool_in_world);
+
+  elastoplastic::Task task_clik(prb_dim, m_full_nax);
+  constexpr double kp_clik = 1e1;
+  constexpr double kv_clik = 1e2;
+  task_clik.A() << a_data.J_world_tool_in_world,
+    -Eigen::Matrix6d::Identity() * (1 + kv_clik * m_dt + 0.5 * kp_clik * m_dt * m_dt);
+  task_clik.b() = acc_non_linear_in_world + kv_clik * twist_error_tool_world_in_world + kp_clik * pose_error_tool_world_in_world;
+
   /****************
    ** Task Stack **
    ****************/
@@ -1184,7 +1205,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   double cart_vel_weight = 1e0;
 
   /* Variable stack */
-  constexpr int CART_POS_LEVEL_OFFSET = 1;
+  constexpr int CART_POS_LEVEL_OFFSET = 2;
   int cart_pos_level = STACK_LEVEL_ZERO + CART_POS_LEVEL_OFFSET;
   if (!m_elastoplastic_model->is_plastic() && m_elastoplastic_model->to_restore() && m_parameters.impedance.plastic_restoration) {
     RCLCPP_DEBUG_STREAM_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1, "Is restoring");
@@ -1193,9 +1214,12 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   sot.insert_task(task_cart_pos, cart_pos_level, 1e2);
 
   /* Constant stack */
-  sot.push_task(task_cart_vel);
+  sot.push_task(task_cart_admittance);
   sot.new_level();
+  sot.push_task(task_cart_vel);
   sot.push_task(task_minimize_cart_acc);
+  sot.new_level();
+  sot.push_task(task_clik);
   sot.new_level();
 
   // Weighting matrix
@@ -1229,13 +1253,13 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   sot.push_task(task_joint_pos, m_kp_joint_task);
   sot.new_level();
   sot.push_task(task_minimize_joint_vel);
-  // sot.push_task(task_minimize_joint_acc);
+  sot.push_task(task_minimize_joint_acc, 1e-1);
 
   /********************
    ** EQ Constraints **
    ********************/
   elastoplastic::EqualitySet eq_set(prb_dim);
-  eq_set.push_constraint(task_admittance);
+  // eq_set.push_constraint(task_admittance);
   eq_set.compute_set();
 
 
@@ -1248,6 +1272,8 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   elastoplastic::InequalityConstraint ineq_qp_min(prb_dim, m_full_nax, "Joint Velocity Min");
   elastoplastic::InequalityConstraint ineq_q_max(prb_dim, m_nax, "Joint Position Max");
   elastoplastic::InequalityConstraint ineq_q_min(prb_dim, m_nax, "Joint Position Min");
+  elastoplastic::InequalityConstraint ineq_xpp_max(prb_dim, M_SE3, "Cartesian Acceleration Max");
+  elastoplastic::InequalityConstraint ineq_xpp_min(prb_dim, M_SE3, "Cartesian Acceleration Min");
 
   // Velocity
   ineq_qp_min.CI().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
@@ -1269,6 +1295,13 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
 
   ineq_q_max.CI().block(0, m_mobile_base.nax(), m_nax, m_nax) << -Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt;
   ineq_q_max.ci().head(m_nax) = m_limits.pos_upper - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt);
+
+  // Acceleration
+  ineq_xpp_min.CI().rightCols<M_SE3>() = Eigen::Matrix6d::Identity();
+  ineq_xpp_min.ci() = Eigen::VectorXd::Constant(6, 10);
+
+  ineq_xpp_max.CI().rightCols<M_SE3>() = -Eigen::Matrix6d::Identity();
+  ineq_xpp_max.ci() = Eigen::VectorXd::Constant(6, 10);
 
   // Move base limits to world
   if (m_mobile_base.enabled) {
@@ -1294,7 +1327,8 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   ineq_set.push_constraint(ineq_qp_max);
   ineq_set.push_constraint(ineq_qpp_min);
   ineq_set.push_constraint(ineq_qpp_max);
-
+  ineq_set.push_constraint(ineq_xpp_min);
+  ineq_set.push_constraint(ineq_xpp_max);
   ineq_set.compute_set();
 
   /***********
@@ -1325,15 +1359,15 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   }
 
   // Should be useless but...
-  // if (ineq_set.violations(solutionQP) != 0) {
-  // RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Constraint violated:");
-  // auto ineq_violated = ineq_set.which_violations(solutionQP);
-  // std::for_each(ineq_violated.begin(), ineq_violated.end(), [this, &solutionQP](const InequalityConstraint& ineq) {
-  // RCLCPP_ERROR_STREAM(get_node()->get_logger(),
-  // " - " << ineq.description() << " | values: " << ineq.value(solutionQP).transpose());
-  // });
-  // return std::nullopt;
-  // }
+  if (ineq_set.violations(solutionQP) != 0) {
+    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Constraint violated:");
+    auto ineq_violated = ineq_set.which_violations(solutionQP);
+    std::for_each(ineq_violated.begin(), ineq_violated.end(), [this, &solutionQP](const InequalityConstraint& ineq) {
+      RCLCPP_ERROR_STREAM(get_node()->get_logger(),
+                          " - " << ineq.description() << " | values: " << ineq.value(solutionQP).transpose());
+    });
+    return std::nullopt;
+  }
 
   m_computed_target_acc_tool_world_in_world = solutionQP.tail<M_SE3>();
   return solutionQP;
