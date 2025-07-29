@@ -922,6 +922,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   } else {
     Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
     Eigen::Vector6d xepp = solution_qp.value().tail<M_SE3>();
+    std::tie(m_q, m_qp) = utils::rk4_double([](const auto&, const auto&, const auto& u) { return u; }, m_q, m_qp, qepp, m_dt);
     m_qpp = qepp;
     // m_qp += qepp * m_dt;
     // m_q += m_qp * m_dt; // Symplectic Euler
