@@ -923,17 +923,16 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
     Eigen::Vector6d xepp = solution_qp.value().tail<M_SE3>();
     m_qpp = qepp;
-    m_qp += qepp * m_dt;
-    m_q += m_qp * m_dt; // Symplectic Euler
+    // m_qp += qepp * m_dt;
+    // m_q += m_qp * m_dt; // Symplectic Euler
+    m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world, m_dt);
+    bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
+                                              cart_vel_error_tool_target_in_world);
+    if (reset) {
+      RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
+    }
+    m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool;
   }
-
-  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world, m_dt);
-  bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
-                                            cart_vel_error_tool_target_in_world);
-  if (reset) {
-    RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
-  }
-  m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool;
 
   Eigen::Vector6d dist;
   rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);
@@ -1067,10 +1066,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   fk_acc.header.stamp = time_now;
   fk_acc.header.frame_id = m_parameters.frames.map;
 
-  geometry_msgs::msg::TransformStamped cmp_target_T_msg;
-  cmp_target_T_msg = tf2::eigenToTransform(m_computed_target_T_world_tool);
-  cmp_target_T_msg.header.stamp = time_now;
-  cmp_target_T_msg.header.frame_id = m_parameters.frames.map;
+  geometry_msgs::msg::Pose cmp_target_T_msg;
+  cmp_target_T_msg = tf2::toMsg(m_computed_target_T_world_tool);
 
   sensor_msgs::msg::JointState jnt_state;
   jnt_state.header.stamp = time_now;
@@ -1092,7 +1089,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   std::copy(m_elastoplastic_model->get_enabled_axis().begin(), m_elastoplastic_model->get_enabled_axis().end(),
             std::back_inserter(msg.admittance_state.selected_axes.data));
   msg.admittance_state.ft_sensor_frame.data = m_parameters.frames.sensor;
-  msg.admittance_state.ref_trans_base_ft = cmp_target_T_msg;
+  msg.admittance_state.ref_trans_base_ft = tf2::eigenToTransform(m_chain_base_tool->getTransformation(m_q.tail(m_nax)));
+  msg.cart_computed_ref_pose = cmp_target_T_msg;
   msg.admittance_state.stiffness.data.reserve(6);
   msg.admittance_state.damping.data.reserve(6);
   auto [K, D] = m_elastoplastic_model->compute_variable_matrices(T_world_tool);
