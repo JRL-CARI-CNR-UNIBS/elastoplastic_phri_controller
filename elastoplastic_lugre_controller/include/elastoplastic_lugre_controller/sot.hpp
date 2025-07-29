@@ -130,9 +130,10 @@ public:
       }
     } else {
       // No equality constraints: https://github.com/liuq/QuadProgpp/issues/3
-      reset(1);
-      m_CE.setConstant(std::numeric_limits<double>::epsilon());
-      m_ce.setConstant(std::numeric_limits<double>::epsilon());
+      // reset(1);
+      // m_CE.setConstant(std::numeric_limits<double>::epsilon());
+      // m_ce.setConstant(std::numeric_limits<double>::epsilon());
+      reset(0);
     }
   }
 };
