@@ -5,20 +5,20 @@ elastoplastic_controller:
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
-    ft_sensor_name: wrist_left_ft_sensor
+    ft_sensor_name: wrist_right_ft_sensor
     frames:
       map: base_footprint
       base: base_footprint
-      tool: arm_left_tool_link
-      sensor: wrist_left_ft_sensor_link
+      tool: arm_right_tool_link
+      sensor: wrist_right_ft_sensor_link
     joints:
-      - arm_left_1_joint
-      - arm_left_2_joint
-      - arm_left_3_joint
-      - arm_left_4_joint
-      - arm_left_5_joint
-      - arm_left_6_joint
-      - arm_left_7_joint
+      - arm_right_1_joint
+      - arm_right_2_joint
+      - arm_right_3_joint
+      - arm_right_4_joint
+      - arm_right_5_joint
+      - arm_right_6_joint
+      - arm_right_7_joint
     soft_limits:
       - 0.07
       - 0.07
@@ -107,7 +107,7 @@ elastoplastic_controller:
         inflection: 0.5
       leak_coefficient: 0.02
       reset:
-        time: 10.0
+        time: 5.0
         threshold: 1e0
       plastic_restoration: false
     offset_force_window: 2.0 # seconds
