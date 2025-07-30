@@ -185,7 +185,7 @@ private:
     const Eigen::Vector6d& wrench_tool_in_world;
   };
 
-  double m_zp;
+  Eigen::Vector6d m_zp;
 
   utils::Logistic m_logistic;
   double m_logis_prec;
@@ -235,7 +235,7 @@ public:
 
   controller_interface::CallbackReturn on_error(const rclcpp_lifecycle::State& previous_state) override;
 
-  // controller_interface::CallbackReturn on_cleanup(const rclcpp_lifecycle::State& previous_state) override;
+  controller_interface::CallbackReturn on_cleanup(const rclcpp_lifecycle::State& previous_state) override;
 
   // controller_interface::CallbackReturn on_shutdown(
   //     const rclcpp_lifecycle::State & previous_state) override;

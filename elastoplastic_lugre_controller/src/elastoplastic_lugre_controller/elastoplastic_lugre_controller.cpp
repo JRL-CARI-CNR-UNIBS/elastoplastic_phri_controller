@@ -595,7 +595,13 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
   m_wrench_in_sensor_prec.setZero();
 
   m_support_node_exec->cancel();
-  m_tf_base_pose_recovery_thread->join();
+
+  return controller_interface::CallbackReturn::SUCCESS;
+}
+
+controller_interface::CallbackReturn ElastoplasticController::on_cleanup(const rclcpp_lifecycle::State& /*previous_state*/) {
+  if (m_tf_base_pose_recovery_thread->joinable())
+    m_tf_base_pose_recovery_thread->join();
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -897,6 +903,17 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - reference_target_twist_tool_world_in_world)
                                           .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
 
+  // Eigen::Vector6d d_pose;
+  // rdyn::getFrameDistanceQuat(m_computed_target_T_world_tool, reference_target_T_world_tool, d_pose);
+  // d_pose.normalize();
+  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world, m_dt);
+  bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
+                                            cart_vel_error_tool_target_in_world);
+  if (reset) {
+    RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
+  }
+  m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool; // NOTE: useful?
+
   ClikData clik_data{.position_references = full_position_references,
                      .velocity_references = full_velocity_references,
                      .twist_tool_world_in_world = twist_tool_world_in_world,
@@ -922,22 +939,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_qpp.setZero();
   } else {
     Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
-    Eigen::Vector6d xepp = solution_qp.value().tail<M_SE3>();
-    std::tie(m_q, m_qp) = utils::rk4_double([](const auto&, const auto&, const auto& u) { return u; }, m_q, m_qp, qepp, m_dt);
+    // Eigen::Vector6d xepp = solution_qp.value().tail<M_SE3>();
     m_qpp = qepp;
-    // m_qp += qepp * m_dt;
-    // m_q += m_qp * m_dt; // Symplectic Euler
-    Eigen::Vector6d d_pose;
-    rdyn::getFrameDistanceQuat(T_world_tool, m_computed_target_T_world_tool, d_pose);
-    d_pose.normalize();
-    m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world.dot(d_pose), m_dt);
-    bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
-                                              cart_vel_error_tool_target_in_world);
-    if (reset) {
-      RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
-    }
-    m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool;
+    std::tie(m_q, m_qp) = utils::rk4_double([](const auto&, const auto&, const auto& u) { return u; }, m_q, m_qp, qepp, m_dt);
   }
+
 
   Eigen::Vector6d dist;
   rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);
@@ -1031,10 +1037,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   msg.z.reserve(6);
   msg.zp.reserve(6);
-  msg.z.push_back(m_elastoplastic_model->z());
-  msg.z.push_back(m_zp);
-  // std::copy(m_elastoplastic_model->z().begin(), m_elastoplastic_model->z().end(), std::back_inserter(msg.z));
-  // std::copy(m_zp.begin(), m_zp.end(), std::back_inserter(msg.zp));
+  std::copy(m_elastoplastic_model->z().begin(), m_elastoplastic_model->z().end(), std::back_inserter(msg.z));
+  std::copy(m_zp.begin(), m_zp.end(), std::back_inserter(msg.zp));
 
   msg.cart_computed_ref_twist = tf2::toMsg(m_computed_target_twist_tool_world_in_world);
   msg.cart_computed_ref_acc = tf2::toMsg(m_computed_target_acc_tool_world_in_world);
@@ -1136,7 +1140,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   elastoplastic::Task task_joint_pos(prb_dim, m_full_nax);
   elastoplastic::Task task_joint_vel(prb_dim, m_full_nax);
   elastoplastic::Task task_minimize_joint_acc(prb_dim, m_full_nax);
-  elastoplastic::Task task_admittance(prb_dim, M_SE3);
+  // elastoplastic::Task task_admittance(prb_dim, M_SE3);
 
   /**********************
    ** Task Definitions **
@@ -1169,13 +1173,13 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   rdyn::getFrameDistanceQuat(a_data.T_world_tool, m_computed_target_T_world_tool, pose_error_tool_world_in_world);
 
   Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
-  task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
-  task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
-                           invM * K *
-                             (twist_error_tool_world_in_world * m_dt +
-                              m_elastoplastic_model->z() * pose_error_tool_world_in_world.normalized() +
-                              pose_error_tool_world_in_world.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
-                           invM * (a_data.wrench_tool_in_world);
+  // task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
+  // task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
+  //                          invM * K *
+  //                            (twist_error_tool_world_in_world * m_dt +
+  //                             m_elastoplastic_model->z() * pose_error_tool_world_in_world.normalized() +
+  //                             pose_error_tool_world_in_world.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
+  //                          invM * (a_data.wrench_tool_in_world);
 
   elastoplastic::Task task_minimize_joint_vel(prb_dim, m_full_nax);
   task_minimize_joint_vel.A().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
@@ -1190,8 +1194,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   task_cart_admittance.A().rightCols<M_SE3>() = adm;
   task_cart_admittance.b() = invM * D * ref_v_err +
                              invM * K *
-                               (m_computed_target_twist_tool_world_in_world * m_dt +
-                                m_elastoplastic_model->z() * pose_error_tool_world_in_world.normalized() +
+                               (m_computed_target_twist_tool_world_in_world * m_dt + m_elastoplastic_model->z() +
                                 ref_p_err.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
                              invM * (a_data.wrench_tool_in_world);
 
@@ -1215,7 +1218,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   int cart_pos_level = STACK_LEVEL_ZERO + CART_POS_LEVEL_OFFSET;
   if (!m_elastoplastic_model->is_plastic() && m_elastoplastic_model->to_restore() && m_parameters.impedance.plastic_restoration) {
     RCLCPP_DEBUG_STREAM_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1, "Is restoring");
-    cart_pos_level -= CART_POS_LEVEL_OFFSET;
+    cart_pos_level = STACK_LEVEL_ZERO;
   }
   sot.insert_task(task_cart_pos, cart_pos_level, 1e2);
 
