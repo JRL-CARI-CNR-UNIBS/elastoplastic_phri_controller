@@ -733,6 +733,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   q_qp_out = m_joint_filter.update(q_qp_in, m_qpp.tail(m_nax));
   m_q.tail(m_nax) = q_qp_out.head(m_nax);
   m_qp.tail(m_nax) = q_qp_out.tail(m_nax);
+#else
+  m_q.tail(m_nax) = q_qp_in.head(m_nax);
+  m_qp.tail(m_nax) = q_qp_in.tail(m_nax);
 #endif
 
 #endif
