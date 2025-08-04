@@ -1371,9 +1371,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   }
 
   // Should be useless but...
-  if (ineq_set.violations(solutionQP) != 0) {
+  constexpr double VIOLATION_TOLL = 1e-10;
+  if (ineq_set.violations(solutionQP, VIOLATION_TOLL) != 0) {
     RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Constraint violated:");
-    auto ineq_violated = ineq_set.which_violations(solutionQP);
+    auto ineq_violated = ineq_set.which_violations(solutionQP, VIOLATION_TOLL);
     std::for_each(ineq_violated.begin(), ineq_violated.end(), [this, &solutionQP](const InequalityConstraint& ineq) {
       RCLCPP_ERROR_STREAM(get_node()->get_logger(),
                           " - " << ineq.description() << " | values: " << ineq.value(solutionQP).transpose());

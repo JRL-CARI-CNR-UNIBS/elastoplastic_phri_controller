@@ -99,8 +99,8 @@ elastoplastic_controller:
         - 40.0
         - 40.0
       z_max:   0.15 # [0.15, 0.15] # 0.1
-      z_kmax:  0.145 # [0.14, 0.14] # 0.1
-      z_start: 0.13  # [0.1, 0.1]   # 0.05
+      z_kmax:  0.147 # [0.14, 0.14] # 0.1
+      z_start: 0.12  # [0.1, 0.1]   # 0.05
       logistic:
         max: 1.0
         slope: 10.0
