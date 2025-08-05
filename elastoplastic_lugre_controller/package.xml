@@ -25,6 +25,7 @@
   <depend>urdfdom</depend>
   <depend>state_observers</depend>
   <depend>generate_parameter_library</depend>
+  <depend>elastoplastic_msgs</depend>
 
   <depend>rdyn_core</depend>
   <depend>fmt</depend>

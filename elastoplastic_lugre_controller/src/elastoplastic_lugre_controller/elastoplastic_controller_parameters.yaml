@@ -97,6 +97,13 @@ elastoplastic_controller:
       default_value: [],
       description: "Joints common between the two arms"
     }
+  soft_limits: {
+    type: double_array,
+    description: "add more strict soft joint limits",
+    validation: {
+      lower_element_bounds<>: [0.0]
+    }
+  }
   kalman_filter:
     manipulator:
       position: {

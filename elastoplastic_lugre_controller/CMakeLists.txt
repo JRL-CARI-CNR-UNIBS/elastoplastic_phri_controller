@@ -26,6 +26,7 @@ find_package(tf2_eigen                  REQUIRED)
 find_package(tf2_geometry_msgs          REQUIRED)
 find_package(urdfdom                    REQUIRED)
 find_package(generate_parameter_library REQUIRED)
+find_package(elastoplastic_msgs         REQUIRED)
 
 find_package(fmt                        REQUIRED)
 find_package(rdyn_core                  REQUIRED)
@@ -44,6 +45,7 @@ generate_parameter_library(
 
 add_library(elastoplastic_controller SHARED
   src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
+  src/${PROJECT_NAME}/clik_dual.cpp
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
   include/elastoplastic_lugre_controller/utils.hpp
   # Cartesian interpolator
@@ -75,6 +77,7 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   rclcpp_lifecycle
   sensor_msgs
   nav_msgs
+  elastoplastic_msgs
   geometry_msgs
   moveit_msgs
   tf2

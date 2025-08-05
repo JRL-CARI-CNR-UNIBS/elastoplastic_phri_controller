@@ -5,8 +5,6 @@
 // #define EIQGUADPROG_TRACE_SOLVER
 #include "eiquadprog/eiquadprog-fast.hpp"
 #include <numeric>
-#include <set>
-#include <variant>
 
 namespace elastoplastic {
 
