@@ -4,8 +4,6 @@
 #include "Eigen/Dense"
 #include "eiquadprog/eiquadprog-fast.hpp"
 #include <numeric>
-#include <set>
-#include <variant>
 
 namespace elastoplastic {
 
