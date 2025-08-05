@@ -1,7 +1,7 @@
 elastoplastic_controller:
   ros__parameters:
     type: elastoplastic_controller/ElastoplasticController
-    use_sim_time: True
+    use_sim_time: False
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
@@ -19,6 +19,14 @@ elastoplastic_controller:
       - arm_right_5_joint
       - arm_right_6_joint
       - arm_right_7_joint
+    soft_limits:
+      - 0.07
+      - 0.07
+      - 0.07
+      - 0.07
+      - 0.07
+      - 0.07
+      - 0.07
     kalman_filter:
       manipulator:
         position:
@@ -89,18 +97,18 @@ elastoplastic_controller:
         - 40.0
         - 40.0
       z_max:   0.15 # [0.15, 0.15] # 0.1
-      z_kmax:  0.14 # [0.14, 0.14] # 0.1
-      z_start: 0.1  # [0.1, 0.1]   # 0.05
+      z_kmax:  0.147 # [0.14, 0.14] # 0.1
+      z_start: 0.12  # [0.1, 0.1]   # 0.05
       logistic:
         max: 1.0
         slope: 10.0
         inflection: 0.5
       leak_coefficient: 0.02
       reset:
-        time: 10.0
-        threshold: 1e-2
+        time: 5.0
+        threshold: 1e0
       plastic_restoration: false
-    offset_force_window: 1.0 # seconds
+    offset_force_window: 2.0 # seconds
     clik:
       alpha_gain: 1.0e6
       joint_task:
