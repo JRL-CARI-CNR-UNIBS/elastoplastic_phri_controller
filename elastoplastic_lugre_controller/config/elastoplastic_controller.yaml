@@ -54,20 +54,24 @@ elastoplastic_controller:
       - velocity
       # - torque
     mobile_base:
-      enabled: false
+      enabled: true
       enable_z_rotation: false
       input_target_topic: "/target_cmd_vel"
       localization_topic: "/amcl_pose" # Unused
-      odom: "/odom"
+      odom: "/direct_laser_odometry/odom"
+      command_interfaces:
+      - "mobile_base_controller/linear/x"
+      - "mobile_base_controller/linear/y"
+      - "mobile_base_controller/angular/z"
       max_vel:
-        linear: [5.0, 5.0]
-        angular: 5.0
-      max_acc_x: 50.0
-      max_dec_x: 50.0
-      max_acc_y: 50.0
-      max_dec_y: 50.0
-      max_acc_yaw: 50.0
-      max_dec_yaw: 50.0
+        linear: [2.5, 2.5]
+        angular: 2.5
+      max_acc_x: 25.0
+      max_dec_x: 25.0
+      max_acc_y: 25.0
+      max_dec_y: 25.0
+      max_acc_yaw: 25.0
+      max_dec_yaw: 25.0
     wrench:
       deadband:
       - 1.0

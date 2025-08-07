@@ -60,7 +60,7 @@ private:
 
   std::vector<InterfaceReference<hardware_interface::LoanedStateInterface>> m_joint_state_interfaces;
   std::vector<InterfaceReference<hardware_interface::LoanedCommandInterface>> m_joint_command_interfaces;
-  InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
+  // InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
   InterfaceReference<hardware_interface::LoanedCommandInterface> m_mobile_base_command_interfaces;
 
   size_t m_joint_reference_interfaces_size;
@@ -83,9 +83,8 @@ private:
   std::binary_semaphore m_node_semaph{0};
   void update_base_pose_from_tf();
 
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
+  // rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
   rclcpp::Publisher<elastoplastic_msgs::msg::ElastoplasticControllerState>::SharedPtr m_pub_full_state;
-
   std::unique_ptr<realtime_tools::RealtimePublisher<elastoplastic_msgs::msg::ElastoplasticControllerState>> m_rt_pub_full_state;
 
   constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
@@ -140,8 +139,6 @@ private:
 
   struct FloatBaseData {
     bool enabled {true};
-    Eigen::Vector3d velocity_in_base;
-    Eigen::Vector6d twist_in_base() { return utils::twist_from_base_velocity(velocity_in_base); }
     size_t nax() const { return enabled ? nax_ : 0; }
     std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
     Eigen::Vector3d vel_limits;
@@ -153,6 +150,7 @@ private:
 
   } m_mobile_base;
 
+  Eigen::Vector3d m_velocity_base_in_base;
   bool m_mobile_base_pose_updated;
 
   std::vector<std::string> m_state_interfaces_names;
@@ -185,6 +183,7 @@ private:
     const Eigen::Affine3d& target_T_world_tool;
     const Eigen::Vector6d& target_twist_tool_world_in_world;
     const Eigen::Vector6d& wrench_tool_in_world;
+    const bool got_new_odom;
   };
 
   Eigen::Vector6d m_zp;

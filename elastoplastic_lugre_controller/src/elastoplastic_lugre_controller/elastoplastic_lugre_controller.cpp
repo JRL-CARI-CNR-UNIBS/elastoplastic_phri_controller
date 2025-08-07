@@ -1,9 +1,7 @@
 #include "elastoplastic_lugre_controller/elastoplastic_lugre_controller.hpp"
-#include "elastoplastic_lugre_controller/sot.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 
 #include "control_toolbox/filters.hpp"
-#include "eiquadprog/eiquadprog-fast.hpp"
 
 #include "pluginlib/class_list_macros.hpp"
 #include "tf2_eigen/tf2_eigen.hpp"
@@ -36,6 +34,15 @@ geometry_msgs::msg::WrenchStamped toWrenchStampedMsg(const Eigen::Vector6d& v) {
   geometry_msgs::msg::WrenchStamped msg;
   toWrenchMsg(v, msg.wrench);
   return msg;
+}
+
+bool write_cmd_vel(std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>> ifs,
+                   const Eigen::Vector3d& v) {
+  bool b = true;
+  for (int idx = 0; idx < 3; ++idx) {
+    b &= ifs.at(idx).get().set_value(v(idx));
+  }
+  return b;
 }
 
 namespace elastoplastic {
@@ -190,8 +197,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_parameters.mobile_base.odom, 1, std::bind(&ElastoplasticController::get_odometry_callback, this, _1));
   if (m_mobile_base.enabled) {
     m_mobile_base_pose_updated = true;
-    m_pub_cmd_vel =
-      this->get_node()->create_publisher<geometry_msgs::msg::Twist>(m_parameters.cmd_vel_topic, rclcpp::SystemDefaultsQoS());
+    // m_pub_cmd_vel =
+    // this->get_node()->create_publisher<geometry_msgs::msg::Twist>(m_parameters.cmd_vel_topic, rclcpp::SystemDefaultsQoS());
   }
 
   if (m_parameters.wrench.source == "ft_sensor") {
@@ -380,9 +387,9 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
     state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
   }
 
-  for (const auto& jnt : m_parameters.mobile_base.joints) {
-    state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
-  }
+  // for (const auto& jnt : m_parameters.mobile_base.joints) {
+  //   state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
+  // }
 
   if (m_ft_source == FTSource::TORQUE) {
     for (const auto& jnt : m_parameters.joints) {
@@ -416,7 +423,8 @@ controller_interface::InterfaceConfiguration ElastoplasticController::command_in
 
   if (m_mobile_base.enabled) {
     for (const auto& iface : m_parameters.mobile_base.command_interfaces) {
-      command_interface_configuration.names.emplace_back(fmt::format("{}/{}", iface, hardware_interface::HW_IF_VELOCITY));
+      // command_interface_configuration.names.emplace_back(fmt::format("{}/{}", iface, hardware_interface::HW_IF_VELOCITY));
+      command_interface_configuration.names.emplace_back(iface);
     }
   }
 
@@ -487,16 +495,16 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   }
 
   if (m_mobile_base.enabled) {
-    if (not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.mobile_base.command_interfaces,
-                                                         hardware_interface::HW_IF_VELOCITY, m_mobile_base_command_interfaces)) {
+    if (not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.mobile_base.command_interfaces, "",
+                                                         m_mobile_base_command_interfaces)) {
       RCLCPP_ERROR(get_node()->get_logger(), "Missing base controller command interfaces");
       return controller_interface::CallbackReturn::FAILURE;
     }
-    if (!controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.mobile_base.joints,
-                                                      hardware_interface::HW_IF_VELOCITY, m_mobile_base_state_interfaces)) {
-      RCLCPP_ERROR(get_node()->get_logger(), "Missing mobile base joints");
-      return controller_interface::CallbackReturn::FAILURE;
-    };
+    // if (!controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.mobile_base.joints,
+    //                                                   hardware_interface::HW_IF_VELOCITY, m_mobile_base_state_interfaces)) {
+    //   RCLCPP_ERROR(get_node()->get_logger(), "Missing mobile base joints");
+    //   return controller_interface::CallbackReturn::FAILURE;
+    // };
   }
 
   // Joint initialization
@@ -515,9 +523,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   if (m_mobile_base.enabled) {
     m_q.head<2>() = m_T_world_base.translation().head<2>();
     m_q(2) = utils::vector_from_affine(m_T_world_base)(5);
+    write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
   }
 
-  m_mobile_base.velocity_in_base.setZero();
+  m_velocity_base_in_base.setZero();
 
   m_initial_q = m_q;
 
@@ -588,9 +597,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
       offset_wrench_sensor_in_sensor /= offset_force_window;
 
       // Transform wrench offset in world
-      Eigen::Vector6d offset_wrench_tool_in_tool =
-        rdyn::spatialDualTranformation(offset_wrench_sensor_in_sensor, m_chain_base_tool->getTransformation(m_q).inverse() *
-                                                                         m_chain_base_sensor->getTransformation(m_q));
+      Eigen::Vector6d offset_wrench_tool_in_tool = rdyn::spatialDualTranformation(
+        offset_wrench_sensor_in_sensor, m_chain_base_tool->getTransformation(m_q.tail(m_nax)).inverse() *
+                                          m_chain_base_sensor->getTransformation(m_q.tail(m_nax)));
 
       offset_wrench = rdyn::spatialRotation(offset_wrench_tool_in_tool,
                                             m_chain_world_tool->getTransformation(m_q).linear()); // offset_wrench_tool_in_world
@@ -627,9 +636,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
   m_computed_target_twist_tool_world_in_world.setZero();
 
   if (m_mobile_base.enabled) {
-    Eigen::Vector6d empty = Eigen::Vector6d::Zero();
-    geometry_msgs::msg::Twist cmd_vel = tf2::toMsg(empty);
-    m_pub_cmd_vel->publish(cmd_vel);
+    // Eigen::Vector6d empty = Eigen::Vector6d::Zero();
+    // geometry_msgs::msg::Twist cmd_vel = tf2::toMsg(empty);
+    // m_pub_cmd_vel->publish(cmd_vel);
+    write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
   }
 
   m_rt_pub_full_state->stop();
@@ -640,7 +650,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
   m_joint_state_interfaces.clear();
   m_joint_command_interfaces.clear();
   m_mobile_base_command_interfaces.clear();
-  m_mobile_base_state_interfaces.clear();
+  // m_mobile_base_state_interfaces.clear();
 
   if (m_ft_source == FTSource::FT_SENSOR) {
     m_ft_sensor->release_interfaces();
@@ -730,6 +740,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
   // Base state
+  bool got_new_odom = false;
   if (m_mobile_base.enabled) {
     Eigen::Vector6d twist_base_world_in_world, twist_base_world_in_base;
 
@@ -747,22 +758,32 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                                                                            << ". Fallback on computed data");
     }
 
-    // // Recover twist from odometry
-    nav_msgs::msg::Odometry odom_msg = *(m_rt_buffer_base_odom.readFromRT());
-    if (rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time > std::chrono::duration<double>(m_dt) ||
-        rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time < std::chrono::seconds(0)) {
-      twist_base_world_in_base = utils::twist_from_base_velocity(m_mobile_base.velocity_in_base);
-    } else {
+    // NOTE: Support only inter-process comms
+    nav_msgs::msg::Odometry odom_msg;
+    [[maybe_unused]] rclcpp::MessageInfo msg_info;
+    if (m_sub_mobile_base_odometry->take(odom_msg, msg_info)) {
       Eigen::fromMsg(odom_msg.twist.twist, twist_base_world_in_base);
+      got_new_odom = true;
+    } else {
+      twist_base_world_in_base = utils::twist_from_base_velocity(m_velocity_base_in_base);
     }
-    m_last_odom_msg_time = odom_msg.header.stamp;
+
+    // // Recover twist from odometry
+    // nav_msgs::msg::Odometry odom_msg = *(m_rt_buffer_base_odom.readFromRT());
+    // if (rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time > std::chrono::duration<double>(m_dt) ||
+    // rclcpp::Time(odom_msg.header.stamp) - m_last_odom_msg_time < std::chrono::seconds(0)) {
+    // twist_base_world_in_base = utils::twist_from_base_velocity(m_velocity_base_in_base);
+    // } else {
+    // Eigen::fromMsg(odom_msg.twist.twist, twist_base_world_in_base);
+    // }
+    // m_last_odom_msg_time = odom_msg.header.stamp;
+
 
     // Eigen::Vector4d wheel_vel;
     // std::transform(m_mobile_base_state_interfaces.begin(), m_mobile_base_state_interfaces.end(), wheel_vel.begin(),
     // [](const hardware_interface::LoanedStateInterface& lsi) -> double { return lsi.get_optional().value(); });
     // twist_base_world_in_base = utils::mecanum_direct_kinematics(wheel_vel, m_parameters.mobile_base.wheel_radius,
     // m_parameters.mobile_base.sum_of_lx_and_ly);
-
 
     twist_base_world_in_world = rdyn::spatialRotation(twist_base_world_in_base, m_T_world_base.linear());
 
@@ -983,7 +1004,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
                      .J_world_tool_in_world = J_world_tool_in_world,
                      .target_T_world_tool = reference_target_T_world_tool,
                      .target_twist_tool_world_in_world = reference_target_twist_tool_world_in_world,
-                     .wrench_tool_in_world = wrench_tool_in_world};
+                     .wrench_tool_in_world = wrench_tool_in_world,
+                     .got_new_odom = got_new_odom};
 
   std::optional<Eigen::VectorXd> solution_qp = clik(clik_data);
   if (!solution_qp.has_value()) {
@@ -1023,18 +1045,21 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     // qp_base_in_base = qp_base_in_base.unaryExpr([this](double vel) { return std::abs(vel) < M_VELOCITY_TOLLERANCE ? 0.0 :
     // vel;
     // });
-    m_mobile_base.velocity_in_base = utils::base_velocity_from_twist(qp_base_in_base);
+    m_velocity_base_in_base = utils::base_velocity_from_twist(qp_base_in_base);
 
     // BEGIN - Check Saturation Base
     // If the QP works, this shouldn't be necessary
     for (size_t idx = 0; idx < M_SE2; ++idx) {
-      if (std::abs(m_mobile_base.velocity_in_base(idx)) > m_mobile_base.vel_limits(idx)) {
-        // RCLCPP_WARN_STREAM(this->get_node()->get_logger(),
-        // "Saturation of Velocity on base linear direction "
-        // << idx << ": " << m_mobile_base.velocity_in_base(idx) << " should be "
-        // << utils::sgn(m_mobile_base.velocity_in_base(idx)) * m_mobile_base.vel_limits(idx));
+      if (std::abs(m_velocity_base_in_base(idx)) > m_mobile_base.vel_limits(idx)) {
+        RCLCPP_WARN_STREAM(this->get_node()->get_logger(),
+                           "Saturation of Velocity on base linear direction "
+                             << idx << ": " << m_velocity_base_in_base(idx) << " should be "
+                             << utils::sgn(m_velocity_base_in_base(idx)) * m_mobile_base.vel_limits(idx));
+        m_velocity_base_in_base(idx) = utils::sgn(m_velocity_base_in_base(idx)) * m_mobile_base.vel_limits(idx);
       }
     }
+    m_qp.head<M_SE2>() = utils::base_velocity_from_twist(
+      rdyn::spatialRotation(utils::twist_from_base_velocity(m_velocity_base_in_base), m_T_world_base.linear()));
     // END - Check Saturation Base
   }
 
@@ -1076,18 +1101,14 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   }
 
   if (m_mobile_base.enabled) {
-    Eigen::Vector6d base_twist_in_base = m_mobile_base.twist_in_base();
-    // geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(base_twist_in_base);
+    Eigen::Vector6d base_twist_in_base = utils::twist_from_base_velocity(m_velocity_base_in_base);
 
+    // geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(base_twist_in_base);
     // m_pub_cmd_vel->publish(cmd_vel);
-    bool is_mobile_base_write_ok = true;
-    is_mobile_base_write_ok &= m_mobile_base_command_interfaces.at(0).get().set_value(base_twist_in_base(0));
-    is_mobile_base_write_ok &= m_mobile_base_command_interfaces.at(1).get().set_value(base_twist_in_base(1));
-    is_mobile_base_write_ok &= m_mobile_base_command_interfaces.at(5).get().set_value(base_twist_in_base(5));
+
+    bool is_mobile_base_write_ok = write_cmd_vel(m_mobile_base_command_interfaces, m_velocity_base_in_base);
     if (!is_mobile_base_write_ok) {
-      is_mobile_base_write_ok = m_mobile_base_command_interfaces.at(0).get().set_value(0.0);
-      is_mobile_base_write_ok &= m_mobile_base_command_interfaces.at(1).get().set_value(0.0);
-      is_mobile_base_write_ok &= m_mobile_base_command_interfaces.at(5).get().set_value(0.0);
+      write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
       RCLCPP_ERROR_STREAM(get_node()->get_logger(),
                           "Problem occurred while writing on mobile base interfaces! Stopping the movement");
     }
@@ -1110,7 +1131,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
   msg.z.reserve(6);
   msg.zp.reserve(6);
-  std::copy(m_elastoplastic_model->z().begin(), m_elastoplastic_model->z().end(), std::back_inserter(msg.z));
+  Eigen::Vector6d msg_z = m_elastoplastic_model->z();
+  std::copy(msg_z.begin(), msg_z.end(), std::back_inserter(msg.z));
   std::copy(m_zp.begin(), m_zp.end(), std::back_inserter(msg.zp));
 
   msg.cart_ref_pose = tf2::toMsg(reference_target_T_world_tool);

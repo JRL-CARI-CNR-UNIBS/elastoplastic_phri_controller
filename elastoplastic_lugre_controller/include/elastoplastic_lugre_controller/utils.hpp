@@ -199,12 +199,6 @@ const std::string MOBILE_BASE_URDF = R"(<?xml version='1.0'?>
 </robot>
     )";
 
-Eigen::Vector3d mecanum_direct_kinematics(const Eigen::Vector4d& w, const double r, const double lxly) {
-  Eigen::Matrix<double, 4, 3> J =
-    Eigen::Matrix<double, 4, 3>({1, 1, 1, 1, -1, 1, -1, 1, -1 / lxly, -1 / lxly, 1 / lxly, 1 / lxly}) * r / 4;
-  return J * w;
-}
-
 } // namespace elastoplastic::utils
 
 #endif // ELASTOPLASTIC_CONTROLLER__UTILS_HPP

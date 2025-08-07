@@ -80,6 +80,8 @@ public:
     m_G = Eigen::MatrixXd::Zero(m_prb_dim, m_prb_dim);
     m_F = Eigen::VectorXd::Zero(m_prb_dim);
   }
+  void symmetrize(void) { m_G = (m_G + m_G.transpose()) * 0.5; }
+  void regularize(const double eps = 1e-8) { m_G.diagonal() += Eigen::VectorXd::Constant(m_prb_dim, eps); }
 };
 
 using EqualityConstraint = Task;

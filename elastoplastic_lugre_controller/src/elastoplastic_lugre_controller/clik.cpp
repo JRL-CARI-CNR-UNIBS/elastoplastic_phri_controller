@@ -77,7 +77,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
                                 ref_p_err.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
                              invM * (a_data.wrench_tool_in_world);
 
-  elastoplastic::Task task_clik(prb_dim, m_full_nax);
+  elastoplastic::Task task_clik(prb_dim, M_SE3);
   constexpr double kp_clik = 1e1;
   constexpr double kv_clik = 1e2;
   task_clik.A() << a_data.J_world_tool_in_world,
@@ -104,7 +104,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   /* Constant stack */
   sot.push_task(task_cart_admittance);
   sot.new_level();
-  sot.push_task(task_cart_vel);
+  // sot.push_task(task_cart_vel);
   sot.push_task(task_minimize_cart_acc);
   sot.new_level();
   sot.push_task(task_clik);
@@ -148,6 +148,18 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
    ********************/
   elastoplastic::EqualitySet eq_set(prb_dim);
   // eq_set.push_constraint(task_admittance);
+
+  //  elastoplastic::Task task_can_update_base(prb_dim, M_SE2);
+  //  if (m_mobile_base.enabled) {
+  //    // Eq Constraint
+  //    // NOTE: Not the best, but I do not have other ideas on how to sync this with the mobile base controller
+  //    if (!a_data.got_new_odom) {
+  //      task_can_update_base.A().leftCols<M_SE2>().setIdentity();
+  //      task_can_update_base.b().setZero();
+  //    }
+  //    eq_set.push_constraint(task_can_update_base);
+  //  }
+
   eq_set.compute_set();
 
 
@@ -222,6 +234,8 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   /***********
    ** Solve **
    ***********/
+  sot.symmetrize();
+  sot.regularize();
   elastoplastic::SolverQP solver(prb_dim, sot, eq_set, ineq_set);
   auto [solutionQP, status] = solver.solve();
 
