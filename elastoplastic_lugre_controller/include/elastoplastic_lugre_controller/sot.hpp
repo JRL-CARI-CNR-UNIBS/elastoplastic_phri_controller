@@ -4,8 +4,6 @@
 #include "Eigen/Dense"
 #include "eiquadprog/eiquadprog-fast.hpp"
 #include <numeric>
-#include <set>
-#include <variant>
 
 namespace elastoplastic {
 
@@ -168,7 +166,9 @@ public:
   size_t size() const { return m_constr_size; }
   size_t problem_size() const { return m_prb_size; }
   Eigen::VectorXd value(const Eigen::VectorXd& x) const { return m_CI * x + m_ci; }
-  size_t violations(const Eigen::VectorXd& x) const { return (value(x).array() < 0).count(); }
+  size_t violations(const Eigen::VectorXd& x, const double toll = std::numeric_limits<double>::epsilon()) const {
+    return (value(x).array() < -toll).count();
+  }
 };
 
 class InequalitySet {
@@ -210,15 +210,17 @@ public:
       level += m_neq.at(idx).get().size();
     }
   }
-  size_t violations(const Eigen::VectorXd& x) {
-    return std::accumulate(m_neq.begin(), m_neq.end(), 0,
-                           [&x](const size_t acc, const InequalityConstraint& neq) -> size_t { return acc + neq.violations(x); });
+  size_t violations(const Eigen::VectorXd& x, const double toll = std::numeric_limits<double>::epsilon()) {
+    return std::accumulate(
+      m_neq.begin(), m_neq.end(), 0,
+      [&x, &toll](const size_t acc, const InequalityConstraint& neq) -> size_t { return acc + neq.violations(x, toll); });
   }
-  InequalityVectorRefConst which_violations(const Eigen::VectorXd& x) {
+  InequalityVectorRefConst which_violations(const Eigen::VectorXd& x,
+                                            const double toll = std::numeric_limits<double>::epsilon()) {
     InequalityVectorRefConst v;
     v.reserve(size());
     std::copy_if(m_neq.begin(), m_neq.end(), std::back_inserter(v),
-                 [&x](const InequalityConstraint& ineq) { return ineq.violations(x); });
+                 [&x, &toll](const InequalityConstraint& ineq) { return ineq.violations(x, toll); });
     return v;
   }
 };

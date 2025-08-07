@@ -4,7 +4,6 @@
 #include "Eigen/Core"
 #include "elastoplastic_lugre_controller/elastoplastic_variable_model.hpp"
 #include "elastoplastic_parameters.hpp"
-#include "filters/transfer_function.hpp"
 
 namespace Eigen {
 using Vector6d = Vector<double,6>;

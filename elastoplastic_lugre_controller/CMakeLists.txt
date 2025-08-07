@@ -45,6 +45,7 @@ generate_parameter_library(
 
 add_library(elastoplastic_controller SHARED
   src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
+  src/${PROJECT_NAME}/clik.cpp
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
   include/elastoplastic_lugre_controller/utils.hpp
   # Cartesian interpolator
