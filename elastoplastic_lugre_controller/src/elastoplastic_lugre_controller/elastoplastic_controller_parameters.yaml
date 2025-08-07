@@ -138,6 +138,32 @@ elastoplastic_controller:
         not_empty<>: []
       }
     }
+    command_interfaces: {
+      type: string_array,
+      default_value: ["mock/linear/x", "mock/linear/y", "mock/angular/z"]
+      description: "Velocity interfaces for base controller. Should be cartesian (x,y,yaw). 'velocity' is automatically considered",
+      validation: {
+        fixed_size<>: [3]
+      }
+    }
+    joints: {
+      type: string_array,
+      description: "Wheels joints. Use only to read state. Order: from front left, counter-clockwise.",
+    }
+    wheel_radius: {
+      type: double,
+      description: "Wheel radius",
+      validation: {
+        gt<>: 0
+      }
+    }
+    sum_of_lx_and_ly: {
+      type: double,
+      description: "Sum of the distances between wheels on same axis and on the same size",
+      validation: {
+        gt<>: 0
+      }
+    }
     max_vel:
       linear: {
         type: double_array,

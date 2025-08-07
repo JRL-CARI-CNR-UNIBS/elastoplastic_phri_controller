@@ -56,11 +56,10 @@ private:
   std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
   elastoplastic_controller::Params m_parameters;
 
-  template<typename T>
-  using InterfaceReference = std::vector<std::vector<std::reference_wrapper<T>>>;
+  template <typename T> using InterfaceReference = std::vector<std::reference_wrapper<T>>;
 
-  InterfaceReference<hardware_interface::LoanedStateInterface> m_joint_state_interfaces;
-  InterfaceReference<hardware_interface::LoanedCommandInterface> m_joint_command_interfaces;
+  std::vector<InterfaceReference<hardware_interface::LoanedStateInterface>> m_joint_state_interfaces;
+  std::vector<InterfaceReference<hardware_interface::LoanedCommandInterface>> m_joint_command_interfaces;
   InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
   InterfaceReference<hardware_interface::LoanedCommandInterface> m_mobile_base_command_interfaces;
 
