@@ -197,8 +197,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_parameters.mobile_base.odom, 1, std::bind(&ElastoplasticController::get_odometry_callback, this, _1));
   if (m_mobile_base.enabled) {
     m_mobile_base_pose_updated = true;
-    // m_pub_cmd_vel =
-    // this->get_node()->create_publisher<geometry_msgs::msg::Twist>(m_parameters.cmd_vel_topic, rclcpp::SystemDefaultsQoS());
+    m_pub_cmd_vel =
+      this->get_node()->create_publisher<geometry_msgs::msg::Twist>(m_parameters.cmd_vel_topic, rclcpp::SystemDefaultsQoS());
   }
 
   if (m_parameters.wrench.source == "ft_sensor") {
@@ -636,9 +636,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
   m_computed_target_twist_tool_world_in_world.setZero();
 
   if (m_mobile_base.enabled) {
-    // Eigen::Vector6d empty = Eigen::Vector6d::Zero();
-    // geometry_msgs::msg::Twist cmd_vel = tf2::toMsg(empty);
-    // m_pub_cmd_vel->publish(cmd_vel);
+    Eigen::Vector6d empty = Eigen::Vector6d::Zero();
+    geometry_msgs::msg::Twist cmd_vel = tf2::toMsg(empty);
+    m_pub_cmd_vel->publish(cmd_vel);
     write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
   }
 
@@ -737,7 +737,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ** Read **
   // **********
 
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE_
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
   // Base state
   bool got_new_odom = false;
@@ -788,18 +788,24 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     twist_base_world_in_world = rdyn::spatialRotation(twist_base_world_in_base, m_T_world_base.linear());
 
     // Build state vectors
-    Eigen::Vector6d base_read;
-    base_read.tail<M_SE2>() = utils::base_velocity_from_twist(twist_base_world_in_world);
-    base_read.head<2>() = m_T_world_base.translation().head<2>();
-    base_read(2) = Eigen::AngleAxisd(m_T_world_base.linear()).angle();
-    // Eigen::Vector6d estim_base = m_base_position_filter.update(base_read, m_qpp.head<M_SE2>());
-    Eigen::Vector6d estim_base = m_base_position_filter.update(base_read, Eigen::Vector3d::Zero());
+    Eigen::Vector6d estim_base = m_base_position_filter.predict(m_qpp.head<M_SE2>());
+    if (got_new_odom) {
+      Eigen::Vector6d base_read;
+      base_read.tail<M_SE2>() = utils::base_velocity_from_twist(twist_base_world_in_world);
+      base_read.head<2>() = m_T_world_base.translation().head<2>();
+      base_read(2) = Eigen::AngleAxisd(m_T_world_base.linear()).angle();
+      m_base_position_filter.update(base_read);
+      estim_base = m_base_position_filter.get_state();
+    }
+    // Eigen::Vector6d estim_base = m_base_position_filter.update(base_read, Eigen::Vector3d::Zero());
     m_qp.head<M_SE2>() = estim_base.tail<M_SE2>();
     m_q.head<M_SE2>() = estim_base.head<M_SE2>();
     // m_qp.head<M_SE2>() = utils::base_velocity_from_twist(twist_base_world_in_world);
     // m_q.head<2>() = m_T_world_base.translation().head<2>();
     // m_q(2) = Eigen::AngleAxisd(m_T_world_base.linear()).angle();
   }
+#else
+  bool got_new_odom = true;
 #endif
 
 #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR_
@@ -1103,8 +1109,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   if (m_mobile_base.enabled) {
     Eigen::Vector6d base_twist_in_base = utils::twist_from_base_velocity(m_velocity_base_in_base);
 
-    // geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(base_twist_in_base);
-    // m_pub_cmd_vel->publish(cmd_vel);
+    geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(base_twist_in_base);
+    m_pub_cmd_vel->publish(cmd_vel);
 
     bool is_mobile_base_write_ok = write_cmd_vel(m_mobile_base_command_interfaces, m_velocity_base_in_base);
     if (!is_mobile_base_write_ok) {
