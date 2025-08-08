@@ -24,18 +24,20 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   /**********************
    ** Task Definitions **
    **********************/
-  // auto whitening = [&](elastoplastic::Task& t) -> void { t.W() *= t.A().householderQr().householderQ().transpose(); };
-  auto whitening = [&](elastoplastic::Task& t) -> void { t.W() /= (t.A() * t.A().transpose()).trace(); };
+  auto whitening = [&](elastoplastic::Task& t) -> void { t.W() *= t.A().householderQr().householderQ().transpose(); };
+  // auto whitening = [&](elastoplastic::Task& t) -> void { t.W() /= (t.A() * t.A().transpose()).trace(); };
 
   // Task Cartesian : Minimize cartesian distance from reference twist
   task_cart_vel.A().rightCols(M_SE3) = Eigen::Matrix6d::Identity() * m_dt;
   task_cart_vel.b() = (m_computed_target_twist_tool_world_in_world - a_data.target_twist_tool_world_in_world);
+  whitening(task_cart_vel);
 
   // Task Cartesian : Minimize difference between the real target and the computed one
   Eigen::Vector6d ref_p_err;
   rdyn::getFrameDistanceQuat(m_computed_target_T_world_tool, a_data.target_T_world_tool, ref_p_err);
   task_cart_pos.A().rightCols<M_SE3>() = Eigen::Matrix6d::Identity() * 0.5 * std::pow(m_dt, 2);
   task_cart_pos.b() << ref_p_err + m_computed_target_twist_tool_world_in_world * m_dt;
+  whitening(task_cart_pos);
 
   // Task Cartesian:
   elastoplastic::Task task_minimize_cart_vel(prb_dim, M_SE3);
@@ -55,35 +57,35 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   rdyn::getFrameDistanceQuat(a_data.T_world_tool, m_computed_target_T_world_tool, pose_error_tool_world_in_world);
 
   Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
-  // task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
-  // task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
-  //                          invM * K *
-  //                            (twist_error_tool_world_in_world * m_dt +
-  //                             m_elastoplastic_model->z() * pose_error_tool_world_in_world.normalized() +
-  //                             pose_error_tool_world_in_world.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
-  //                          invM * (a_data.wrench_tool_in_world);
+  elastoplastic::Task task_admittance(prb_dim, M_SE3);
+  task_admittance.A() << adm * a_data.J_world_tool_in_world, -adm;
+  task_admittance.b() << adm * acc_non_linear_in_world + invM * D * twist_error_tool_world_in_world +
+                           invM * K *
+                             (twist_error_tool_world_in_world * m_dt + m_elastoplastic_model->z() +
+                              pose_error_tool_world_in_world.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
+                           invM * (a_data.wrench_tool_in_world);
 
   /*
    * Test tasks
    */
 
-  Eigen::Vector6d ref_v_err = m_computed_target_twist_tool_world_in_world - a_data.target_twist_tool_world_in_world;
-  elastoplastic::Task task_cart_admittance(prb_dim, M_SE3);
-  task_cart_admittance.A().rightCols<M_SE3>() = adm;
-  task_cart_admittance.b() = invM * D * ref_v_err +
-                             invM * K *
-                               (m_computed_target_twist_tool_world_in_world * m_dt + m_elastoplastic_model->z() +
-                                ref_p_err.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
-                             invM * (a_data.wrench_tool_in_world);
-  whitening(task_cart_admittance);
+  // Eigen::Vector6d ref_v_err = m_computed_target_twist_tool_world_in_world - a_data.target_twist_tool_world_in_world;
+  // elastoplastic::Task task_cart_admittance(prb_dim, M_SE3);
+  // task_cart_admittance.A().rightCols<M_SE3>() = adm;
+  // task_cart_admittance.b() = invM * D * ref_v_err +
+  // invM * K *
+  // (m_computed_target_twist_tool_world_in_world * m_dt + m_elastoplastic_model->z() +
+  // ref_p_err.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
+  // invM * (a_data.wrench_tool_in_world);
+  // whitening(task_cart_admittance);
 
-  elastoplastic::Task task_clik(prb_dim, M_SE3);
-  constexpr double kp_clik = 1e1;
-  constexpr double kv_clik = 1e2;
-  task_clik.A() << a_data.J_world_tool_in_world,
-    -Eigen::Matrix6d::Identity() * (1 + kv_clik * m_dt + 0.5 * kp_clik * m_dt * m_dt);
-  task_clik.b() = acc_non_linear_in_world + kv_clik * twist_error_tool_world_in_world + kp_clik * pose_error_tool_world_in_world;
-  whitening(task_clik);
+  // elastoplastic::Task task_clik(prb_dim, M_SE3);
+  // constexpr double kp_clik = 1e1;
+  // constexpr double kv_clik = 1e2;
+  // task_clik.A() << a_data.J_world_tool_in_world,
+  // -Eigen::Matrix6d::Identity() * (1 + kv_clik * m_dt + 0.5 * kp_clik * m_dt * m_dt);
+  // task_clik.b() = acc_non_linear_in_world + kv_clik * twist_error_tool_world_in_world + kp_clik *
+  // pose_error_tool_world_in_world; whitening(task_clik);
 
   /****************
    ** Task Stack **
@@ -91,7 +93,6 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   constexpr double STACK_LEVEL_STEP = 1e-2;
   constexpr int STACK_LEVEL_ZERO = 0;
   elastoplastic::Stack sot(prb_dim, STACK_LEVEL_STEP, STACK_LEVEL_ZERO);
-  double cart_vel_weight = 1e0;
 
   /* Variable stack */
   constexpr int CART_POS_LEVEL_OFFSET = 2;
@@ -103,13 +104,13 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   sot.insert_task(task_cart_pos, cart_pos_level, 1e2);
 
   /* Constant stack */
-  sot.push_task(task_cart_admittance);
+  sot.push_task(task_cart_vel);
   sot.new_level();
-  // sot.push_task(task_cart_vel);
-  sot.push_task(task_minimize_cart_acc);
+  sot.push_task(task_admittance);
   sot.new_level();
-  sot.push_task(task_clik);
-  sot.new_level();
+  // sot.push_task(task_minimize_cart_acc);
+  // sot.push_task(task_clik);
+  // sot.new_level();
 
   // Weighting matrix
   // m_W = Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) / prb_dim * sot.G().trace();
@@ -128,20 +129,20 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   // Task: Minimize joint acceleration and weighting
   task_minimize_joint_acc.A().leftCols(m_full_nax).setIdentity();
   task_minimize_joint_acc.b().setZero();
-  task_minimize_joint_acc.W() = m_W;
+  task_minimize_joint_acc.W() = m_W.transpose() * m_W;
   whitening(task_minimize_joint_acc);
 
 
   // Task: Joint Velocity
   task_joint_vel.A().leftCols(m_full_nax) += -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   task_joint_vel.b() += (a_data.velocity_references - m_qp);
-  // task_joint_vel.W() = m_W.transpose() * m_W;
+  task_joint_vel.W() = m_W.transpose() * m_W;
   whitening(task_joint_vel);
 
   // Task: Joint Position
   task_joint_pos.A().leftCols(m_full_nax) += -0.5 * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * std::pow(m_dt, 2);
   task_joint_pos.b() += (a_data.position_references - (m_q + m_qp * m_dt));
-  // task_joint_pos.W() = m_W.transpose() * m_W;
+  task_joint_pos.W() = m_W.transpose() * m_W;
   whitening(task_joint_pos);
 
   elastoplastic::Task task_minimize_joint_vel(prb_dim, m_full_nax);
@@ -286,7 +287,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& a_d
   }
 
   m_computed_target_acc_tool_world_in_world = solutionQP.tail<M_SE3>();
-  m_admittance_value = task_cart_admittance.value(solutionQP) + invM * (a_data.wrench_tool_in_world);
+  m_admittance_value = task_admittance.value(solutionQP) + invM * (a_data.wrench_tool_in_world);
   return solutionQP;
 }
 } // namespace elastoplastic

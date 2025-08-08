@@ -830,7 +830,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 #endif
 
   Eigen::Affine3d T_world_tool = m_chain_world_tool->getTransformation(m_q);
-  Eigen::Vector6d twist_tool_world_in_world = m_chain_world_tool->getJacobian(m_q) * m_qp;
+  Eigen::Vector6d twist_tool_world_in_world = m_chain_world_tool->getTwistTool(m_q, m_qp);
   Eigen::VectorXd full_position_references(m_full_nax), full_velocity_references(m_full_nax);
 
 #define USE_CARTESIAN_REFERENCE
@@ -987,8 +987,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ************
 
   Eigen::Vector6d cart_vel_error_tool_target_in_world;
-  // cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
-  cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - reference_target_twist_tool_world_in_world)
+  // cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - reference_target_twist_tool_world_in_world)
+  cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
                                           .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
 
   // Eigen::Vector6d d_pose;
