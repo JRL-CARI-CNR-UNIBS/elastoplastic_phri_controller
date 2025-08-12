@@ -172,10 +172,10 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
     task_minimize_joint_acc.W() = m_W.transpose() * m_W;
     // sot.push_task(task_base_desired);
   }
-  sot.insert_task(task_cart_pos, cart_pos_level, 10);
+  sot.insert_task(task_cart_pos, cart_pos_level, 1);
 
   /* Constant stack */
-  sot.push_task(task_cart_vel, 4);
+  sot.push_task(task_cart_vel, 1);
   sot.new_level();
   sot.push_task(task_admittance);
   sot.new_level();
