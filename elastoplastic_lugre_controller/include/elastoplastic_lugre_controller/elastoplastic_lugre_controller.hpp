@@ -84,6 +84,7 @@ private:
   void update_base_pose_from_tf();
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
+  std::unique_ptr<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>> m_rt_pub_cmd_vel;
   rclcpp::Publisher<elastoplastic_msgs::msg::ElastoplasticControllerState>::SharedPtr m_pub_full_state;
   std::unique_ptr<realtime_tools::RealtimePublisher<elastoplastic_msgs::msg::ElastoplasticControllerState>> m_rt_pub_full_state;
 

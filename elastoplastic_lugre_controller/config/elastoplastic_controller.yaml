@@ -4,7 +4,7 @@ elastoplastic_controller:
     use_sim_time: False
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
-    cmd_vel_topic: "/cmd_vel"
+    cmd_vel_topic: "/cmd_vel_state"
     ft_sensor_name: wrist_right_ft_sensor
     frames:
       map: base_footprint

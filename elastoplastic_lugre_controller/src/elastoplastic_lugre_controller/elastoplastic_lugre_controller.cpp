@@ -199,6 +199,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_mobile_base_pose_updated = true;
     m_pub_cmd_vel =
       this->get_node()->create_publisher<geometry_msgs::msg::Twist>(m_parameters.cmd_vel_topic, rclcpp::SystemDefaultsQoS());
+    m_rt_pub_cmd_vel = std::make_unique<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>>(m_pub_cmd_vel);
   }
 
   if (m_parameters.wrench.source == "ft_sensor") {
@@ -1121,7 +1122,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::Vector6d base_twist_in_base = utils::twist_from_base_velocity(m_velocity_base_in_base);
 
     geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(base_twist_in_base);
-    m_pub_cmd_vel->publish(cmd_vel);
+    m_rt_pub_cmd_vel->tryPublish(cmd_vel);
 
     bool is_mobile_base_write_ok = write_cmd_vel(m_mobile_base_command_interfaces, m_velocity_base_in_base);
     if (!is_mobile_base_write_ok) {
