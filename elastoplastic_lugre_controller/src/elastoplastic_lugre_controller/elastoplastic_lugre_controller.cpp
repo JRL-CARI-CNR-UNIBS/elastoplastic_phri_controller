@@ -523,7 +523,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   if (m_mobile_base.enabled) {
     m_q.head<2>() = m_T_world_base.translation().head<2>();
     m_q(2) = utils::vector_from_affine(m_T_world_base)(5);
-    write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
+    // write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
+    m_qp.head<3>().setZero();
   }
 
   m_velocity_base_in_base.setZero();
@@ -548,6 +549,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_offset_wrench_tool_in_world.setZero();
   m_offset_future = std::async(std::launch::async, [this](void) -> bool {
     // Compensate force offset
+    if (utils::almost_zero(m_parameters.offset_force_window)) {
+      return true;
+    }
     Eigen::Vector6d offset_wrench;
     offset_wrench.setZero();
     const double offset_force_window = std::round(m_parameters.offset_force_window * get_update_rate());
@@ -577,7 +581,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
       offset_wrench /= offset_force_window;
     } else if (m_ft_source == FTSource::FT_SENSOR) {
       // Wrench is in sensor frame
-      Eigen::Vector6d offset_wrench_sensor_in_sensor;
+      Eigen::Vector6d offset_wrench_sensor_in_sensor = Eigen::Vector6d::Zero();
       for (int idx = 0; idx < offset_force_window; ++idx) {
         Eigen::Vector6d wr = get_wrench_from_sensor();
         if (wr.head<3>().norm() < m_parameters.wrench.deadband[0]) {
@@ -714,8 +718,8 @@ void ElastoplasticController::get_odometry_callback(const nav_msgs::msg::Odometr
 }
 
 
-controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time& time,
-                                                                                     const rclcpp::Duration& period) {
+controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time& /*time*/,
+                                                                                     const rclcpp::Duration& /*period*/) {
   rclcpp::Time t_start = get_node()->get_clock()->now();
 
   if (m_offset_future.wait_for(0s) != std::future_status::ready) {
@@ -975,13 +979,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   Eigen::VectorXd q_start = m_q;
   Eigen::VectorXd qp_start = m_qp;
 
-  // Update computed trajectory
-  m_computed_target_twist_tool_world_in_world =
-    m_computed_target_twist_tool_world_in_world + m_computed_target_acc_tool_world_in_world * m_dt;
-
-  m_computed_target_T_world_tool =
-    rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
-
   // ************
   // ** Update **
   // ************
@@ -1029,9 +1026,23 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_admittance_value.setZero();
   } else {
     Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
-    // Eigen::Vector6d xepp = solution_qp.value().tail<M_SE3>();
+    m_computed_target_acc_tool_world_in_world = solution_qp.value().tail<M_SE3>();
+
     m_qpp = qepp;
     std::tie(m_q, m_qp) = utils::rk4_double([](const auto&, const auto&, const auto& u) { return u; }, m_q, m_qp, qepp, m_dt);
+
+    // Update computed trajectory
+    // m_computed_target_twist_tool_world_in_world =
+    // m_computed_target_twist_tool_world_in_world + m_computed_target_acc_tool_world_in_world * m_dt;
+
+    // m_computed_target_T_world_tool =
+    // rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
+
+    Eigen::Vector6d cmp_t_wt = utils::vector_from_affine(m_computed_target_T_world_tool);
+    std::tie(cmp_t_wt, m_computed_target_twist_tool_world_in_world) =
+      utils::rk4_double([&](const auto&, const auto&, const auto& u) { return u; }, cmp_t_wt,
+                        m_computed_target_twist_tool_world_in_world, m_computed_target_acc_tool_world_in_world, m_dt);
+    m_computed_target_T_world_tool = utils::affine_from_vector(cmp_t_wt);
   }
 
 
@@ -1149,7 +1160,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   msg.cart_actual_cmd_acc = tf2::toMsg(m_chain_world_tool->getDTwistTool(m_q, m_qp, m_qpp));
 
   double tmp;
-  std::tie(msg.reset_buffer_state, tmp) = m_elastoplastic_model->get_reset_buffer_status();
+  std::tie(msg.reset_buffer_state, msg.reset_buffer_fill) = m_elastoplastic_model->get_reset_buffer_status();
 
   // Admittance state msg
   geometry_msgs::msg::WrenchStamped msg_wrench_in_world = toWrenchStampedMsg(wrench_tool_in_world);

@@ -8,8 +8,9 @@
 namespace elastoplastic {
 ElastoplasticModel::ElastoplasticModel(const ElastoplasticModelData& data)
     : m_inertia_inv(data.inertia_inv), m_k(data.k), m_d(data.d), m_z_max(data.z_max), m_z_kmax(data.z_kmax),
-      m_z_start(data.z_start), m_z(Eigen::Vector6d::Zero()), m_reset_buffer(data.buffer_size),
-      m_reset_threshold(data.reset_threshold), m_to_restore(false), m_was_plastic(false) {
+      m_z_start(data.z_start), m_reset_buffer(data.buffer_size), m_reset_threshold(data.reset_threshold), m_to_restore(false),
+      m_was_plastic(false) {
+  m_z.setZero();
   std::transform(data.enable_axis.begin(), data.enable_axis.end(), m_enable_axis.begin(),
                  [](const bool b) { return static_cast<double>(b); });
 }
@@ -44,7 +45,8 @@ bool ElastoplasticModel::to_restore() const { return m_to_restore; }
 void ElastoplasticModel::restore() { m_to_restore = false; }
 
 std::pair<double, double> ElastoplasticModel::get_reset_buffer_status() const {
-  return std::make_pair(std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0.0), m_reset_buffer.full());
+  return std::make_pair(std::accumulate(m_reset_buffer.begin(), m_reset_buffer.end(), 0.0),
+                        (double)m_reset_buffer.size() / (double)m_reset_buffer.capacity());
 }
 
 Eigen::Vector6d ElastoplasticModel::compute_zp(const Eigen::Vector6d& z, const Eigen::Vector6d& u, const double dt) const {

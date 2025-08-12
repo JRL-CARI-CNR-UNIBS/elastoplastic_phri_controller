@@ -154,6 +154,25 @@ constexpr std::pair<T, T> rk4_double(Acc&& acc, // a = acc(x,v,u)
   return {s_next.x, s_next.v};
 }
 
+inline Eigen::Affine3d affine_from_vector(const Eigen::Vector6d& v) {
+  // Extract rotation-vector
+  Eigen::Vector3d rot = v.tail<3>();
+  double angle = rot.norm();
+
+  // Start with identity, set translation
+  Eigen::Affine3d m = Eigen::Affine3d::Identity();
+  m.translation() = v.head<3>();
+
+  // If there's a non-zero rotation, build the AngleAxis
+  if (angle > K_ABS_EPSILON) {
+    Eigen::Vector3d axis = rot / angle;
+    Eigen::AngleAxisd aa(angle, axis);
+    m.linear() = aa.toRotationMatrix();
+  }
+  // else leave m.linear() == identity
+
+  return m;
+}
 
 inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& params, const double update_rate) {
   ElastoplasticModelData data;

@@ -6,6 +6,7 @@ geometry_msgs/Wrench virtual_force
 float64[] z
 float64[] zp
 float64 reset_buffer_state
+float64 reset_buffer_fill
 
 int8 mode
 int8 MODE_ELASTIC = 0
