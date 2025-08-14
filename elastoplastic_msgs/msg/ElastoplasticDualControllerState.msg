@@ -19,13 +19,8 @@ int8 MODE_RESTORE = 2
 geometry_msgs/Pose  cart_ref_pose
 geometry_msgs/Twist cart_ref_twist
 
-geometry_msgs/Pose  cart_shared_frame
-geometry_msgs/Twist cart_shared_twist
-geometry_msgs/Twist cart_shared_acc
-
-#geometry_msgs/Pose[2]  cart_actual_pose
-#geometry_msgs/Twist[2] cart_actual_twist
-#geometry_msgs/Twist[2] cart_actual_acc
+geometry_msgs/Pose  cart_actual_shared_pose
+geometry_msgs/Twist cart_actual_shared_twist
 
 geometry_msgs/Pose[2]  cart_actual_cmd_pose
 geometry_msgs/Twist[2] cart_actual_cmd_twist

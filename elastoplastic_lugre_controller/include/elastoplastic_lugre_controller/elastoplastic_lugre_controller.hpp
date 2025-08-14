@@ -56,12 +56,11 @@ private:
   std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
   elastoplastic_controller::Params m_parameters;
 
-  template<typename T>
-  using InterfaceReference = std::vector<std::vector<std::reference_wrapper<T>>>;
+  template <typename T> using InterfaceReference = std::vector<std::reference_wrapper<T>>;
 
-  InterfaceReference<hardware_interface::LoanedStateInterface> m_joint_state_interfaces;
-  InterfaceReference<hardware_interface::LoanedCommandInterface> m_joint_command_interfaces;
-  InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
+  std::vector<InterfaceReference<hardware_interface::LoanedStateInterface>> m_joint_state_interfaces;
+  std::vector<InterfaceReference<hardware_interface::LoanedCommandInterface>> m_joint_command_interfaces;
+  // InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
   InterfaceReference<hardware_interface::LoanedCommandInterface> m_mobile_base_command_interfaces;
 
   size_t m_joint_reference_interfaces_size;
@@ -86,6 +85,7 @@ private:
   void update_base_pose_from_tf();
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
+  std::unique_ptr<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>> m_rt_pub_cmd_vel;
   rclcpp::Publisher<elastoplastic_msgs::msg::ElastoplasticDualControllerState>::SharedPtr m_pub_full_state;
   std::unique_ptr<realtime_tools::RealtimePublisher<elastoplastic_msgs::msg::ElastoplasticDualControllerState>>
     m_rt_pub_full_state;
@@ -156,8 +156,6 @@ private:
 
   struct FloatBaseData {
     bool enabled {true};
-    Eigen::Vector3d velocity_in_base;
-    Eigen::Vector6d twist_in_base() { return utils::twist_from_base_velocity(velocity_in_base); }
     size_t nax() const { return enabled ? nax_ : 0; }
     std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
     Eigen::Vector3d vel_limits;
@@ -169,6 +167,7 @@ private:
 
   } m_mobile_base;
 
+  Eigen::Vector3d m_velocity_base_in_base;
   bool m_mobile_base_pose_updated;
 
   std::vector<std::string> m_state_interfaces_names;
@@ -195,11 +194,12 @@ private:
     //, next_T_world_tool;
     const Eigen::Vector6d& target_acc_tool_target_in_world;
     const Eigen::Matrix12Xd& J_world_tools_in_world;
-    const Eigen::Matrix12Xd& J_base_tools_in_world;
+    // const Eigen::Matrix12Xd& J_base_tools_in_world;
     const Eigen::Affine3d& target_T_world_tool;
     const Eigen::Vector6d& target_twist_shared_world_in_world;
     const Eigen::Vector12d& wrench_tool_in_world;
     const Eigen::Vector6d& wrench_shared_in_world;
+    bool got_new_odom;
   };
 
   Eigen::Vector6d m_zp;
@@ -219,8 +219,14 @@ private:
   Eigen::Affine3d m_T_left_shared;
   Eigen::Affine3d m_T_right_shared_ideal;
   // Da rivedere
-  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left, const Eigen::Affine3d& /*T_world_right*/) {
-    return T_world_left * m_T_left_shared;
+  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left, const Eigen::Affine3d& T_world_right) {
+    // return T_world_left * m_T_left_shared;
+    Eigen::Affine3d T_world_shared;
+    T_world_shared.translation() = 0.5 * (T_world_left.translation() + T_world_right.translation());
+    Eigen::AngleAxisd AA_left_right(T_world_left.linear().transpose() * T_world_right.linear());
+    AA_left_right.angle() *= 0.5;
+    T_world_shared.linear() = T_world_left.linear() * AA_left_right.matrix();
+    return T_world_shared;
   }
 
   Eigen::Vector6d get_wrench(const int side) {

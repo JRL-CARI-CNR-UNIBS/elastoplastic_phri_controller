@@ -9,24 +9,24 @@ set(BUILD_TESTING OFF)
 
 option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" ON)
 
-find_package(ament_cmake                REQUIRED)
-find_package(controller_interface       REQUIRED)
-find_package(hardware_interface         REQUIRED)
-find_package(control_toolbox            REQUIRED)
-find_package(realtime_tools             REQUIRED)
-find_package(pluginlib                  REQUIRED)
-find_package(rclcpp                     REQUIRED)
-find_package(rclcpp_lifecycle           REQUIRED)
-find_package(sensor_msgs                REQUIRED)
-find_package(nav_msgs                   REQUIRED)
-find_package(geometry_msgs              REQUIRED)
-find_package(moveit_msgs                REQUIRED)
-find_package(tf2                        REQUIRED)
-find_package(tf2_eigen                  REQUIRED)
-find_package(tf2_geometry_msgs          REQUIRED)
-find_package(urdfdom                    REQUIRED)
-find_package(generate_parameter_library REQUIRED)
-find_package(elastoplastic_msgs         REQUIRED)
+find_package(ament_cmake                 REQUIRED)
+find_package(controller_interface        REQUIRED)
+find_package(hardware_interface          REQUIRED)
+find_package(control_toolbox             REQUIRED)
+find_package(control_msgs                REQUIRED)
+find_package(realtime_tools              REQUIRED)
+find_package(pluginlib                   REQUIRED)
+find_package(rclcpp                      REQUIRED)
+find_package(rclcpp_lifecycle            REQUIRED)
+find_package(elastoplastic_msgs          REQUIRED)
+find_package(nav_msgs                    REQUIRED)
+find_package(sensor_msgs                 REQUIRED)
+find_package(geometry_msgs               REQUIRED)
+find_package(moveit_msgs                 REQUIRED)
+find_package(tf2                         REQUIRED)
+find_package(tf2_eigen                   REQUIRED)
+find_package(urdfdom                     REQUIRED)
+find_package(generate_parameter_library  REQUIRED)
 
 find_package(fmt                        REQUIRED)
 find_package(rdyn_core                  REQUIRED)
@@ -82,7 +82,6 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   moveit_msgs
   tf2
   tf2_eigen
-  tf2_geometry_msgs
   urdfdom
   realtime_tools
   state_observers
@@ -134,6 +133,7 @@ ament_export_dependencies(controller_interface
   realtime_tools
   control_toolbox
   state_observers
+  elastoplastic_msgs
 )
 
 if(BUILD_TESTING)
