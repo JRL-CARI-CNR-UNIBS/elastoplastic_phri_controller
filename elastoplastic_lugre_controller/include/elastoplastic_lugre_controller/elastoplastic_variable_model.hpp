@@ -2,7 +2,6 @@
 #define ELASTOPLASTIC_CONTROLLER__ELASTOPLASTIC_VARIABLE_MODEL
 
 #include "Eigen/Dense"
-#include "elastoplastic_parameters.hpp"
 
 #include <boost/circular_buffer.hpp>
 

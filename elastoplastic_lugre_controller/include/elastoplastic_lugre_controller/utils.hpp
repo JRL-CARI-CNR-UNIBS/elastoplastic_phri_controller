@@ -3,7 +3,6 @@
 
 #include "Eigen/Core"
 #include "elastoplastic_lugre_controller/elastoplastic_variable_model.hpp"
-#include "elastoplastic_parameters.hpp"
 
 // Helpers to get unique names when using __LINE__
 #define _CONCAT(a, b) a##b
@@ -270,20 +269,6 @@ inline Eigen::Vector6d get_frame_distance(const Eigen::Affine3d& T_wa, const Eig
   Eigen::Vector6d v;
   get_frame_distance(T_wa, T_wb, v);
   return v;
-}
-
-inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& params, const double update_rate) {
-  ElastoplasticModelData data;
-  std::copy(params.impedance.inertia.begin(), params.impedance.inertia.end(), data.inertia_inv.diagonal().begin());
-  std::copy(params.impedance.k.begin(), params.impedance.k.end(), data.k.diagonal().begin());
-  std::copy(params.impedance.d.begin(), params.impedance.d.end(), data.d.diagonal().begin());
-  data.z_max = params.impedance.z_max;
-  data.z_start = params.impedance.z_start;
-  data.z_kmax = params.impedance.z_kmax;
-  data.enable_axis = params.impedance.enable_axis;
-  data.buffer_size = static_cast<size_t>(params.impedance.reset.time * update_rate);
-  data.reset_threshold = params.impedance.reset.threshold;
-  return data;
 }
 
 const std::string MOBILE_BASE_URDF = R"(<?xml version='1.0'?>

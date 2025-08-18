@@ -1,4 +1,4 @@
-#include "elastoplastic_lugre_controller/elastoplastic_lugre_controller.hpp"
+#include "elastoplastic_lugre_controller/elastoplastic_lugre_controller_dual.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 
 #include "control_toolbox/filters.hpp"
@@ -13,6 +13,9 @@
 #include <chrono>
 #include <numeric>
 
+namespace elastoplastic {
+
+namespace utils {
 void toWrenchMsg(const Eigen::Vector6d& v, geometry_msgs::msg::Wrench& msg) {
   // msg.force = tf2::toMsg2(v.head<3>());
   // msg.torque = tf2::toMsg2(v.tail<3>());
@@ -36,7 +39,7 @@ geometry_msgs::msg::WrenchStamped toWrenchStampedMsg(const Eigen::Vector6d& v) {
   return msg;
 }
 
-bool write_cmd_vel(std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>> ifs,
+bool write_cmd_vel(std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>& ifs,
                    const Eigen::Vector3d& v) {
   bool b = true;
   for (int idx = 0; idx < 3; ++idx) {
@@ -45,19 +48,19 @@ bool write_cmd_vel(std::vector<std::reference_wrapper<hardware_interface::Loaned
   return b;
 }
 
-namespace elastoplastic {
+} // namespace utils
 
 using namespace std::chrono_literals;
 
 
-controller_interface::CallbackReturn ElastoplasticController::on_init() {
-  m_param_listener = std::make_shared<elastoplastic_controller::ParamListener>(this->get_node());
+controller_interface::CallbackReturn ElastoplasticControllerDual::on_init() {
+  m_param_listener = std::make_shared<elastoplastic_controller_dual::ParamListener>(this->get_node());
   RCLCPP_DEBUG(get_node()->get_logger(), "Elastoplastic controller correctly loaded");
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
 
-void ElastoplasticController::configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg) {
+void ElastoplasticControllerDual::configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg) {
   if (m_robot_description_configuration == RDStatus::OK) {
     RCLCPP_DEBUG(get_node()->get_logger(), "New robot_description ignored");
     return;
@@ -198,7 +201,8 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
 }
 
 
-controller_interface::CallbackReturn ElastoplasticController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
+controller_interface::CallbackReturn
+ElastoplasticControllerDual::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
   m_parameters = m_param_listener->get_params();
 
   if (m_parameters.debug.log) {
@@ -259,7 +263,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   using namespace std::placeholders;
   m_mobile_base_pose_updated = false;
   m_sub_mobile_base_odometry = this->get_node()->create_subscription<nav_msgs::msg::Odometry>(
-    m_parameters.mobile_base.odom, 1, std::bind(&ElastoplasticController::get_odometry_callback, this, _1));
+    m_parameters.mobile_base.odom, 1, std::bind(&ElastoplasticControllerDual::get_odometry_callback, this, _1));
   if (m_mobile_base.enabled) {
     m_mobile_base_pose_updated = true;
     m_pub_cmd_vel =
@@ -319,7 +323,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     qos.transient_local();
     m_sub_robot_description = get_node()->create_subscription<std_msgs::msg::String>(
       m_parameters.robot_description_topic, qos,
-      std::bind(&ElastoplasticController::configure_after_robot_description_callback, this, std::placeholders::_1));
+      std::bind(&ElastoplasticControllerDual::configure_after_robot_description_callback, this, std::placeholders::_1));
     m_robot_description_configuration = RDStatus::EMPTY;
 #endif
   }
@@ -395,7 +399,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_tf_buffer->setUsingDedicatedThread(true);
   m_tf_buffer->setCreateTimerInterface(
     std::make_shared<tf2_ros::CreateTimerROS>(get_node()->get_node_base_interface(), get_node()->get_node_timers_interface()));
-  m_tf_base_pose_recovery_thread = std::make_unique<std::thread>(&ElastoplasticController::update_base_pose_from_tf, this);
+  m_tf_base_pose_recovery_thread = std::make_unique<std::thread>(&ElastoplasticControllerDual::update_base_pose_from_tf, this);
   bool can_transform{false};
   do {
     can_transform = m_tf_buffer->canTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero);
@@ -417,7 +421,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-void ElastoplasticController::update_base_pose_from_tf() {
+void ElastoplasticControllerDual::update_base_pose_from_tf() {
   m_node_support = rclcpp::Node::make_shared(
     "__support_node__", fmt::format("{}{}", this->get_node()->get_namespace(), this->get_node()->get_name()));
   m_node_semaph.release();
@@ -428,7 +432,7 @@ void ElastoplasticController::update_base_pose_from_tf() {
   m_support_node_exec->remove_node(m_node_support);
 }
 
-controller_interface::InterfaceConfiguration ElastoplasticController::state_interface_configuration() const {
+controller_interface::InterfaceConfiguration ElastoplasticControllerDual::state_interface_configuration() const {
   controller_interface::InterfaceConfiguration state_interface_configuration;
   state_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
@@ -451,7 +455,7 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
 }
 
 
-controller_interface::InterfaceConfiguration ElastoplasticController::command_interface_configuration() const {
+controller_interface::InterfaceConfiguration ElastoplasticControllerDual::command_interface_configuration() const {
   controller_interface::InterfaceConfiguration command_interface_configuration;
   command_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
@@ -478,7 +482,7 @@ controller_interface::InterfaceConfiguration ElastoplasticController::command_in
 }
 
 
-controller_interface::CallbackReturn ElastoplasticController::on_activate(const rclcpp_lifecycle::State& /*previous_state*/) {
+controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(const rclcpp_lifecycle::State& /*previous_state*/) {
   auto t_start = get_node()->get_clock()->now();
   while (!ready_for_activation() && !m_mobile_base_pose_updated &&
          get_node()->get_clock()->now() - t_start < std::chrono::seconds(10)) {
@@ -554,7 +558,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   if (m_mobile_base.enabled) {
     m_q.head<2>() = m_T_world_base.translation().head<2>();
     m_q(2) = utils::vector_from_affine(m_T_world_base)(5);
-    // write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
+    // utils::write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
     m_qp.head<3>().setZero();
   }
 
@@ -645,7 +649,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-controller_interface::CallbackReturn ElastoplasticController::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) {
+controller_interface::CallbackReturn
+ElastoplasticControllerDual::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) {
 
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
@@ -668,7 +673,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
     Eigen::Vector6d empty = Eigen::Vector6d::Zero();
     geometry_msgs::msg::Twist cmd_vel = tf2::toMsg(empty);
     m_pub_cmd_vel->publish(cmd_vel);
-    write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
+    utils::write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
   }
 
   m_rt_pub_full_state->stop();
@@ -684,19 +689,19 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-controller_interface::CallbackReturn ElastoplasticController::on_cleanup(const rclcpp_lifecycle::State& /*previous_state*/) {
+controller_interface::CallbackReturn ElastoplasticControllerDual::on_cleanup(const rclcpp_lifecycle::State& /*previous_state*/) {
   if (m_tf_base_pose_recovery_thread->joinable())
     m_tf_base_pose_recovery_thread->join();
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-controller_interface::CallbackReturn ElastoplasticController::on_error(const rclcpp_lifecycle::State& previous_state) {
-  return ElastoplasticController::on_deactivate(previous_state);
+controller_interface::CallbackReturn ElastoplasticControllerDual::on_error(const rclcpp_lifecycle::State& previous_state) {
+  return ElastoplasticControllerDual::on_deactivate(previous_state);
 }
 
 
-std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_export_reference_interfaces() {
+std::vector<hardware_interface::CommandInterface> ElastoplasticControllerDual::on_export_reference_interfaces() {
   std::vector<hardware_interface::CommandInterface> reference_interfaces;
 
   m_joint_reference_interfaces_size =
@@ -718,8 +723,8 @@ std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_ex
 }
 
 
-controller_interface::return_type ElastoplasticController::update_reference_from_subscribers(const rclcpp::Time& /*time*/,
-                                                                                             const rclcpp::Duration& /*period*/) {
+controller_interface::return_type
+ElastoplasticControllerDual::update_reference_from_subscribers(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) {
   /* "Joint trajectory available only in chainable mode with joint_trajectory_controller" */
 
   std::copy(m_q.tail(m_nax).begin(), m_q.tail(m_nax).end(), reference_interfaces_.begin());     // position
@@ -728,13 +733,13 @@ controller_interface::return_type ElastoplasticController::update_reference_from
   return controller_interface::return_type::OK;
 }
 
-void ElastoplasticController::get_odometry_callback(const nav_msgs::msg::Odometry& msg) {
+void ElastoplasticControllerDual::get_odometry_callback(const nav_msgs::msg::Odometry& msg) {
   m_rt_buffer_base_odom.writeFromNonRT(msg);
 }
 
 
-controller_interface::return_type ElastoplasticController::update_and_write_commands(const rclcpp::Time& /*time*/,
-                                                                                     const rclcpp::Duration& /*period*/) {
+controller_interface::return_type ElastoplasticControllerDual::update_and_write_commands(const rclcpp::Time& /*time*/,
+                                                                                         const rclcpp::Duration& /*period*/) {
   rclcpp::Time t_start = get_node()->get_clock()->now();
 
   if (m_offset_future.wait_for(0s) != std::future_status::ready) {
@@ -1169,9 +1174,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(base_twist_in_base);
     m_rt_pub_cmd_vel->tryPublish(cmd_vel);
 
-    bool is_mobile_base_write_ok = write_cmd_vel(m_mobile_base_command_interfaces, m_velocity_base_in_base);
+    bool is_mobile_base_write_ok = utils::write_cmd_vel(m_mobile_base_command_interfaces, m_velocity_base_in_base);
     if (!is_mobile_base_write_ok) {
-      write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
+      utils::write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
       RCLCPP_ERROR_STREAM(get_node()->get_logger(),
                           "Problem occurred while writing on mobile base interfaces! Stopping the movement");
     }
@@ -1222,10 +1227,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   [[maybe_unused]] double unused_double;
   std::tie(msg.reset_buffer_state, unused_double) = m_elastoplastic_model->get_reset_buffer_status();
 
-  msg.wrenches[ElastoplasticDualControllerState::SIDE_LEFT] = toWrenchMsg(wrench_tool_in_world.head<6>());
-  msg.wrenches[ElastoplasticDualControllerState::SIDE_RIGHT] = toWrenchMsg(wrench_tool_in_world.tail<6>());
+  msg.wrenches[ElastoplasticDualControllerState::SIDE_LEFT] = utils::toWrenchMsg(wrench_tool_in_world.head<6>());
+  msg.wrenches[ElastoplasticDualControllerState::SIDE_RIGHT] = utils::toWrenchMsg(wrench_tool_in_world.tail<6>());
 
-  msg.admittance_state.wrench_base = toWrenchStampedMsg(wrench_shared_in_world);
+  msg.admittance_state.wrench_base = utils::toWrenchStampedMsg(wrench_shared_in_world);
 
   msg.admittance_state.admittance_position = tf2::eigenToTransform(m_computed_target_T_world_shared);
   msg.admittance_state.admittance_position.header.stamp = time_now;
@@ -1260,7 +1265,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   std::copy(K_diag.begin(), K_diag.end(), std::back_inserter(msg.admittance_state.stiffness.data));
   std::copy(D.diagonal().begin(), D.diagonal().end(), std::back_inserter(msg.admittance_state.damping.data));
 
-  toWrenchMsg(m_admittance_value, msg.virtual_force);
+  utils::toWrenchMsg(m_admittance_value, msg.virtual_force);
 
   if (m_elastoplastic_model->is_plastic()) {
     msg.mode = ElastoplasticDualControllerState::MODE_PLASTIC;
@@ -1281,4 +1286,4 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
 } // namespace elastoplastic
 
-PLUGINLIB_EXPORT_CLASS(elastoplastic::ElastoplasticController, controller_interface::ChainableControllerInterface);
+PLUGINLIB_EXPORT_CLASS(elastoplastic::ElastoplasticControllerDual, controller_interface::ChainableControllerInterface);

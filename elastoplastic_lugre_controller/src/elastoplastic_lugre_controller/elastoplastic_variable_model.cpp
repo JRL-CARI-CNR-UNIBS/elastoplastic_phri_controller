@@ -2,6 +2,7 @@
 #include "elastoplastic_lugre_controller/utils.hpp"
 
 #include <algorithm>
+#include <numeric>
 
 #include "fmt/core.h"
 

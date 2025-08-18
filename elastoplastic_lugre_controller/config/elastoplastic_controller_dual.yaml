@@ -1,6 +1,6 @@
-elastoplastic_controller:
+elastoplastic_controller_dual:
   ros__parameters:
-    type: elastoplastic_controller/ElastoplasticController
+    type: elastoplastic/ElastoplasticControllerDual
     use_sim_time: False
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"

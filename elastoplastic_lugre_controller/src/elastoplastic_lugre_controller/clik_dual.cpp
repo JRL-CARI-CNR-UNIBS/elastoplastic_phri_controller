@@ -1,4 +1,4 @@
-#include "elastoplastic_lugre_controller/elastoplastic_lugre_controller.hpp"
+#include "elastoplastic_lugre_controller/elastoplastic_lugre_controller_dual.hpp"
 #include "elastoplastic_lugre_controller/sot.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 
@@ -14,7 +14,7 @@ void whitening(elastoplastic::Task& t) {
   t.W() *= M * M.transpose();
 };
 
-std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& data) {
+std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData& data) {
 
   // RCLCPP_WARN_STREAM(get_node()->get_logger(), "**********" << data.twist_tool_world_in_world << "\n---\n"
   // << data.twist_shared_world_in_world << "\n---\n"

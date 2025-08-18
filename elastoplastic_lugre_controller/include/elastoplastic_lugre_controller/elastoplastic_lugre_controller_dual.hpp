@@ -2,9 +2,9 @@
 #define ELASTOPLASTIC_LUGRE_CONTROLLER_HPP
 
 // local libs
+#include "elastoplastic_dual_parameters.hpp"
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
-#include "elastoplastic_parameters.hpp"
 #include "elastoplastic_variable_model.hpp"
 
 // fundamental libs
@@ -48,13 +48,29 @@
 
 namespace elastoplastic
 {
+
+namespace utils {
+inline ElastoplasticModelData get_model_data(const elastoplastic_controller_dual::Params& params, const double update_rate) {
+  ElastoplasticModelData data;
+  std::copy(params.impedance.inertia.begin(), params.impedance.inertia.end(), data.inertia_inv.diagonal().begin());
+  std::copy(params.impedance.k.begin(), params.impedance.k.end(), data.k.diagonal().begin());
+  std::copy(params.impedance.d.begin(), params.impedance.d.end(), data.d.diagonal().begin());
+  data.z_max = params.impedance.z_max;
+  data.z_start = params.impedance.z_start;
+  data.z_kmax = params.impedance.z_kmax;
+  data.enable_axis = params.impedance.enable_axis;
+  data.buffer_size = static_cast<size_t>(params.impedance.reset.time * update_rate);
+  data.reset_threshold = params.impedance.reset.threshold;
+  return data;
+}
+} // namespace utils
+
 template <typename T> using Couple = std::array<T, 2>;
 
-class ElastoplasticController : public controller_interface::ChainableControllerInterface
-{
+class ElastoplasticControllerDual : public controller_interface::ChainableControllerInterface {
 private:
-  std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
-  elastoplastic_controller::Params m_parameters;
+  std::shared_ptr<elastoplastic_controller_dual::ParamListener> m_param_listener;
+  elastoplastic_controller_dual::Params m_parameters;
 
   template <typename T> using InterfaceReference = std::vector<std::reference_wrapper<T>>;
 
@@ -94,7 +110,7 @@ private:
   constexpr static unsigned int M_SE3{6};
   constexpr static unsigned int M_SE2{3};
 
-  enum class RDStatus { OK, ERROR, EMPTY } m_robot_description_configuration{ElastoplasticController::RDStatus::EMPTY};
+  enum class RDStatus { OK, ERROR, EMPTY } m_robot_description_configuration{ElastoplasticControllerDual::RDStatus::EMPTY};
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
 
   Couple<rdyn::ChainPtr> m_chain_base_tools;
@@ -243,7 +259,7 @@ private:
 
 
 public:
-  ElastoplasticController() {}
+  ElastoplasticControllerDual() = default;
 
   controller_interface::InterfaceConfiguration command_interface_configuration() const override;
 
@@ -297,7 +313,6 @@ protected:
   void get_odometry_callback(const nav_msgs::msg::Odometry & msg);
   void get_localization_callback(const geometry_msgs::msg::PoseWithCovarianceStamped & msg);
 };
-
 }
 
 #endif // ELASTOPLASTIC_LUGRE_CONTROLLER_HPP

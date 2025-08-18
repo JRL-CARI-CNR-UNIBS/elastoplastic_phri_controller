@@ -1,4 +1,4 @@
-elastoplastic_controller:
+elastoplastic_controller_dual:
   target_joint_trajectory_topic: {
     type: string,
     default_value: "/joint_trajectory",

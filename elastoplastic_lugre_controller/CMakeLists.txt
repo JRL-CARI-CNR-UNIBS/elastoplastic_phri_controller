@@ -39,36 +39,34 @@ find_package(Boost REQUIRED COMPONENTS container)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 generate_parameter_library(
-  elastoplastic_parameters # cmake target name for the parameter library
-  src/${PROJECT_NAME}/elastoplastic_controller_parameters.yaml # path to input yaml file
+  elastoplastic_dual_parameters # cmake target name for the parameter library
+  src/${PROJECT_NAME}/elastoplastic_controller_dual_parameters.yaml # path to input yaml file
 )
 
-add_library(elastoplastic_controller SHARED
-  src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
+add_library(elastoplastic_controller_dual SHARED
+  src/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.cpp
   src/${PROJECT_NAME}/clik_dual.cpp
-  include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
-  include/elastoplastic_lugre_controller/utils.hpp
+  include/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.hpp
+  include/${PROJECT_NAME}/utils.hpp
   # Cartesian interpolator
   src/${PROJECT_NAME}/interpolation/interpolator.cpp
   include/${PROJECT_NAME}/interpolation/interpolator.hpp
   include/${PROJECT_NAME}/interpolation/interpolation_data_types.hpp
   include/${PROJECT_NAME}/interpolation/interpolation.hpp
   include/${PROJECT_NAME}/interpolation/operators.hpp
-
-  include/elastoplastic_lugre_controller/elastoplastic_variable_model.hpp
-  src/elastoplastic_lugre_controller/elastoplastic_variable_model.cpp
-
-  include/elastoplastic_lugre_controller/sot.hpp
+  include/${PROJECT_NAME}/elastoplastic_variable_model.hpp
+  src/${PROJECT_NAME}/elastoplastic_variable_model.cpp
+  include/${PROJECT_NAME}/sot.hpp
 )
-add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
+add_library(elastoplastic_controller::elastoplastic_controller_dual ALIAS elastoplastic_controller_dual)
 
 pluginlib_export_plugin_description_file(controller_interface elastoplastic.plugin.xml)
 
 if(USE_LATEST_ROS2_CONTROL)
-  target_compile_definitions(elastoplastic_controller PUBLIC USE_LATEST_ROS2_CONTROL)
+  target_compile_definitions(elastoplastic_controller_dual PUBLIC USE_LATEST_ROS2_CONTROL)
 endif()
 
-ament_target_dependencies(elastoplastic_controller PUBLIC
+ament_target_dependencies(elastoplastic_controller_dual PUBLIC
   controller_interface
   hardware_interface
   control_toolbox
@@ -87,24 +85,24 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   state_observers
   )
 
-target_link_libraries(elastoplastic_controller
-  PUBLIC elastoplastic_parameters
+target_link_libraries(elastoplastic_controller_dual
+  PUBLIC elastoplastic_dual_parameters
   PUBLIC rdyn_core::rdyn_core_compiled
   PUBLIC Eigen3::Eigen
   PUBLIC fmt::fmt
   PUBLIC eiquadprog::eiquadprog
 )
 
-target_include_directories(elastoplastic_controller PUBLIC
+target_include_directories(elastoplastic_controller_dual PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
  # -ffast-math option is not added due to the std::isinf() function present in the code
-# target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -funroll-loops -Wall -O3)
-target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
+# target_compile_options(elastoplastic_controller_dual PUBLIC -Wno-unknown-pragmas -funroll-loops -Wall -O3)
+target_compile_definitions(elastoplastic_controller_dual PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
-install(TARGETS elastoplastic_controller elastoplastic_parameters
-        EXPORT export_elastoplastic_controller
+install(TARGETS elastoplastic_controller_dual elastoplastic_dual_parameters
+        EXPORT export_elastoplastic_controller_dual
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin
@@ -118,7 +116,7 @@ install(DIRECTORY config launch
         DESTINATION share/${PROJECT_NAME}
 )
 
-ament_export_targets(export_elastoplastic_controller HAS_LIBRARY_TARGET)
+ament_export_targets(export_elastoplastic_controller_dual HAS_LIBRARY_TARGET)
 ament_export_dependencies(controller_interface
   hardware_interface
   pluginlib
@@ -147,25 +145,25 @@ if(BUILD_TESTING)
     $<INSTALL_INTERFACE:include>
   )
   target_link_libraries(test_elastoplastic_model
-    elastoplastic_controller::elastoplastic_controller
+    elastoplastic_controller::elastoplastic_controller_dual
   )
   ament_target_dependencies(test_elastoplastic_model
     rclcpp
     rclcpp_lifecycle
   )
-  target_compile_definitions(elastoplastic_controller PUBLIC "BUILD_TESTING")
+  target_compile_definitions(elastoplastic_controller_dual PUBLIC "BUILD_TESTING")
 
-  # ament_add_gtest(test_elastoplastic_controller
-  #     test/test_elastoplastic_controller.cpp
+  # ament_add_gtest(test_elastoplastic_controller_dual
+  #     test/test_elastoplastic_controller_dual.cpp
   #   )
-  # target_include_directories(test_elastoplastic_controller PUBLIC
+  # target_include_directories(test_elastoplastic_controller_dual PUBLIC
   #   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   #   $<INSTALL_INTERFACE:include>
   # )
-  # target_link_libraries(test_elastoplastic_controller
-  #   elastoplastic_controller::elastoplastic_controller
+  # target_link_libraries(test_elastoplastic_controller_dual
+  #   elastoplastic_controller::elastoplastic_controller_dual
   # )
-  # ament_target_dependencies(test_elastoplastic_controller
+  # ament_target_dependencies(test_elastoplastic_controller_dual
   #   rclcpp
   #   rclcpp_lifecycle
   # )
@@ -175,7 +173,7 @@ if(BUILD_TESTING)
   #   test/test_with_cm.cpp
   #   ${CMAKE_CURRENT_SOURCE_DIR}/test/test_params.yaml
   # )
-  # target_link_libraries(test_with_cm elastoplastic_controller::elastoplastic_controller)
+  # target_link_libraries(test_with_cm elastoplastic_controller::elastoplastic_controller_dual)
   # ament_target_dependencies(test_with_cm
   #   control_msgs
   #   controller_interface
