@@ -1,0 +1,408 @@
+elastoplastic_controller_dual:
+  target_joint_trajectory_topic: {
+    type: string,
+    default_value: "/joint_trajectory",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  cartesian_trajectory_topic: {
+    type: string,
+    default_value: "/cartesian_trajectory",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  robot_description_topic: {
+    type: string,
+    default_value: "/robot_description",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  cmd_vel_topic: {
+    type: string,
+    default_value: "~/cmd_vel",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  ft_sensor_names: {
+    type: string_array,
+    description: "Force/Torque sensor names",
+    validation: {
+      fixed_size<>: [2]
+    }
+  }
+  ft_invert_sign: {
+    type: bool,
+    default_value: false,
+    description: "Invert sign of the force detected. Useful when the FT-sensor provide the reaction force"
+  }
+  frames:
+    map: {
+      type: string,
+      default_value: "",
+      description: "Map frame"
+    }
+    base: {
+      type: string,
+      description: "Base frame",
+      validation: {
+        not_empty<>: []
+      }
+    }
+    fork: {
+      type: string,
+      description: "Last frame before bifurcation",
+      validation: {
+        not_empty<>: []
+      }
+    }
+    tools: {
+      type: string_array,
+      description: "Tool frame",
+      validation: {
+        fixed_size<>: [2]
+      }
+    }
+    sensors: {
+      type: string_array,
+      description: "F/T Sensor frame",
+      validation: {
+        fixed_size<>: [2]
+      }
+    }
+  gravity: {
+    type: double_array,
+    default_value: [0.0, 0.0, -9.806],
+    description: "Gravity vector",
+    validation: {
+      fixed_size<>: [3]
+    }
+  }
+  joints:
+    left: {
+      type: string_array,
+      default_value: [],
+      description: "Robot Joints arm left"
+    }
+    right: {
+      type: string_array,
+      default_value: [],
+      description: "Robot joints arm right"
+    }
+    common: {
+      type: string_array,
+      default_value: [],
+      description: "Joints common between the two arms"
+    }
+  soft_limits: {
+    type: double_array,
+    description: "add more strict soft joint limits",
+    validation: {
+      lower_element_bounds<>: [0.0]
+    }
+  }
+  soft_limits: {
+    type: double_array,
+    default_value: [],
+    description: "joint constraint = |joint_limit| - soft_limit",
+  }
+  kalman_filter:
+    manipulator:
+      position: {
+        type: double_array,
+        default_value: [],
+        description: "Q over R for manipulator kalman filter",
+        validation: {
+          not_empty<>: []
+        }
+      }
+      velocity: {
+        type: double_array,
+        default_value: [],
+        description: "Q over R for manipulator kalman filter",
+        validation: {
+          not_empty<>: []
+        }
+      }
+  acceleration_limits_coeff: {
+    type: double,
+    default_value: 10,
+    read_only: true,
+    description: "Acceleration limits for manipulator joints computed as: acceleration_limits_coeff * velocity_limits",
+    validation: {
+      gt<>: 0.0
+    }
+  }
+  cartesian_limits:
+    position: {
+      type: double_array,
+      default_value: [0.9, 0.9, 0.9, 3.141592654, 3.141592654, 3.141592654],
+      validation: {
+        fixed_size<>: [6]
+      }
+    }
+  mobile_base:
+    enabled: {
+      type: bool,
+      default_value: true,
+      description: "Use mobile base",
+      read_only: true
+    }
+    enable_z_rotation: {
+      type: bool,
+      default_value: true,
+      description: "Enable rotation around Z axis of the base",
+      read_only: true
+    }
+    input_target_topic: {
+      type: string,
+      default_value: "/input_cmd_vel",
+      description: "auxiliary axis command",
+      validation: {
+        not_empty<>: []
+      }
+    }
+    localization_topic: {
+      type: string,
+      default_value: "/amcl_pose",
+      description: "Topic published by the localization node with the base position",
+      validation: {
+        not_empty<>: []
+      }
+    }
+    odom: {
+      type: string,
+      default_value: "/odom",
+      description: "Odometry topic",
+      validation: {
+        not_empty<>: []
+      }
+    }
+    command_interfaces: {
+      type: string_array,
+      default_value: ["mock/linear/x", "mock/linear/y", "mock/angular/z"],
+      description: "Velocity interfaces for base controller. Should be cartesian (x,y,yaw). 'velocity' is automatically considered",
+      validation: {
+        fixed_size<>: [3]
+      }
+    }
+    max_vel:
+      linear: {
+        type: double_array,
+        validation: {
+          fixed_size<>: [2]
+        }
+      }
+      angular: {
+        type: double,
+      }
+    max_acc_x: {
+      type: double,
+      default_value: 0.0,
+      description: "Max acceleration mobile base in x",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_dec_x: {
+      type: double,
+      default_value: 0.0,
+      description: "Max deceleration mobile base in x",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_acc_y: {
+      type: double,
+      default_value: 0.0,
+      description: "Max acceleration mobile base in y",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_dec_y: {
+      type: double,
+      default_value: 0.0,
+      description: "Max deceleration mobile base in y",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_acc_yaw: {
+      type: double,
+      default_value: 0.0,
+      description: "Max acceleration mobile base in yaw",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+    max_dec_yaw: {
+      type: double,
+      default_value: 0.0,
+      description: "Max deceleration mobile base in yaw",
+      validation: {
+        gt<>: 0.0
+      }
+    }
+  command_interfaces: {
+    type: string_array,
+    default_value: ["position", "velocity"],
+    description: "Command interface types",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  state_interfaces: {
+    type: string_array,
+    default_value: ["position", "velocity"],
+    description: "State interface types",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  wrench:
+    deadband: {
+      type: double_array,
+      default_value: [0.0,0.0,0.0,0.0],
+      description: "Wrench deadband. [force_deadband, torque_deadband]",
+      validation: {
+        fixed_size<>: 4,
+        lower_element_bounds<>: 0.0
+      }
+    }
+    filter_alfa: {
+      type: double,
+      default_value: 0.05,
+      description: "wrench = alfa * wrench + (1-alfa) * old_wrench",
+      validation: {
+        gt_eq<>: 0
+      }
+    }
+  impedance:
+    enable_axis: {
+      type: bool_array,
+      default_value: [true, true, true, false, false, true],
+      description: "Enable world-referenced axis, expressed in world frame",
+      validation: {
+        fixed_size<>: 6
+      }
+    }
+    inertia: {
+      type: double_array,
+      default_value: [],
+      description: "Controller Inertia, in tool frame",
+      validation: {
+        lower_element_bounds<>: 1.0e-9,
+        fixed_size<>: 6
+      }
+    }
+    k: {
+      type: double_array,
+      description: "bristle stiffness, in tool frame",
+      validation: {
+        fixed_size<>: 6
+      }
+    }
+    d: {
+      type: double_array,
+      description: "bristle damping, in tool frame",
+      validation: {
+        fixed_size<>: 6
+      }
+    }
+    z_max: {
+      type: double,
+      description: "Maximum bristle bending, in world frame",
+      validation: {
+        gt<>: 0
+      }
+    }
+    z_start: {
+      type: double,
+      description: "Plastic threshold, in world frame",
+      validation: {
+        gt_eq<>: 0
+      }
+    }
+    z_kmax: {
+      type: double,
+      description: "Plastic threshold, in world frame",
+      validation: {
+        gt_eq<>: 0
+      }
+    }
+    reset:
+      time: {
+        type: double,
+        validation: {
+          gt<>: 0
+        }
+      }
+      threshold: {
+        type: double,
+        validation: {
+          gt<>: 0
+        }
+      }
+    plastic_restoration: {
+      type: bool,
+      description: "Allow restoration from plastic error once the system return elastic",
+      default_value: true
+    }
+    logistic:
+      max: {
+        type: double,
+        description: "Max value of the logistic. Default (and preferred value): 1",
+        default_value: 1.0,
+        read_only: true,
+        validation: {
+          gt<>: 0.0
+        }
+      }
+      slope: {
+        type: double,
+        description: "Slope of the logistic",
+        default_value: 15.0,
+        read_only: true,
+        validation: {
+          gt<>: 0.0
+        }
+      }
+      inflection: {
+        type: double,
+        description: "Coefficient for inflection point of the logistic. The actual point is computed as (inflection * max_vel_iaxis)",
+        default_value: 0.8,
+        read_only: true,
+        validation: {
+          gt<>: 0.0
+        }
+      }
+  offset_force_window : {
+    type: double,
+    description: "Offset force window in seconds",
+    default_value: 1.0,
+    validation: {
+      gt_eq<>: 0.0
+    }
+  }
+  clik:
+    alpha_gain: {
+      type: double,
+      description: "Weight on alpha to change between base/arm priority"
+    }
+    joint_task:
+      kp: {
+        type: double,
+      }
+      kv: {
+        type: double,
+      }
+  debug:
+    log: {
+      type: bool,
+      description: "Enable debug logging",
+      default_value: false
+    }

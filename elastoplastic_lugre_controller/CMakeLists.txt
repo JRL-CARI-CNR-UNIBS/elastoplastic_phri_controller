@@ -43,33 +43,46 @@ generate_parameter_library(
   elastoplastic_parameters # cmake target name for the parameter library
   src/${PROJECT_NAME}/elastoplastic_controller_parameters.yaml # path to input yaml file
 )
+generate_parameter_library(
+  elastoplastic_dual_parameters # cmake target name for the parameter library
+  src/${PROJECT_NAME}/elastoplastic_controller_dual_parameters.yaml # path to input yaml file
+)
 
-add_library(elastoplastic_controller SHARED
-  src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
-  src/${PROJECT_NAME}/clik.cpp
-  include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
-  include/elastoplastic_lugre_controller/utils.hpp
+set(COMMON_FILES
+  include/${PROJECT_NAME}/utils.hpp
   # Cartesian interpolator
   src/${PROJECT_NAME}/interpolation/interpolator.cpp
   include/${PROJECT_NAME}/interpolation/interpolator.hpp
   include/${PROJECT_NAME}/interpolation/interpolation_data_types.hpp
   include/${PROJECT_NAME}/interpolation/interpolation.hpp
   include/${PROJECT_NAME}/interpolation/operators.hpp
+  include/${PROJECT_NAME}/elastoplastic_variable_model.hpp
+  src/${PROJECT_NAME}/elastoplastic_variable_model.cpp
+  include/${PROJECT_NAME}/sot.hpp)
 
-  include/elastoplastic_lugre_controller/elastoplastic_variable_model.hpp
-  src/elastoplastic_lugre_controller/elastoplastic_variable_model.cpp
-
-  include/elastoplastic_lugre_controller/sot.hpp
+add_library(elastoplastic_controller SHARED
+  src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
+  include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
+  ${COMMON_FILES}
 )
+
+add_library(elastoplastic_controller_dual SHARED
+  src/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.cpp
+  include/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.hpp
+  ${COMMON_FILES}
+)
+
 add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
+add_library(elastoplastic_controller::elastoplastic_controller_dual ALIAS elastoplastic_controller_dual)
 
 pluginlib_export_plugin_description_file(controller_interface elastoplastic.plugin.xml)
 
 if(USE_LATEST_ROS2_CONTROL)
   target_compile_definitions(elastoplastic_controller PUBLIC USE_LATEST_ROS2_CONTROL)
+  target_compile_definitions(elastoplastic_controller_dual PUBLIC USE_LATEST_ROS2_CONTROL)
 endif()
 
-ament_target_dependencies(elastoplastic_controller PUBLIC
+set(AMENT_LIBS
   controller_interface
   hardware_interface
   control_toolbox
@@ -78,9 +91,9 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   pluginlib
   rclcpp
   rclcpp_lifecycle
-  elastoplastic_msgs
-  nav_msgs
   sensor_msgs
+  nav_msgs
+  elastoplastic_msgs
   geometry_msgs
   moveit_msgs
   tf2
@@ -89,8 +102,24 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
   state_observers
   )
 
+ament_target_dependencies(elastoplastic_controller PUBLIC
+${AMENT_LIBS}
+)
+
 target_link_libraries(elastoplastic_controller
   PUBLIC elastoplastic_parameters
+  PUBLIC rdyn_core::rdyn_core_compiled
+  PUBLIC Eigen3::Eigen
+  PUBLIC fmt::fmt
+  PUBLIC eiquadprog::eiquadprog
+)
+
+ament_target_dependencies(elastoplastic_controller_dual PUBLIC
+${AMENT_LIBS}
+)
+
+target_link_libraries(elastoplastic_controller_dual
+  PUBLIC elastoplastic_dual_parameters
   PUBLIC rdyn_core::rdyn_core_compiled
   PUBLIC Eigen3::Eigen
   PUBLIC fmt::fmt
@@ -101,11 +130,16 @@ target_include_directories(elastoplastic_controller PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
+target_include_directories(elastoplastic_controller_dual PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
+
  # -ffast-math option is not added due to the std::isinf() function present in the code
 # target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -funroll-loops -Wall -O3)
 target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
+target_compile_definitions(elastoplastic_controller_dual PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
-install(TARGETS elastoplastic_controller elastoplastic_parameters
+install(TARGETS elastoplastic_controller elastoplastic_controller_dual elastoplastic_parameters elastoplastic_parameters_dual
         EXPORT export_elastoplastic_controller
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib

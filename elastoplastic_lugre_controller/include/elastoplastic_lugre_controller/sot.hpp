@@ -2,6 +2,7 @@
 #define ELASTOPLASTIC_CONTORLLER__SOT_HPP
 
 #include "Eigen/Dense"
+// #define EIQGUADPROG_TRACE_SOLVER
 #include "eiquadprog/eiquadprog-fast.hpp"
 #include <numeric>
 
@@ -224,6 +225,10 @@ public:
     std::copy_if(m_neq.begin(), m_neq.end(), std::back_inserter(v),
                  [&x, &toll](const InequalityConstraint& ineq) { return ineq.violations(x, toll); });
     return v;
+  }
+  int redundancies() {
+    Eigen::BDCSVD<Eigen::MatrixXd> svd(m_CI, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    return std::max(m_CI.rows(), m_CI.cols()) - svd.nonzeroSingularValues();
   }
 };
 

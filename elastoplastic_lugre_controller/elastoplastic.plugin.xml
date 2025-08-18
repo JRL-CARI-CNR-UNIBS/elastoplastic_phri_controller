@@ -1,8 +1,14 @@
+<library path="elastoplastic_controller_dual">
+  <class name="elastoplastic/ElastoplasticControllerDual" type="elastoplastic::ElastoplasticControllerDual" base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      Lugre Impedance Controller for Dual Arm robot
+    </description>
+  </class>
+</library>
 <library path="elastoplastic_controller">
-  <class name="elastoplastic_controller/ElastoplasticController" type="elastoplastic::ElastoplasticController" base_class_type="controller_interface::ChainableControllerInterface">
+  <class name="elastoplastic/ElastoplasticController" type="elastoplastic::ElastoplasticController" base_class_type="controller_interface::ChainableControllerInterface">
     <description>
       Lugre Impedance Controller
     </description>
   </class>
 </library>
-
