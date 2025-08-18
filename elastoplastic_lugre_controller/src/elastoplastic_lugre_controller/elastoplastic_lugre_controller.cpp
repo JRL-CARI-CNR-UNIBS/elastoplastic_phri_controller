@@ -36,7 +36,7 @@ geometry_msgs::msg::WrenchStamped toWrenchStampedMsg(const Eigen::Vector6d& v) {
   return msg;
 }
 
-bool write_cmd_vel(std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>> ifs,
+bool write_cmd_vel(std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>& ifs,
                    const Eigen::Vector3d& v) {
   bool b = true;
   for (int idx = 0; idx < 3; ++idx) {
@@ -985,20 +985,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // ************
 
   Eigen::Vector6d cart_vel_error_tool_target_in_world;
-  // cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - reference_target_twist_tool_world_in_world)
   cart_vel_error_tool_target_in_world = (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
                                           .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
-
-  // Eigen::Vector6d d_pose;
-  // rdyn::getFrameDistanceQuat(m_computed_target_T_world_tool, reference_target_T_world_tool, d_pose);
-  // d_pose.normalize();
-  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world, m_dt);
-  bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
-                                            cart_vel_error_tool_target_in_world);
-  if (reset) {
-    RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
-  }
-  m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool; // NOTE: useful?
 
   ClikData clik_data{.position_references = full_position_references,
                      .velocity_references = full_velocity_references,
@@ -1027,25 +1015,33 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_admittance_value.setZero();
   } else {
     Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
-    m_computed_target_acc_tool_world_in_world = solution_qp.value().tail<M_SE3>();
+    m_computed_target_acc_tool_world_in_world = solution_qp.value().segment<M_SE3>(m_full_nax);
 
     m_qpp = qepp;
     std::tie(m_q, m_qp) = utils::rk4_double([](const auto&, const auto&, const auto& u) { return u; }, m_q, m_qp, qepp, m_dt);
 
-    // Update computed trajectory
-    // m_computed_target_twist_tool_world_in_world =
-    // m_computed_target_twist_tool_world_in_world + m_computed_target_acc_tool_world_in_world * m_dt;
 
-    // m_computed_target_T_world_tool =
-    // rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
-
-    Eigen::Vector6d cmp_t_wt = utils::vector_from_affine(m_computed_target_T_world_tool);
-    std::tie(cmp_t_wt, m_computed_target_twist_tool_world_in_world) =
-      utils::rk4_double([&](const auto&, const auto&, const auto& u) { return u; }, cmp_t_wt,
-                        m_computed_target_twist_tool_world_in_world, m_computed_target_acc_tool_world_in_world, m_dt);
-    m_computed_target_T_world_tool = utils::affine_from_vector(cmp_t_wt);
+    // Eigen::Vector6d cmp_t_wt = utils::vector_from_affine(m_computed_target_T_world_tool);
+    // std::tie(cmp_t_wt, m_computed_target_twist_tool_world_in_world) =
+    // utils::rk4_double([&](const auto&, const auto&, const auto& u) { return u; }, cmp_t_wt,
+    // m_computed_target_twist_tool_world_in_world, m_computed_target_acc_tool_world_in_world, m_dt);
+    // m_computed_target_T_world_tool = utils::affine_from_vector(cmp_t_wt);
   }
 
+  // Update computed trajectory
+  m_computed_target_twist_tool_world_in_world =
+    m_computed_target_twist_tool_world_in_world + m_computed_target_acc_tool_world_in_world * m_dt;
+
+  m_computed_target_T_world_tool =
+    rdyn::spatialIntegration(m_computed_target_T_world_tool, m_computed_target_twist_tool_world_in_world, m_dt);
+
+  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world, m_dt);
+  bool reset = m_elastoplastic_model->reset(wrench_tool_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
+                                            cart_vel_error_tool_target_in_world);
+  if (reset) {
+    RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
+  }
+  m_computed_target_T_world_tool = reset ? T_world_tool : m_computed_target_T_world_tool; // NOTE: useful?
 
   Eigen::Vector6d dist;
   rdyn::getFrameDistanceQuat(T_world_tool, reference_target_T_world_tool, dist);

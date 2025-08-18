@@ -4,21 +4,22 @@ elastoplastic_controller:
     use_sim_time: False
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
-    cmd_vel_topic: "/cmd_vel_state"
-    ft_sensor_name: wrist_right_ft_sensor
+    cmd_vel_topic: "~/cmd_vel_sent"
+    ft_sensor_name: wrist_left_ft_sensor
     frames:
-      map: base_footprint
+      map: map
+      # map: base_footprint
       base: base_footprint
-      tool: arm_right_tool_link
-      sensor: wrist_right_ft_sensor_link
+      tool: arm_left_tool_link
+      sensor: wrist_left_ft_sensor_link
     joints:
-      - arm_right_1_joint
-      - arm_right_2_joint
-      - arm_right_3_joint
-      - arm_right_4_joint
-      - arm_right_5_joint
-      - arm_right_6_joint
-      - arm_right_7_joint
+      - arm_left_1_joint
+      - arm_left_2_joint
+      - arm_left_3_joint
+      - arm_left_4_joint
+      - arm_left_5_joint
+      - arm_left_6_joint
+      - arm_left_7_joint
     soft_limits:
       - 0.07
       - 0.07
@@ -45,7 +46,7 @@ elastoplastic_controller:
           - 1e0
           - 1e0
           - 1e0
-    acceleration_limits_coeff: 5.0
+    acceleration_limits_coeff: 1.0
     command_interfaces:
       - position
       #- velocity
@@ -64,14 +65,14 @@ elastoplastic_controller:
       - "mobile_base_controller/linear/y"
       - "mobile_base_controller/angular/z"
       max_vel:
-        linear: [2.5, 2.5]
-        angular: 2.5
-      max_acc_x: 25.0
-      max_dec_x: 25.0
-      max_acc_y: 25.0
-      max_dec_y: 25.0
-      max_acc_yaw: 25.0
-      max_dec_yaw: 25.0
+        linear: [0.5, 0.5]
+        angular: 1.0
+      max_acc_x: 0.5
+      max_dec_x: 0.5
+      max_acc_y: 0.5
+      max_dec_y: 0.5
+      max_acc_yaw: 1.0
+      max_dec_yaw: 1.0
     wrench:
       deadband:
       - 1.0
@@ -102,9 +103,9 @@ elastoplastic_controller:
         - 40.0
         - 40.0
         - 40.0
-      z_max:   0.15 # [0.15, 0.15] # 0.1
-      z_kmax:  0.147 # [0.14, 0.14] # 0.1
-      z_start: 0.12  # [0.1, 0.1]   # 0.05
+      z_max:   0.1 # [0.15, 0.15] # 0.1
+      z_kmax:  0.098 # [0.14, 0.14] # 0.1
+      z_start: 0.07  # [0.1, 0.1]   # 0.05
       logistic:
         max: 1.0
         slope: 10.0
