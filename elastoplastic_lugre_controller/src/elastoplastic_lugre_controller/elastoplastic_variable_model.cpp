@@ -1,10 +1,7 @@
 #include "elastoplastic_lugre_controller/elastoplastic_variable_model.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 
-#include <algorithm>
 #include <numeric>
-
-#include "fmt/core.h"
 
 namespace elastoplastic {
 ElastoplasticModel::ElastoplasticModel(const ElastoplasticModelData& data)

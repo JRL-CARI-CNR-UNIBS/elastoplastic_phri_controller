@@ -62,12 +62,14 @@ set(COMMON_FILES
 
 add_library(elastoplastic_controller SHARED
   src/${PROJECT_NAME}/elastoplastic_lugre_controller.cpp
+  src/${PROJECT_NAME}/clik.cpp
   include/${PROJECT_NAME}/elastoplastic_lugre_controller.hpp
   ${COMMON_FILES}
 )
 
 add_library(elastoplastic_controller_dual SHARED
   src/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.cpp
+  src/${PROJECT_NAME}/clik_dual.cpp
   include/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.hpp
   ${COMMON_FILES}
 )
@@ -139,7 +141,7 @@ target_include_directories(elastoplastic_controller_dual PUBLIC
 target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 target_compile_definitions(elastoplastic_controller_dual PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
-install(TARGETS elastoplastic_controller elastoplastic_controller_dual elastoplastic_parameters elastoplastic_parameters_dual
+install(TARGETS elastoplastic_controller elastoplastic_controller_dual elastoplastic_parameters elastoplastic_dual_parameters
         EXPORT export_elastoplastic_controller
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib

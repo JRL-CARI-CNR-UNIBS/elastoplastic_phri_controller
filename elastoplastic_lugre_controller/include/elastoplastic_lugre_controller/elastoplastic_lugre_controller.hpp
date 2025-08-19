@@ -214,20 +214,18 @@ private:
 
   std::vector<std::shared_ptr<NotchFilter>> m_wrench_notch;
 
+  bool m_base_use_cmd_ifaces;
+
 public:
   ElastoplasticController() {}
 
   controller_interface::InterfaceConfiguration command_interface_configuration() const override;
 
-
   controller_interface::InterfaceConfiguration state_interface_configuration() const override;
-
 
   controller_interface::return_type update_and_write_commands(const rclcpp::Time& time, const rclcpp::Duration& period) override;
 
-
   controller_interface::CallbackReturn on_init() override;
-
 
   controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& previous_state) override;
 
@@ -258,6 +256,7 @@ protected:
   Eigen::VectorXd compute_clik_as_inv(const ClikData& data, const Eigen::Vector6d& a_position_error,
                                       const Eigen::Vector6d& a_twist_error, const Eigen::Vector6d& a_acc_non_linear);
 
+  bool write_cmd_vel(const Eigen::Ref<Eigen::Vector3d>& v);
   void get_target_callback(const geometry_msgs::msg::Twist& msg);
   void get_mobile_base_target_callback(const geometry_msgs::msg::Twist& msg);
   void get_odometry_callback(const nav_msgs::msg::Odometry& msg);

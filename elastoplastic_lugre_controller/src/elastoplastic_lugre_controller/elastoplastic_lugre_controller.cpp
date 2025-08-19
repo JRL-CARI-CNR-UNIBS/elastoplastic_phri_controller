@@ -13,6 +13,10 @@
 #include <algorithm>
 #include <chrono>
 
+namespace elastoplastic {
+
+namespace utils {
+
 void toWrenchMsg(const Eigen::Vector6d& v, geometry_msgs::msg::Wrench& msg) {
   // msg.force = tf2::toMsg2(v.head<3>());
   // msg.torque = tf2::toMsg2(v.tail<3>());
@@ -36,19 +40,43 @@ geometry_msgs::msg::WrenchStamped toWrenchStampedMsg(const Eigen::Vector6d& v) {
   return msg;
 }
 
-bool write_cmd_vel(std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>& ifs,
-                   const Eigen::Vector3d& v) {
-  bool b = true;
-  for (int idx = 0; idx < 3; ++idx) {
-    b &= ifs.at(idx).get().set_value(v(idx));
-  }
-  return b;
+inline ElastoplasticModelData get_model_data(const elastoplastic_controller::Params& params, const double update_rate) {
+  ElastoplasticModelData data;
+  std::copy(params.impedance.inertia.begin(), params.impedance.inertia.end(), data.inertia_inv.diagonal().begin());
+  std::copy(params.impedance.k.begin(), params.impedance.k.end(), data.k.diagonal().begin());
+  std::copy(params.impedance.d.begin(), params.impedance.d.end(), data.d.diagonal().begin());
+  data.z_max = params.impedance.z_max;
+  data.z_start = params.impedance.z_start;
+  data.z_kmax = params.impedance.z_kmax;
+  data.enable_axis = params.impedance.enable_axis;
+  data.buffer_size = static_cast<size_t>(params.impedance.reset.time * update_rate);
+  data.reset_threshold = params.impedance.reset.threshold;
+  return data;
 }
+} // namespace utils
 
-namespace elastoplastic {
 
 using namespace std::chrono_literals;
 
+bool ElastoplasticController::write_cmd_vel(const Eigen::Ref<Eigen::Vector3d>& v) {
+  bool b = true;
+  if (m_base_use_cmd_ifaces) {
+    for (int idx = 0; idx < 3; ++idx) {
+      b = b && m_mobile_base_command_interfaces.at(idx).get().set_value(v(idx));
+    }
+  } else {
+    geometry_msgs::msg::Twist msg;
+    msg.linear.x = v(0);
+    msg.linear.y = v(1);
+    msg.angular.z = v(2);
+    if (!m_rt_pub_cmd_vel->tryPublish(msg)) {
+      LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(), 1,
+                               "Could not publish on " << m_parameters.cmd_vel_topic);
+      b = false;
+    }
+  }
+  return b;
+}
 
 controller_interface::CallbackReturn ElastoplasticController::on_init() {
   m_param_listener = std::make_shared<elastoplastic_controller::ParamListener>(this->get_node());
@@ -361,6 +389,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     m_wrench_notch.push_back(std::make_shared<NotchFilter>(5, 1, get_update_rate()));
   }
 
+  m_base_use_cmd_ifaces = m_parameters.mobile_base.use_command_interfaces;
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -422,7 +452,7 @@ controller_interface::InterfaceConfiguration ElastoplasticController::command_in
     }
   }
 
-  if (m_mobile_base.enabled) {
+  if (m_mobile_base.enabled && m_base_use_cmd_ifaces) {
     for (const auto& iface : m_parameters.mobile_base.command_interfaces) {
       // command_interface_configuration.names.emplace_back(fmt::format("{}/{}", iface, hardware_interface::HW_IF_VELOCITY));
       command_interface_configuration.names.emplace_back(iface);
@@ -495,18 +525,27 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     }
   }
 
-  if (m_mobile_base.enabled) {
+  if (m_mobile_base.enabled && m_base_use_cmd_ifaces) {
     if (not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.mobile_base.command_interfaces, "",
                                                          m_mobile_base_command_interfaces)) {
       RCLCPP_ERROR(get_node()->get_logger(), "Missing base controller command interfaces");
       return controller_interface::CallbackReturn::FAILURE;
     }
+    // else {
+    // for (const auto& iface : m_mobile_base_command_interfaces) {
+    // RCLCPP_INFO_STREAM(get_node()->get_logger(), "mobile base iface: " << iface.get().get_name());
+    // }
+    // }
     // if (!controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.mobile_base.joints,
     //                                                   hardware_interface::HW_IF_VELOCITY, m_mobile_base_state_interfaces)) {
     //   RCLCPP_ERROR(get_node()->get_logger(), "Missing mobile base joints");
     //   return controller_interface::CallbackReturn::FAILURE;
     // };
   }
+
+  RCLCPP_INFO(get_node()->get_logger(), "Command interfaces:");
+  std::for_each(command_interfaces_.begin(), command_interfaces_.end(),
+                [&](const auto& rif) { RCLCPP_INFO_STREAM(get_node()->get_logger(), "Interface: " << rif.get_name()); });
 
   // Joint initialization
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
@@ -524,7 +563,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   if (m_mobile_base.enabled) {
     m_q.head<2>() = m_T_world_base.translation().head<2>();
     m_q(2) = utils::vector_from_affine(m_T_world_base)(5);
-    // write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
     m_qp.head<3>().setZero();
   }
 
@@ -641,10 +679,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
   m_computed_target_twist_tool_world_in_world.setZero();
 
   if (m_mobile_base.enabled) {
-    Eigen::Vector6d empty = Eigen::Vector6d::Zero();
-    geometry_msgs::msg::Twist cmd_vel = tf2::toMsg(empty);
-    m_pub_cmd_vel->publish(cmd_vel);
-    write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
+    Eigen::Vector3d z = Eigen::Vector3d::Zero();
+    write_cmd_vel(z);
   }
 
   m_rt_pub_full_state->stop();
@@ -665,6 +701,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
 
   m_support_node_exec->cancel();
 
+  release_interfaces();
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -1117,15 +1154,12 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   if (m_mobile_base.enabled) {
     Eigen::Vector6d base_twist_in_base = utils::twist_from_base_velocity(m_velocity_base_in_base);
 
-    geometry_msgs::msg::Twist cmd_vel = Eigen::toMsg(base_twist_in_base);
-    m_rt_pub_cmd_vel->tryPublish(cmd_vel);
-
-    bool is_mobile_base_write_ok = write_cmd_vel(m_mobile_base_command_interfaces, m_velocity_base_in_base);
-    if (!is_mobile_base_write_ok) {
-      write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
-      RCLCPP_ERROR_STREAM(get_node()->get_logger(),
-                          "Problem occurred while writing on mobile base interfaces! Stopping the movement");
-    }
+    bool is_mobile_base_write_ok = write_cmd_vel(m_velocity_base_in_base);
+    // if (!is_mobile_base_write_ok) {
+    // RCLCPP_ERROR_STREAM(get_node()->get_logger(),
+    // "Problem occurred while writing on mobile base interfaces! Stopping the movement");
+    // utils::write_cmd_vel(Eigen::Vector3d::Zero());
+    // }
 
     m_T_world_base = rdyn::spatialIntegration(m_T_world_base, base_twist_in_base, m_dt);
   }
@@ -1160,7 +1194,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   std::tie(msg.reset_buffer_state, msg.reset_buffer_fill) = m_elastoplastic_model->get_reset_buffer_status();
 
   // Admittance state msg
-  geometry_msgs::msg::WrenchStamped msg_wrench_in_world = toWrenchStampedMsg(wrench_tool_in_world);
+  geometry_msgs::msg::WrenchStamped msg_wrench_in_world = utils::toWrenchStampedMsg(wrench_tool_in_world);
   msg_wrench_in_world.header.frame_id = m_parameters.frames.map;
   msg_wrench_in_world.header.stamp = time_now;
 
@@ -1215,7 +1249,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   std::copy(K_diag.begin(), K_diag.end(), std::back_inserter(msg.admittance_state.stiffness.data));
   std::copy(D.diagonal().begin(), D.diagonal().end(), std::back_inserter(msg.admittance_state.damping.data));
 
-  toWrenchMsg(m_admittance_value, msg.virtual_force);
+  utils::toWrenchMsg(m_admittance_value, msg.virtual_force);
 
   if (m_elastoplastic_model->is_plastic()) {
     msg.mode = elastoplastic_msgs::msg::ElastoplasticControllerState::MODE_PLASTIC;
@@ -1229,6 +1263,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_rt_pub_full_state->msg_ = msg;
     m_rt_pub_full_state->unlockAndPublish();
   }
+
+  // std::for_each(command_interfaces_.begin(), command_interfaces_.end(), [&](const auto& rif) {
+  //   RCLCPP_INFO_STREAM(get_node()->get_logger(), "Interface: " << rif.get_name() << " - " << rif.get_optional().value());
+  // });
 
   return controller_interface::return_type::OK;
 }
