@@ -599,7 +599,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
       // Wrench is already in world
       Eigen::Matrix6Xd J = m_chain_base_tool->getJacobian(m_q);
       Eigen::JacobiSVD<Eigen::Matrix6Xd> svd(J, Eigen::ComputeThinU | Eigen::ComputeThinV);
-      Eigen::VectorXd tau_j;
+      Eigen::VectorXd tau_j(m_nax);
       for (int idx = 0; idx < offset_force_window; ++idx) {
         std::transform(m_joint_state_interfaces.at(2).begin(), m_joint_state_interfaces.at(2).end(), tau_j.head(m_nax).begin(),
                        [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
