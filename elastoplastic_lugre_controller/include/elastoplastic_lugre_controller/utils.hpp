@@ -261,8 +261,8 @@ constexpr std::pair<T, T> rk4_double(Acc&& acc, // a = acc(x,v,u)
 
 inline void get_frame_distance(const Eigen::Affine3d& T_wa, const Eigen::Affine3d& T_wb, Eigen::Ref<Eigen::Vector6d> v) {
   v.head<3>() = T_wa.translation() - T_wb.translation();
-  Eigen::AngleAxisd aa(T_wa.linear().transpose() * T_wb.linear());
-  v.tail<3>() = T_wa.linear() * (aa.angle() * aa.axis());
+  Eigen::AngleAxisd aa(T_wb.linear().transpose() * T_wa.linear());
+  v.tail<3>() = T_wb.linear() * (aa.angle() * aa.axis());
 }
 
 inline Eigen::Vector6d get_frame_distance(const Eigen::Affine3d& T_wa, const Eigen::Affine3d& T_wb) {
