@@ -216,7 +216,6 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   sot.push_task(task_keep_relative_vel);
   sot.new_level();
   sot.push_task(task_admittance);
-  // sot.new_level();
   sot.new_level();
   sot.push_task(task_joint_vel, m_kv_joint_task);
   sot.push_task(task_joint_pos, m_kp_joint_task);

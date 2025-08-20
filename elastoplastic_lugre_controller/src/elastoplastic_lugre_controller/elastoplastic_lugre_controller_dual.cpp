@@ -602,11 +602,11 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(co
     return t;
   }());
 
-  Eigen::Vector3d left_stick = utils::get_frame_distance(T_world_shared, T_world_left).head<3>();
-  Eigen::Vector3d right_stick = utils::get_frame_distance(T_world_shared, T_world_right).head<3>();
+  Eigen::Vector3d left_stick = -utils::get_frame_distance(T_world_shared, T_world_left).head<3>();
+  Eigen::Vector3d right_stick = -utils::get_frame_distance(T_world_shared, T_world_right).head<3>();
 
   m_grasp_matrix_wrench << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(),
-    Eigen::Matrix3d::Zero(), -rdyn::skew(left_stick), Eigen::Matrix3d::Identity(), -rdyn::skew(right_stick),
+    Eigen::Matrix3d::Zero(), rdyn::skew(left_stick), Eigen::Matrix3d::Identity(), rdyn::skew(right_stick),
     Eigen::Matrix3d::Identity();
 
   m_grasp_matrix_twist << Eigen::Matrix3d::Identity(), rdyn::skew(left_stick), Eigen::Matrix3d::Identity(),
@@ -979,21 +979,6 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
   Eigen::VectorXd q_start = m_q;
   Eigen::VectorXd qp_start = m_qp;
 
-  // Update computed trajectory
-  // m_computed_target_twist_shared_world_in_world =
-  // m_computed_target_twist_shared_world_in_world + m_computed_target_acc_shared_world_in_world * m_dt;
-
-  // m_computed_target_T_world_shared =
-  // rdyn::spatialIntegration(m_computed_target_T_world_shared, m_computed_target_twist_shared_world_in_world, m_dt);
-
-  // WARNING: needed even if the virtual link should be rigid?
-  // Eigen::Vector3d p_right_shared = (T_world_tool[Side::RIGHT].inverse() * T_world_shared).translation();
-  // Eigen::Vector3d p_left_shared = (T_world_tool[Side::LEFT].inverse() * T_world_shared).translation();
-  // m_grasp_matrix_wrench.block<3, 3>(3, 6) = rdyn::skew(-p_right_shared);
-  // m_grasp_matrix_wrench.block<3, 3>(3, 0) = rdyn::skew(-p_left_shared);
-  // m_grasp_matrix_twist.block<3, 3>(0, 9) = rdyn::skew(-p_right_shared);
-  // m_grasp_matrix_twist.block<3, 3>(0, 3) = rdyn::skew(-p_left_shared);
-
   // ************
   // ** Update **
   // ************
@@ -1027,14 +1012,8 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
   m_wrench_in_sensor_prec = wrench_sensor_in_sensor;
   Eigen::Vector6d wrench_shared_in_world = m_grasp_matrix_wrench * wrench_tool_in_world;
   Eigen::Vector6d wrench_shared_offset = m_grasp_matrix_wrench * m_offset_wrench_tool_in_world;
-  // wrench_shared_in_world -= wrench_shared_offset;
-  // RCLCPP_INFO_STREAM(get_node()->get_logger(), "wrenches\nshared: " << wrench_shared_in_world << "\ntools\n"
-  //                                                                   << wrench_tool_in_world << "\nsensors\n"
-  //                                                                   << wrench_sensor_in_sensor);
 
   Eigen::Matrix6Xd Jtmp1, Jtmp2;
-  // Jtmp1 = Eigen::Matrix6Xd::Zero(6, m_nax_s[Side::LEFT]);
-  // Jtmp2 = Eigen::Matrix6Xd::Zero(6, m_nax_s[Side::RIGHT]);
   Jtmp1 = m_chain_world_tools[Side::LEFT]->getJacobian(m_q(m_sel[Side::LEFT]));
   Jtmp2 = m_chain_world_tools[Side::RIGHT]->getJacobian(m_q(m_sel[Side::RIGHT]));
   // Reorder: [J_base, J_common, J_left, J_right]
@@ -1045,19 +1024,6 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
     Jtmp2.leftCols(m_split_nax[Side::BASE]), Jtmp2.middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]),
     Eigen::Matrix6Xd::Zero(6, m_split_nax[Side::LEFT]), //
     Jtmp2.rightCols(m_split_nax[Side::RIGHT]);
-
-  // Eigen::Matrix12Xd Jbtw = Eigen::Matrix12Xd::Zero(12, m_full_nax);
-  // Jbtw.topLeftCorner(6, m_nax_s[Side::LEFT]) =
-  // m_chain_base_tools[Side::LEFT]->getJacobian(m_q(m_sel[Side::LEFT]).tail(m_nax_s[Side::LEFT]));
-  // Jbtw.bottomRightCorner(6, m_nax_s[Side::RIGHT]) =
-  // m_chain_base_tools[Side::RIGHT]->getJacobian(m_q(m_sel[Side::RIGHT]).tail(m_nax_s[Side::RIGHT]));
-  // Eigen::Matrix12Xd J_base_tool_in_world(12, m_nax);
-  // J_base_tool_in_world << Jbtw.middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]).topRows<6>(),
-  // Jbtw.middleCols(m_idx_st[Side::LEFT], m_split_nax[Side::LEFT]).topRows<6>(),
-  // Eigen::Matrix6Xd::Zero(6, m_split_nax[Side::RIGHT]), //
-  // Jbtw.middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]).topRows<6>(),
-  // Eigen::Matrix6Xd::Zero(6, m_split_nax[Side::LEFT]), //
-  // Jbtw.rightCols(m_split_nax[Side::RIGHT]).bottomRows<6>();
 
   Eigen::Vector6d twist_shared_world_in_world = m_grasp_matrix_twist * twist_tool_world_in_world;
 
@@ -1092,7 +1058,7 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
 
   std::optional<Eigen::VectorXd> solution_qp = clik(clik_data);
   if (!solution_qp.has_value()) {
-    // RCLCPP_FATAL(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
+    RCLCPP_ERROR(get_node()->get_logger(), "Cannot find a solution for the CLIK QP problem");
     // this->on_deactivate(rclcpp_lifecycle::State());
     // throw std::runtime_error("Controller crashed");
     m_qp.setZero();
