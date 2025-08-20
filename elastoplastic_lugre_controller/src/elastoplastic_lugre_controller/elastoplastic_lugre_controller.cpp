@@ -523,6 +523,13 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
       RCLCPP_ERROR(get_node()->get_logger(), "Cannot assing state interface to ft_sensor");
       return controller_interface::CallbackReturn::ERROR;
     }
+  } else if (m_ft_source == FTSource::TORQUE) {
+    if (not controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.joints, hardware_interface::HW_IF_TORQUE,
+                                                         m_joint_state_interfaces.at(2))) {
+      RCLCPP_ERROR(get_node()->get_logger(), "Missing joints state interfaces (torque): %ld names vs %ld interfaces",
+                   m_parameters.joints.size(), m_joint_state_interfaces.at(2).size());
+      return controller_interface::CallbackReturn::FAILURE;
+    }
   }
 
   if (m_mobile_base.enabled && m_base_use_cmd_ifaces) {
@@ -949,7 +956,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   /* FT state */
   Eigen::Vector6d wrench_tool_in_world;
   Eigen::Matrix6Xd J_world_tool_in_world = m_chain_world_tool->getJacobian(m_q);
-  // Damped LS
+
   if (m_ft_source == FTSource::TORQUE) {
     Eigen::VectorXd tau_j(m_nax);
     Eigen::JacobiSVD<Eigen::Matrix6Xd> svd_torque(J_world_tool_in_world.transpose(), Eigen::ComputeThinU | Eigen::ComputeThinV);
