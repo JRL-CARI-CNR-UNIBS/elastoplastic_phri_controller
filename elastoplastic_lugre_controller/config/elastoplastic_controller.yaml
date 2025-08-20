@@ -82,14 +82,6 @@ elastoplastic_controller:
       filter_alfa: 0.2
       # source: "ft_sensor" #"torque"
       source: "torque"
-      actuator_joints:
-      - arm_right_1_actuator
-      - arm_right_2_actuator
-      - arm_right_3_actuator
-      - arm_right_4_actuator
-      - arm_right_5_actuator
-      - arm_right_6_actuator
-      - arm_right_7_actuator
       invert_torque: true # used only for if source==torque
     impedance:
       enable_axis: [true, true, true, false, false, false]
