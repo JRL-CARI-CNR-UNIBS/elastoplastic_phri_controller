@@ -7,11 +7,12 @@ elastoplastic_controller:
     cmd_vel_topic: "~/cmd_vel_sent"
     ft_sensor_name: wrist_right_ft_sensor
     frames:
-      map: map
-      # map: base_footprint
+      # map: map
+      map: base_footprint
       base: base_footprint
       tool: arm_right_tool_link
-      sensor: wrist_right_ft_sensor_link
+      # sensor: wrist_right_ft_sensor_link
+      sensor: arm_right_tool_link
     joints:
       - arm_right_1_joint
       - arm_right_2_joint
@@ -53,14 +54,14 @@ elastoplastic_controller:
     state_interfaces:
       - position
       - velocity
-      # - torque
+      - torque
     mobile_base:
-      enabled: true
+      enabled: false
       enable_z_rotation: false
       input_target_topic: "/target_cmd_vel"
       localization_topic: "/amcl_pose" # Unused
       odom: "/direct_laser_odometry/odom"
-      use_command_interfaces: true
+      use_command_interfaces: false
       command_interfaces:
       - "mobile_base_controller/linear/x"
       - "mobile_base_controller/linear/y"
@@ -79,8 +80,17 @@ elastoplastic_controller:
       - 1.0
       - 1.0
       filter_alfa: 0.2
-      source: "ft_sensor" #"torque"
-      invert_torque: true # used only for if source==ft_sensor
+      # source: "ft_sensor" #"torque"
+      source: "torque"
+      actuator_joints:
+      - arm_right_1_actuator
+      - arm_right_2_actuator
+      - arm_right_3_actuator
+      - arm_right_4_actuator
+      - arm_right_5_actuator
+      - arm_right_6_actuator
+      - arm_right_7_actuator
+      invert_torque: true # used only for if source==torque
     impedance:
       enable_axis: [true, true, true, false, false, false]
       inertia:
