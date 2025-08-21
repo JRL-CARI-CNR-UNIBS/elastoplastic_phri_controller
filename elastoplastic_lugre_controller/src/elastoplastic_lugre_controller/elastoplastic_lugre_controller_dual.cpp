@@ -219,9 +219,6 @@ controller_interface::CallbackReturn
 ElastoplasticControllerDual::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
   m_parameters = m_param_listener->get_params();
 
-  if (m_parameters.debug.log) {
-    this->get_node()->get_logger().set_level(rclcpp::Logger::Level::Debug);
-  }
 
 
   // The parameter update_rate, if not defined, is provided by the controller_manager
@@ -420,10 +417,6 @@ ElastoplasticControllerDual::on_configure(const rclcpp_lifecycle::State& /*previ
   } while (!can_transform);
   m_T_world_base =
     tf2::transformToEigen(m_tf_buffer->lookupTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero));
-  if (m_parameters.debug.log) {
-    m_node_semaph.acquire();
-    m_node_support->get_logger().set_level(rclcpp::Logger::Level::Debug);
-  }
 
   m_tf_bcast = std::make_shared<tf2_ros::StaticTransformBroadcaster>(get_node()->shared_from_this());
 
@@ -562,10 +555,6 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(co
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   m_qpp.setZero();
-
-  if (m_parameters.debug.log) {
-    RCLCPP_WARN(get_node()->get_logger(), "Logger level: [DEBUG]");
-  }
 
   m_last_odom_msg_time = this->get_node()->get_clock()->now();
 

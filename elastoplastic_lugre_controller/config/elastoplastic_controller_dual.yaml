@@ -148,6 +148,3 @@ elastoplastic_controller_dual:
       joint_task:
         kp: 1e1 # 1e1
         kv: 1e2 # 1e2
-    debug:
-      log: false
-      pub: true

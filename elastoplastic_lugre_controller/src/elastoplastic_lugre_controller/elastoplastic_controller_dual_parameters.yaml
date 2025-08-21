@@ -400,9 +400,3 @@ elastoplastic_controller_dual:
       kv: {
         type: double,
       }
-  debug:
-    log: {
-      type: bool,
-      description: "Enable debug logging",
-      default_value: false
-    }

@@ -187,9 +187,6 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
 controller_interface::CallbackReturn ElastoplasticController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
   m_parameters = m_param_listener->get_params();
 
-  if (m_parameters.debug.log) {
-    this->get_node()->get_logger().set_level(rclcpp::Logger::Level::Debug);
-  }
 
   // The parameter update_rate, if not defined, is provided by the controller_manager
   auto update_rate = this->get_node()->get_parameter("update_rate").as_int();
@@ -380,10 +377,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   } while (!can_transform);
   m_T_world_base =
     tf2::transformToEigen(m_tf_buffer->lookupTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero));
-  if (m_parameters.debug.log) {
-    m_node_semaph.acquire();
-    m_node_support->get_logger().set_level(rclcpp::Logger::Level::Debug);
-  }
 
   for (int idx = 0; idx < 6; ++idx) {
     m_wrench_notch.push_back(std::make_shared<NotchFilter>(5, 1, get_update_rate()));
@@ -560,10 +553,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   m_qpp.setZero();
-
-  if (m_parameters.debug.log) {
-    RCLCPP_WARN(get_node()->get_logger(), "Logger level: [DEBUG]");
-  }
 
   m_last_odom_msg_time = this->get_node()->get_clock()->now();
 
