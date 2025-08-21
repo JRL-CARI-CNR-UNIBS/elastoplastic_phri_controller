@@ -158,10 +158,8 @@ void ElastoplasticControllerDual::configure_after_robot_description_callback(con
   }
   RCLCPP_DEBUG(get_node()->get_logger(), "RDyn chains created");
 
-  m_joint_names.resize(m_mobile_base.nax() + m_parameters.joints.left.size() + m_parameters.joints.right.size() +
-                       m_parameters.joints.common.size());
-  auto it = std::ranges::copy(m_mobile_base.base_joint_names(), m_joint_names.begin());
-  it = std::ranges::copy(m_parameters.joints.common, it.out);
+  m_joint_names.resize(m_parameters.joints.left.size() + m_parameters.joints.right.size() + m_parameters.joints.common.size());
+  auto it = std::ranges::copy(m_parameters.joints.common, m_joint_names.begin());
   it = std::ranges::copy(m_parameters.joints.left, it.out);
   it = std::ranges::copy(m_parameters.joints.right, it.out);
 
@@ -194,19 +192,29 @@ void ElastoplasticControllerDual::configure_after_robot_description_callback(con
   RCLCPP_DEBUG(get_node()->get_logger(), "Kinematics limits: OK");
 
   std::string what;
-  std::vector<std::string> v(m_parameters.joints.left.size() + m_parameters.joints.common.size());
+  std::vector<std::string> v(m_mobile_base.nax() + m_parameters.joints.left.size() + m_parameters.joints.common.size());
+  std::vector<std::string> vb(v.size() - m_mobile_base.nax());
 
-  auto it_jnt_names = std::ranges::copy(m_parameters.joints.common, v.begin());
-  std::ranges::copy(m_parameters.joints.left, it_jnt_names.out);
-  m_chain_base_tools[Side::LEFT]->setInputJointsName(v, what);
-  m_chain_base_sensors[Side::LEFT]->setInputJointsName(v, what);
+  auto it_jnt_names = std::ranges::copy(m_mobile_base.base_joint_names(), v.begin());
+  it_jnt_names = std::ranges::copy(m_parameters.joints.common, it_jnt_names.out);
+  it_jnt_names = std::ranges::copy(m_parameters.joints.left, it_jnt_names.out);
+  std::copy(std::next(v.begin(), m_mobile_base.nax()), v.end(), vb.begin());
+  m_chain_base_tools[Side::LEFT]->setInputJointsName(vb, what);
+  m_chain_base_sensors[Side::LEFT]->setInputJointsName(vb, what);
   m_chain_world_tools[Side::LEFT]->setInputJointsName(v, what);
 
-  v.resize(m_parameters.joints.right.size() + m_parameters.joints.common.size());
-  it_jnt_names = std::ranges::copy(m_parameters.joints.common, v.begin());
-  std::ranges::copy(m_parameters.joints.right, it_jnt_names.out);
-  m_chain_base_tools[Side::RIGHT]->setInputJointsName(v, what);
-  m_chain_base_sensors[Side::RIGHT]->setInputJointsName(v, what);
+  v.clear();
+  vb.clear();
+
+  v.resize(m_mobile_base.nax() + m_parameters.joints.right.size() + m_parameters.joints.common.size());
+  vb.resize(v.size() - m_mobile_base.nax());
+  std::copy(std::next(v.begin(), m_mobile_base.nax()), v.end(), vb.begin());
+
+  it_jnt_names = std::ranges::copy(m_mobile_base.base_joint_names(), v.begin());
+  it_jnt_names = std::ranges::copy(m_parameters.joints.common, it_jnt_names.out);
+  it_jnt_names = std::ranges::copy(m_parameters.joints.right, it_jnt_names.out);
+  m_chain_base_tools[Side::RIGHT]->setInputJointsName(vb, what);
+  m_chain_base_sensors[Side::RIGHT]->setInputJointsName(vb, what);
   m_chain_world_tools[Side::RIGHT]->setInputJointsName(v, what);
 
   RCLCPP_DEBUG(get_node()->get_logger(), "Kinematics limits: OK");
@@ -425,6 +433,8 @@ ElastoplasticControllerDual::on_configure(const rclcpp_lifecycle::State& /*previ
   std::fill_n(std::next(m_deadbands.begin(), 6), 3, m_parameters.wrench.deadband[2]);
   std::fill_n(std::next(m_deadbands.begin(), 9), 3, m_parameters.wrench.deadband[3]);
 
+  m_base_use_cmd_ifaces = m_parameters.mobile_base.use_command_interfaces;
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -478,7 +488,7 @@ controller_interface::InterfaceConfiguration ElastoplasticControllerDual::comman
     }
   }
 
-  if (m_mobile_base.enabled) {
+  if (m_mobile_base.enabled && m_base_use_cmd_ifaces) {
     for (const auto& iface : m_parameters.mobile_base.command_interfaces) {
       // command_interface_configuration.names.emplace_back(fmt::format("{}/{}", iface, hardware_interface::HW_IF_VELOCITY));
       command_interface_configuration.names.emplace_back(iface);
@@ -547,6 +557,24 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(co
       !m_ft_sensors[Side::RIGHT]->assign_loaned_state_interfaces(state_interfaces_)) {
     RCLCPP_ERROR(get_node()->get_logger(), "Cannot assing state interface to an ft_sensor");
     return controller_interface::CallbackReturn::ERROR;
+  }
+
+  if (m_mobile_base.enabled && m_base_use_cmd_ifaces) {
+    if (not controller_interface::get_ordered_interfaces(command_interfaces_, m_parameters.mobile_base.command_interfaces, "",
+                                                         m_mobile_base_command_interfaces)) {
+      RCLCPP_ERROR(get_node()->get_logger(), "Missing base controller command interfaces");
+      return controller_interface::CallbackReturn::FAILURE;
+    }
+    // else {
+    // for (const auto& iface : m_mobile_base_command_interfaces) {
+    // RCLCPP_INFO_STREAM(get_node()->get_logger(), "mobile base iface: " << iface.get().get_name());
+    // }
+    // }
+    // if (!controller_interface::get_ordered_interfaces(state_interfaces_, m_parameters.mobile_base.joints,
+    //                                                   hardware_interface::HW_IF_VELOCITY, m_mobile_base_state_interfaces)) {
+    //   RCLCPP_ERROR(get_node()->get_logger(), "Missing mobile base joints");
+    //   return controller_interface::CallbackReturn::FAILURE;
+    // };
   }
 
   // Joint initialization

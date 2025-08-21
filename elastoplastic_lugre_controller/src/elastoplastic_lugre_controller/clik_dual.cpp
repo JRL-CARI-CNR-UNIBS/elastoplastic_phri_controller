@@ -228,17 +228,10 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
    ** EQ Constraints **
    ********************/
   elastoplastic::Task task_fixed_torso(prb_dim, m_split_nax[Side::COMMON]);
-  // task_fixed_torso.A().middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
-  // Eigen::MatrixXd::Identity(m_split_nax[Side::COMMON], m_split_nax[Side::COMMON]) * std::pow(m_dt, 2) * 0.5;
-  // task_fixed_torso.b().segment(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
-  // m_qp(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON])) +
-  // m_q(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON])) -
-  // m_initial_q(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]));
 
   task_fixed_torso.A().middleCols(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
     Eigen::MatrixXd::Identity(m_split_nax[Side::COMMON], m_split_nax[Side::COMMON]) * m_dt;
-  task_fixed_torso.b().segment(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]) =
-    m_qp(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]));
+  task_fixed_torso.b() = m_qp(Eigen::seqN(m_idx_st[Side::COMMON], m_split_nax[Side::COMMON]));
 
   elastoplastic::EqualitySet eq_set(prb_dim);
   // eq_set.push_constraint(task_admittance);
@@ -373,8 +366,6 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   }
 
   m_admittance_value = task_admittance.value(solutionQP) + invM * (data.wrench_shared_in_world);
-  RCLCPP_WARN_STREAM(get_node()->get_logger(), "task admittance residue: " << task_admittance.value(solutionQP) << " - norm: "
-                                                                           << task_admittance.value(solutionQP).norm());
   return solutionQP;
 }
 

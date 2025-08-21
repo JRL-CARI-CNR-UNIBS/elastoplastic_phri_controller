@@ -241,6 +241,7 @@ private:
   Eigen::Matrix612d m_grasp_matrix_wrench;
   Eigen::Matrix612d m_grasp_matrix_twist;
 
+  bool m_base_use_cmd_ifaces;
 
 public:
   ElastoplasticControllerDual() = default;

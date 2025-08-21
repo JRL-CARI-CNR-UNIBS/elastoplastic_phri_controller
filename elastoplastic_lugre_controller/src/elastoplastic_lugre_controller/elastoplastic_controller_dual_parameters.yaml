@@ -181,6 +181,11 @@ elastoplastic_controller_dual:
         not_empty<>: []
       }
     }
+    use_command_interfaces: {
+      type: bool,
+      default_value: true,
+      description: "Use command interfaces to command on the base",
+    }
     command_interfaces: {
       type: string_array,
       default_value: ["mock/linear/x", "mock/linear/y", "mock/angular/z"],
