@@ -48,15 +48,15 @@ std::pair<double, double> ElastoplasticModel::get_reset_buffer_status() const {
 }
 
 Eigen::Vector6d ElastoplasticModel::compute_zp(const Eigen::Vector6d& z, const Eigen::Vector6d& u, const double dt) const {
-  auto aswitch = [this](const double z) {
+  [[maybe_unused]] auto aswitch = [this](const double zi) {
     const double z_ss = 1.00 * m_z_kmax;
     const double z_ba = 1.02 * m_z_kmax;
-    if (std::abs(z) < z_ba) {
+    if (std::abs(zi) < z_ba) {
       return 1.0;
-    } else if (std::abs(z) >= z_ss) {
+    } else if (std::abs(zi) >= z_ss) {
       return 0.0;
     } else {
-      return 0.5 * std::sin(M_PI * ((z - (z_ba + z_ss) / 2) / (z_ba - z_ss))) + 0.5;
+      return 0.5 * std::sin(M_PI * ((zi - (z_ba + z_ss) / 2) / (z_ba - z_ss))) + 0.5;
     }
   };
   // Eigen::Vector6d zp = (u - alpha(z.norm()) * z / m_z_max * u.norm()) * aswitch(z.norm());
