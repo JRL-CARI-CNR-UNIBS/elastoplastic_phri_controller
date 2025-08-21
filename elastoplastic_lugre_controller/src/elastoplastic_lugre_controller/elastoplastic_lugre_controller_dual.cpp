@@ -227,7 +227,7 @@ controller_interface::CallbackReturn
 ElastoplasticControllerDual::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
   m_parameters = m_param_listener->get_params();
 
-
+  m_enable_shared_frame_bcast = false;
 
   // The parameter update_rate, if not defined, is provided by the controller_manager
   auto update_rate = this->get_node()->get_parameter("update_rate").as_int();
@@ -426,7 +426,7 @@ ElastoplasticControllerDual::on_configure(const rclcpp_lifecycle::State& /*previ
   m_T_world_base =
     tf2::transformToEigen(m_tf_buffer->lookupTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero));
 
-  m_tf_bcast = std::make_shared<tf2_ros::StaticTransformBroadcaster>(get_node()->shared_from_this());
+  m_tf_bcast = std::make_shared<tf2_ros::TransformBroadcaster>(get_node()->shared_from_this());
 
   std::fill_n(m_deadbands.begin(), 3, m_parameters.wrench.deadband[0]);
   std::fill_n(std::next(m_deadbands.begin(), 3), 3, m_parameters.wrench.deadband[1]);
@@ -440,9 +440,25 @@ ElastoplasticControllerDual::on_configure(const rclcpp_lifecycle::State& /*previ
 
 void ElastoplasticControllerDual::update_base_pose_from_tf() {
   m_node_support = rclcpp::Node::make_shared(
-    "__support_node__", fmt::format("{}{}", this->get_node()->get_namespace(), this->get_node()->get_name()));
-  m_node_semaph.release();
+    "__support_node__", fmt::format("{}{}", this->get_node()->get_namespace(),
+                                    this->get_node()->get_name())); // lifecycle nodes cannot create sub_nodes
+  m_node_support->set_parameter(get_node()->get_parameter("use_sim_time"));
   m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer, m_node_support, false);
+  auto timer = rclcpp::create_timer(m_node_support, m_node_support->get_clock(),
+                                    std::chrono::duration<double>(1e1 / (double)get_update_rate()), [this]() {
+                                      if (m_enable_shared_frame_bcast) {
+
+                                        geometry_msgs::msg::TransformStamped t;
+                                        {
+                                          std::lock_guard<std::mutex> lock(m_mutex);
+                                          t = tf2::eigenToTransform(m_T_world_shared);
+                                        }
+                                        t.header.frame_id = m_parameters.frames.map;
+                                        t.child_frame_id = SHARED_FRAME_NAME;
+                                        t.header.stamp = m_node_support->get_clock()->now();
+                                        m_tf_bcast->sendTransform(t);
+                                      }
+                                    });
   m_support_node_exec = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
   m_support_node_exec->add_node(m_node_support);
   m_support_node_exec->spin();
@@ -606,18 +622,13 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(co
   Eigen::Affine3d T_world_shared;
   Eigen::Vector6d left_right_distance; // vector from left to right
   utils::get_frame_distance(T_world_left, T_world_right, left_right_distance);
-  T_world_shared.translation() = (T_world_left.translation() + T_world_right.translation()) / 2.0;
-  T_world_shared.linear() =
-    T_world_left.linear() *
-    Eigen::AngleAxisd(left_right_distance.tail<3>().norm() / 2, left_right_distance.tail<3>().normalized()).toRotationMatrix();
+  T_world_shared = get_shared_frame(T_world_left, T_world_right);
   m_T_left_shared = T_world_left.inverse() * T_world_shared;
   m_T_right_shared_ideal = T_world_right.inverse() * T_world_shared;
-  m_tf_bcast->sendTransform([&]() -> geometry_msgs::msg::TransformStamped {
-    geometry_msgs::msg::TransformStamped t = tf2::eigenToTransform(m_T_left_shared);
-    t.header.frame_id = m_parameters.frames.tools[Side::LEFT];
-    t.child_frame_id = "shared";
-    return t;
-  }());
+
+  if (m_parameters.enable_shared_frame_broadcast) {
+    m_enable_shared_frame_bcast = true;
+  }
 
   Eigen::Vector3d left_stick = -utils::get_frame_distance(T_world_shared, T_world_left).head<3>();
   Eigen::Vector3d right_stick = -utils::get_frame_distance(T_world_shared, T_world_right).head<3>();
@@ -706,6 +717,8 @@ ElastoplasticControllerDual::on_deactivate(const rclcpp_lifecycle::State& /*prev
     m_pub_cmd_vel->publish(cmd_vel);
     utils::write_cmd_vel(m_mobile_base_command_interfaces, Eigen::Vector3d::Zero());
   }
+
+  m_enable_shared_frame_bcast = false;
 
   m_rt_pub_full_state->stop();
 
@@ -972,8 +985,11 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
 
 #endif
 
-  Eigen::Affine3d T_world_shared = get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT])),
-                                                    m_chain_world_tools[Side::RIGHT]->getTransformation(m_q(m_sel[Side::RIGHT])));
+  {
+    std::lock_guard<std::mutex> lock(m_mutex); // Thread to publish tf
+    m_T_world_shared = get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_q(m_sel[Side::LEFT])),
+                                        m_chain_world_tools[Side::RIGHT]->getTransformation(m_q(m_sel[Side::RIGHT])));
+  }
   // m_tf_bcast->sendTransform([&]() -> geometry_msgs::msg::TransformStamped {
   // geometry_msgs::msg::TransformStamped t = tf2::eigenToTransform(T_world_shared);
   // t.header.frame_id = m_parameters.frames.map;
@@ -1056,14 +1072,14 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
   if (reset) {
     RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
   }
-  m_computed_target_T_world_shared = reset ? T_world_shared : m_computed_target_T_world_shared;
+  m_computed_target_T_world_shared = reset ? m_T_world_shared : m_computed_target_T_world_shared;
 
   ClikData clik_data{.position_references = full_position_references,
                      .velocity_references = full_velocity_references,
                      .twist_tool_world_in_world = twist_tool_world_in_world,
                      .twist_shared_world_in_world = twist_shared_world_in_world,
                      .T_world_tool = T_world_tool,
-                     .T_world_shared = T_world_shared,
+                     .T_world_shared = m_T_world_shared,
                      .target_acc_tool_target_in_world = reference_target_acc_shared_world_in_world,
                      .J_world_tools_in_world = J_world_tool_in_world,
                      // .J_base_tools_in_world = J_base_tool_in_world,
@@ -1095,7 +1111,7 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
 
 
   Eigen::Vector6d dist;
-  utils::get_frame_distance(T_world_shared, reference_target_T_world_shared, dist);
+  utils::get_frame_distance(m_T_world_shared, reference_target_T_world_shared, dist);
   if (m_elastoplastic_model->to_restore() && !m_elastoplastic_model->is_plastic() && dist.head<3>().norm() < 1e-2 &&
       dist.tail<3>().norm() < 1.0 && m_parameters.impedance.plastic_restoration) {
     m_elastoplastic_model->restore();
@@ -1218,7 +1234,7 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
     tf2::toMsg(m_chain_world_tools[Side::RIGHT]->getDTwistTool(m_q(m_sel[Side::RIGHT]), m_qp(m_sel[Side::RIGHT]),
                                                                m_qpp(m_sel[Side::RIGHT])));
 
-  msg.cart_actual_shared_pose = tf2::toMsg(T_world_shared);
+  msg.cart_actual_shared_pose = tf2::toMsg(m_T_world_shared);
   msg.cart_actual_shared_twist = tf2::toMsg(twist_shared_world_in_world);
 
   [[maybe_unused]] double unused_double;
@@ -1257,7 +1273,7 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
 
   msg.admittance_state.stiffness.data.reserve(6);
   msg.admittance_state.damping.data.reserve(6);
-  auto [K, D] = m_elastoplastic_model->compute_variable_matrices(T_world_shared);
+  auto [K, D] = m_elastoplastic_model->compute_variable_matrices(m_T_world_shared);
   Eigen::Vector6d K_diag = K.diagonal();
   std::copy(K_diag.begin(), K_diag.end(), std::back_inserter(msg.admittance_state.stiffness.data));
   std::copy(D.diagonal().begin(), D.diagonal().end(), std::back_inserter(msg.admittance_state.damping.data));

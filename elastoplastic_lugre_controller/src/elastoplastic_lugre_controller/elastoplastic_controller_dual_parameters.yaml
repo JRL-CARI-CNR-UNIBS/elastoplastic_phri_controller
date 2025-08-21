@@ -27,6 +27,11 @@ elastoplastic_controller_dual:
       not_empty<>: []
     }
   }
+  enable_shared_frame_broadcast: {
+    type: bool,
+    default_value: true,
+    description: "Enable broadcasting of the shared tf by the companion thread"
+  }
   ft_sensor_names: {
     type: string_array,
     description: "Force/Torque sensor names",

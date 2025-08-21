@@ -11,7 +11,7 @@
 #include "Eigen/Dense"
 
 // other libs
-#include "rdyn_core/primitives.h"
+#include "rdyn_core/primitives.h" // IWYU pragma: export
 #include "state_observers/kalman_filter.hpp"
 
 // ros lib
@@ -22,7 +22,7 @@
 #include "realtime_tools/realtime_publisher.hpp"
 #include "semantic_components/force_torque_sensor.hpp"
 #include "tf2_ros/buffer.h"
-#include "tf2_ros/static_transform_broadcaster.h"
+#include "tf2_ros/transform_broadcaster.h"
 #include "tf2_ros/transform_listener.h"
 
 // ros msgs
@@ -42,9 +42,6 @@
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
 // IWYU pragma: end_keep
-
-// stdlib
-#include <semaphore>
 
 namespace elastoplastic
 {
@@ -75,7 +72,8 @@ private:
 
   rclcpp::Time m_last_odom_msg_time;
 
-  std::shared_ptr<tf2_ros::StaticTransformBroadcaster> m_tf_bcast;
+  std::shared_ptr<tf2_ros::TransformBroadcaster> m_tf_bcast;
+  bool m_enable_shared_frame_bcast;
   std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
@@ -101,18 +99,10 @@ private:
   Couple<rdyn::ChainPtr> m_chain_base_sensors;
   Couple<rdyn::ChainPtr> m_chain_world_tools;
 
-  // struct Side {
-  // constexpr static unsigned int LEFT = 0;  // --> first N elements of joint vectors
-  // constexpr static unsigned int RIGHT = 1; // --> last N elements of joint vectors
-  // constexpr static std::array<int, 2> arms() { return std::array<int, 2>({{LEFT, RIGHT}}); }
-  // constexpr static unsigned int COMMON = 2;
-  // constexpr static unsigned int BASE = 3;
-  // };
   struct Side {
     enum { LEFT = 0, RIGHT = 1, COMMON = 2, BASE = 3 };
     constexpr static std::array<int, 2> arms() { return std::array<int, 2>({{LEFT, RIGHT}}); }
   };
-
 
   std::vector<std::string> m_joint_names;
 
@@ -153,7 +143,6 @@ private:
                                                            hardware_interface::HW_IF_VELOCITY};
   Couple<bool> m_used_command_interfaces;
 
-
   struct FloatBaseData {
     bool enabled {true};
     size_t nax() const { return enabled ? nax_ : 0; }
@@ -172,7 +161,6 @@ private:
 
   std::vector<std::string> m_state_interfaces_names;
   std::vector<std::string> m_command_interfaces_names;
-
 
   struct Limits {
     Eigen::VectorXd pos_upper;
@@ -243,21 +231,20 @@ private:
 
   bool m_base_use_cmd_ifaces;
 
+  std::mutex m_mutex;
+  Eigen::Affine3d m_T_world_shared;
+
 public:
   ElastoplasticControllerDual() = default;
 
   controller_interface::InterfaceConfiguration command_interface_configuration() const override;
 
-
   controller_interface::InterfaceConfiguration state_interface_configuration() const override;
-
 
   controller_interface::return_type update_and_write_commands(
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
-
   controller_interface::CallbackReturn on_init() override;
-
 
   controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& previous_state) override;
 
