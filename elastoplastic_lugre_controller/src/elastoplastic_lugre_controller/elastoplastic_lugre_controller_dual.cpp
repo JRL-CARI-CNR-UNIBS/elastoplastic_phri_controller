@@ -594,9 +594,9 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(co
   }
 
   // Joint initialization
-  std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.begin(),
+  std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
-  std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.begin(),
+  std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   m_qpp.setZero();
 
@@ -694,9 +694,9 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(co
 controller_interface::CallbackReturn
 ElastoplasticControllerDual::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) {
 
-  std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.begin(),
+  std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
-  std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.begin(),
+  std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   m_qpp.setZero();
 
