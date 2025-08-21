@@ -247,6 +247,7 @@ elastoplastic_controller_dual:
         gt<>: 0.0
       }
     }
+
   command_interfaces: {
     type: string_array,
     default_value: ["position", "velocity"],

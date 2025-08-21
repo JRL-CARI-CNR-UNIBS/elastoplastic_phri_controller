@@ -81,7 +81,6 @@ private:
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
   std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> m_support_node_exec;
   rclcpp::Node::SharedPtr m_node_support; // tf and log
-  std::binary_semaphore m_node_semaph{0};
   void update_base_pose_from_tf();
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
@@ -93,6 +92,7 @@ private:
   constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
   constexpr static unsigned int M_SE3{6};
   constexpr static unsigned int M_SE2{3};
+  constexpr static char SHARED_FRAME_NAME[]{"shared"};
 
   enum class RDStatus { OK, ERROR, EMPTY } m_robot_description_configuration{ElastoplasticControllerDual::RDStatus::EMPTY};
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;

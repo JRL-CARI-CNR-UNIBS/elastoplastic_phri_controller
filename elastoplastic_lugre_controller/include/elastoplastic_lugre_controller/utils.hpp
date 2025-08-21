@@ -271,7 +271,7 @@ inline Eigen::Vector6d get_frame_distance(const Eigen::Affine3d& T_wa, const Eig
   return v;
 }
 
-const std::string MOBILE_BASE_URDF = R"(<?xml version='1.0'?>
+constexpr static char MOBILE_BASE_URDF[] = R"(<?xml version='1.0'?>
 <robot name='base'>
 <link name='x_base'/>
 <link name='y_base'/>

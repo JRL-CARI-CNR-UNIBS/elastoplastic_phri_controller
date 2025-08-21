@@ -12,16 +12,13 @@
 #include "Eigen/Dense"
 
 // other libs
-#include "eiquadprog/eiquadprog-fast.hpp"
-#include "rdyn_core/primitives.h"
+#include "rdyn_core/primitives.h" // IWYU pragma: export
 #include "state_observers/kalman_filter.hpp"
 
 // ros lib
-#include "control_msgs/msg/admittance_controller_state.hpp"
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp" // IWYU pragma: export
-#include "rclcpp_lifecycle/lifecycle_publisher.hpp"
 #include "realtime_tools/realtime_buffer.hpp"
 #include "realtime_tools/realtime_publisher.hpp"
 #include "semantic_components/force_torque_sensor.hpp"
@@ -30,6 +27,7 @@
 
 // ros msgs
 // IWYU pragma: begin_keep
+#include "control_msgs/msg/admittance_controller_state.hpp"
 #include "elastoplastic_msgs/msg/elastoplastic_controller_state.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"

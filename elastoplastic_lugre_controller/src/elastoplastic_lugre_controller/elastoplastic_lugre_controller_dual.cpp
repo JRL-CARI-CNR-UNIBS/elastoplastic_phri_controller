@@ -5,7 +5,7 @@
 #include "pluginlib/class_list_macros.hpp"
 #include "tf2_eigen/tf2_eigen.hpp"
 #include "tf2_ros/create_timer_ros.h"
-#include "urdfdom_headers/urdf_model/model.h"
+#include "urdfdom_headers/urdf_model/model.h" // IWYU pragma: export
 
 #include "rclcpp/qos.hpp"
 
