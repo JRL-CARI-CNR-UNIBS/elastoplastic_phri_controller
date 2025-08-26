@@ -4,6 +4,9 @@
 #include "Eigen/Core"
 #include "elastoplastic_lugre_controller/elastoplastic_variable_model.hpp"
 
+
+#include <numeric>
+
 // Helpers to get unique names when using __LINE__
 #define _CONCAT(a, b) a##b
 #define UNIQUE_NAME(base) _CONCAT(base, __LINE__)
@@ -56,6 +59,31 @@ struct Logistic {
   Eigen::Array3d inflection;
 
   double get(const Eigen::Array3d& v) { return (max / (1 + Eigen::exp(slope * (v.abs() - inflection)))).minCoeff(); }
+};
+
+struct SigmoidSys {
+  double x;
+  double gain;
+  double dx{0};
+  constexpr static double X_MAX = 1;
+  constexpr static double X_MIN = 0;
+
+  SigmoidSys() = default;
+  void init(const double dir, const double i_gain, const double i_dx) {
+    gain = i_gain;
+    dx = i_dx;
+    reset(dir);
+  }
+  double operator()() { return sigmoid(); }
+  double update(const int dir) {
+    x += dir > 0 ? dx : -dx;
+    x = std::clamp(x, X_MIN, X_MAX);
+    return sigmoid();
+  }
+  void reset(const int dir) { x = dir > 0 ? X_MIN : X_MAX; }
+
+private:
+  double sigmoid() { return gain * 0.5 * (std::cos((x - X_MIN) * std::numbers::pi / (X_MAX - X_MIN)) + 1); }
 };
 
 /* == LIE OPERATORS == */

@@ -393,10 +393,9 @@ void ElastoplasticController::update_base_pose_from_tf() {
     "__support_node__", fmt::format("{}{}", this->get_node()->get_namespace(), this->get_node()->get_name()));
   m_node_semaph.release();
   m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer, m_node_support, false);
-  m_support_node_exec = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
+  m_support_node_exec = std::make_unique<rclcpp::executors::MultiThreadedExecutor>();
   m_support_node_exec->add_node(m_node_support);
   m_support_node_exec->spin();
-  m_support_node_exec->remove_node(m_node_support);
 }
 
 controller_interface::InterfaceConfiguration ElastoplasticController::state_interface_configuration() const {
@@ -696,15 +695,17 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
 
   m_wrench_in_sensor_prec.setZero();
 
-  m_support_node_exec->cancel();
-
   release_interfaces();
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
 controller_interface::CallbackReturn ElastoplasticController::on_cleanup(const rclcpp_lifecycle::State& /*previous_state*/) {
+  if (m_support_node_exec->is_spinning()) {
+    m_support_node_exec->cancel();
+  }
   if (m_tf_base_pose_recovery_thread->joinable())
     m_tf_base_pose_recovery_thread->join();
+  m_support_node_exec->remove_node(m_node_support);
 
   return controller_interface::CallbackReturn::SUCCESS;
 }

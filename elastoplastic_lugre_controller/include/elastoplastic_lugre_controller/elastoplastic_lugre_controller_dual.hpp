@@ -77,7 +77,7 @@ private:
   std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
-  std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> m_support_node_exec;
+  std::unique_ptr<rclcpp::executors::MultiThreadedExecutor> m_support_node_exec;
   rclcpp::Node::SharedPtr m_node_support; // tf and log
   void update_base_pose_from_tf();
 
@@ -197,6 +197,8 @@ private:
   utils::Logistic m_logistic;
   double m_logis_prec;
 
+  utils::SigmoidSys m_pos_task_slider;
+
   utils::interpolation::Interpolator m_interpolator;
   rclcpp::Subscription<moveit_msgs::msg::CartesianTrajectory>::SharedPtr m_carteisan_trj_sub;
 
@@ -280,7 +282,8 @@ protected:
   Eigen::VectorXd compute_clik_as_inv(const ClikData &data, const Eigen::Vector6d &a_position_error,
                                       const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
 
-  void get_target_callback(const geometry_msgs::msg::Twist & msg);
+  bool write_cmd_vel(const Eigen::Vector3d& v);
+  void get_target_callback(const geometry_msgs::msg::Twist& msg);
   void get_mobile_base_target_callback(const geometry_msgs::msg::Twist & msg);
   void get_odometry_callback(const nav_msgs::msg::Odometry & msg);
   void get_localization_callback(const geometry_msgs::msg::PoseWithCovarianceStamped & msg);

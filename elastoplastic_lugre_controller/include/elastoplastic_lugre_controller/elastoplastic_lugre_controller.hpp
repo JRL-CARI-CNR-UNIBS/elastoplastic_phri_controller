@@ -76,7 +76,7 @@ private:
   std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
-  std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> m_support_node_exec;
+  std::unique_ptr<rclcpp::executors::MultiThreadedExecutor> m_support_node_exec;
   rclcpp::Node::SharedPtr m_node_support; // tf and log
   std::binary_semaphore m_node_semaph{0};
   void update_base_pose_from_tf();
