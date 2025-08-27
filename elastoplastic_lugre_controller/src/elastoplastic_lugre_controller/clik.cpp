@@ -251,6 +251,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
 
   // Move base limits to world
   if (m_mobile_base.enabled) {
+    // BUG: vel limits comes in base from parameters
     // Velocity
     Eigen::Vector6d max_vel_base_in_world = utils::twist_from_base_velocity(m_mobile_base.vel_limits);
     Eigen::Vector6d max_vel_base_in_base = rdyn::spatialRotation(max_vel_base_in_world, m_T_world_base.linear().transpose());
@@ -258,6 +259,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
     ineq_qp_min.ci().head<M_SE2>() << m_qp.head<M_SE2>() + max_vel_base;
     ineq_qp_max.ci().head<M_SE2>() << max_vel_base - m_qp.head<M_SE2>();
 
+    // BUG: acc limits comes in base from parameters
     // Acceleration
     Eigen::Vector6d max_acc_base_in_world = utils::twist_from_base_velocity(m_mobile_base.acc_limits);
     Eigen::Vector6d max_acc_base_in_base = rdyn::spatialRotation(max_acc_base_in_world, m_T_world_base.linear().transpose());

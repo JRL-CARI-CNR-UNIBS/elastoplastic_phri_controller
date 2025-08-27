@@ -13,6 +13,11 @@
 #include <chrono>
 #include <numeric>
 
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
+// #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
+#define USE_CARTESIAN_REFERENCE
+
+
 namespace elastoplastic {
 
 namespace utils {
@@ -75,6 +80,13 @@ bool ElastoplasticControllerDual::write_cmd_vel(const Eigen::Vector3d& v) {
     }
   }
   return b;
+}
+
+void ElastoplasticControllerDual::update_grasp_matrices(const Eigen::Matrix3d& R_world_shared) {
+  m_grasp_matrix_wrench.block<3, 3>(Eigen::fix<3>, Eigen::fix<0>) = rdyn::skew(R_world_shared * m_p_left_shared_in_shared);
+  m_grasp_matrix_wrench.block<3, 3>(Eigen::fix<3>, Eigen::fix<6>) = rdyn::skew(R_world_shared * m_p_right_shared_in_shared);
+  m_grasp_matrix_twist.block<3, 3>(Eigen::fix<0>, Eigen::fix<3>) = 0.5 * rdyn::skew(R_world_shared * -m_p_left_shared_in_shared);
+  m_grasp_matrix_twist.block<3, 3>(Eigen::fix<0>, Eigen::fix<9>) = 0.5 * rdyn::skew(R_world_shared * -m_p_right_shared_in_shared);
 }
 
 controller_interface::CallbackReturn ElastoplasticControllerDual::on_init() {
@@ -635,19 +647,20 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(co
   m_T_left_shared = T_world_left.inverse() * T_world_shared;
   m_T_right_shared_ideal = T_world_right.inverse() * T_world_shared;
 
-  if (m_parameters.enable_shared_frame_broadcast) {
-    m_enable_shared_frame_bcast = true;
-  }
+  m_enable_shared_frame_bcast = m_parameters.enable_shared_frame_broadcast;
 
-  Eigen::Vector3d left_stick_in_shared = -utils::get_frame_distance(T_world_shared, T_world_left).head<3>();
-  Eigen::Vector3d right_stick_in_shared = -utils::get_frame_distance(T_world_shared, T_world_right).head<3>();
+  Eigen::Vector3d p_left_shared_in_world = -utils::get_frame_distance(T_world_shared, T_world_left).head<3>();
+  Eigen::Vector3d p_right_shared_in_world = -utils::get_frame_distance(T_world_shared, T_world_right).head<3>();
+
+  m_p_left_shared_in_shared = T_world_shared.linear().transpose() * (T_world_left.translation() - T_world_shared.translation());
+  m_p_right_shared_in_shared = T_world_shared.linear().transpose() * (T_world_right.translation() - T_world_shared.translation());
 
   m_grasp_matrix_wrench << Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(),
-    Eigen::Matrix3d::Zero(), rdyn::skew(left_stick_in_shared), Eigen::Matrix3d::Identity(), rdyn::skew(right_stick_in_shared),
-    Eigen::Matrix3d::Identity();
+    Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), rdyn::skew(p_left_shared_in_world), Eigen::Matrix3d::Identity(),
+    rdyn::skew(p_right_shared_in_world);
 
-  m_grasp_matrix_twist << Eigen::Matrix3d::Identity(), rdyn::skew(left_stick_in_shared), Eigen::Matrix3d::Identity(),
-    rdyn::skew(right_stick_in_shared), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
+  m_grasp_matrix_twist << Eigen::Matrix3d::Identity(), -rdyn::skew(p_left_shared_in_world), Eigen::Matrix3d::Identity(),
+    -rdyn::skew(p_right_shared_in_world), Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Identity(), Eigen::Matrix3d::Zero(),
     Eigen::Matrix3d::Identity();
   m_grasp_matrix_twist *= 0.5;
 
@@ -822,7 +835,6 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
   // ** Read **
   // **********
 
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
   // Base state
   bool got_new_odom = false;
@@ -893,7 +905,6 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
   bool got_new_odom = true;
 #endif
 
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR_
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
   // Manipulator State
   Eigen::VectorXd q_qp_in(2 * m_nax), q_qp_out(2 * m_nax);
@@ -924,7 +935,6 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
     m_chain_world_tools[Side::RIGHT]->getTwistTool(m_q(m_sel[Side::RIGHT]), m_qp(m_sel[Side::RIGHT]));
   Eigen::VectorXd full_position_references(m_full_nax), full_velocity_references(m_full_nax);
 
-#define USE_CARTESIAN_REFERENCE
 #ifndef USE_CARTESIAN_REFERENCE
   /* Joint Reference */
   // Target base
@@ -1008,6 +1018,8 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
                                         m_chain_world_tools[Side::RIGHT]->getTransformation(m_q(m_sel[Side::RIGHT])));
   }
 
+  update_grasp_matrices(m_T_world_shared.linear());
+
   /* FT state */
   Eigen::Vector12d wrench_sensor_in_sensor = get_wrenches();
 
@@ -1056,9 +1068,6 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
   m_wrench_in_sensor_prec = wrench_sensor_in_sensor;
   Eigen::Vector6d wrench_shared_in_world = m_grasp_matrix_wrench * wrench_tool_in_world;
   // Eigen::Vector6d wrench_shared_offset = m_grasp_matrix_wrench * m_offset_wrench_tool_in_world;
-
-  // BUG
-  wrench_shared_in_world.setZero();
 
   Eigen::Matrix6Xd Jtmp1, Jtmp2;
   Jtmp1 = m_chain_world_tools[Side::LEFT]->getJacobian(m_q(m_sel[Side::LEFT]));

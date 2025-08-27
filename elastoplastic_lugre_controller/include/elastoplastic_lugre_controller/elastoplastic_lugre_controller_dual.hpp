@@ -228,8 +228,12 @@ private:
 
   Eigen::Vector12d get_wrenches() { return (Eigen::Vector12d() << get_wrench(Side::LEFT), get_wrench(Side::RIGHT)).finished(); }
 
+  void update_grasp_matrices(const Eigen::Matrix3d& R_world_shared);
+
   Eigen::Matrix612d m_grasp_matrix_wrench;
   Eigen::Matrix612d m_grasp_matrix_twist;
+  Eigen::Vector3d m_p_left_shared_in_shared;  // Virtual stick
+  Eigen::Vector3d m_p_right_shared_in_shared; // Virtual stick
 
   bool m_base_use_cmd_ifaces;
 

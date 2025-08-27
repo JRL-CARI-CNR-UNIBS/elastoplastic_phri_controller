@@ -307,18 +307,24 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   // Move base limits to world
   if (m_mobile_base.enabled) {
     // Velocity
-    Eigen::Vector6d max_vel_base_in_world = utils::twist_from_base_velocity(m_mobile_base.vel_limits);
-    Eigen::Vector6d max_vel_base_in_base = rdyn::spatialRotation(max_vel_base_in_world, m_T_world_base.linear().transpose());
-    Eigen::Vector3d max_vel_base = utils::base_velocity_from_twist(max_vel_base_in_base);
-    ineq_qp_min.ci().head<M_SE2>() << m_qp.head<M_SE2>() + max_vel_base;
-    ineq_qp_max.ci().head<M_SE2>() << max_vel_base - m_qp.head<M_SE2>();
+    // Eigen::Vector6d max_vel_base_in_world = utils::twist_from_base_velocity(m_mobile_base.vel_limits);
+    // Eigen::Vector6d max_vel_base_in_base = rdyn::spatialRotation(max_vel_base_in_world, m_T_world_base.linear().transpose());
+    // Eigen::Vector3d max_vel_base = utils::base_velocity_from_twist(max_vel_base_in_base);
+    Eigen::Vector6d max_vel_base_in_base = utils::twist_from_base_velocity(m_mobile_base.vel_limits);
+    Eigen::Vector6d max_vel_base_in_world = rdyn::spatialRotation(max_vel_base_in_base, m_T_world_base.linear());
+    Eigen::Vector3d max_vel = utils::base_velocity_from_twist(max_vel_base_in_world);
+    ineq_qp_min.ci().head<M_SE2>() << m_qp.head<M_SE2>() + max_vel;
+    ineq_qp_max.ci().head<M_SE2>() << max_vel - m_qp.head<M_SE2>();
 
     // Acceleration
-    Eigen::Vector6d max_acc_base_in_world = utils::twist_from_base_velocity(m_mobile_base.acc_limits);
-    Eigen::Vector6d max_acc_base_in_base = rdyn::spatialRotation(max_acc_base_in_world, m_T_world_base.linear().transpose());
-    Eigen::Vector3d max_acc_base = utils::base_velocity_from_twist(max_acc_base_in_base);
-    ineq_qpp_min.ci().head<M_SE2>() << max_acc_base;
-    ineq_qpp_max.ci().head<M_SE2>() << max_acc_base;
+    // Eigen::Vector6d max_acc_base_in_world = utils::twist_from_base_velocity(m_mobile_base.acc_limits);
+    // Eigen::Vector6d max_acc_base_in_base = rdyn::spatialRotation(max_acc_base_in_world, m_T_world_base.linear().transpose());
+    // Eigen::Vector3d max_acc_base = utils::base_velocity_from_twist(max_acc_base_in_base);
+    Eigen::Vector6d max_acc_base_in_base = utils::twist_from_base_velocity(m_mobile_base.acc_limits);
+    Eigen::Vector6d max_acc_base_in_world = rdyn::spatialRotation(max_acc_base_in_base, m_T_world_base.linear());
+    Eigen::Vector3d max_acc = utils::base_velocity_from_twist(max_acc_base_in_world);
+    ineq_qpp_min.ci().head<M_SE2>() << max_acc;
+    ineq_qpp_max.ci().head<M_SE2>() << max_acc;
   }
 
   elastoplastic::InequalitySet ineq_set(prb_dim);
@@ -328,8 +334,6 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   ineq_set.push_constraint(ineq_qp_max);
   ineq_set.push_constraint(ineq_qpp_min);
   ineq_set.push_constraint(ineq_qpp_max);
-  // ineq_set.push_constraint(ineq_x_min);
-  // ineq_set.push_constraint(ineq_x_max);
   ineq_set.push_constraint(ineq_xpp_min);
   ineq_set.push_constraint(ineq_xpp_max);
   ineq_set.compute_set();
@@ -345,9 +349,10 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   auto [solutionQP, status] = solver.solve();
 
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
-    // RCLCPP_ERROR_STREAM(get_node()->get_logger(), "Problem unfeasible. Solver status: " << status);
+    Eigen::LLT<Eigen::MatrixXd> chol(sot.G());
     LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(), 1.0,
-                             "Problem unfeasible. Solver status: " << status);
+                             "Problem unfeasible. Solver status: " << status << ". Is G Positive Definite: "
+                                                                   << (chol.info() == Eigen::ComputationInfo::Success));
     return std::nullopt;
   }
 
