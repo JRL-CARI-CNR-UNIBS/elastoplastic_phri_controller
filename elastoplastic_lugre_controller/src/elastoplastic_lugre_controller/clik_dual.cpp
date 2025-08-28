@@ -332,8 +332,8 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   ineq_set.push_constraint(ineq_q_max);
   ineq_set.push_constraint(ineq_qp_min);
   ineq_set.push_constraint(ineq_qp_max);
-  ineq_set.push_constraint(ineq_qpp_min);
-  ineq_set.push_constraint(ineq_qpp_max);
+  // ineq_set.push_constraint(ineq_qpp_min);
+  // ineq_set.push_constraint(ineq_qpp_max);
   ineq_set.push_constraint(ineq_xpp_min);
   ineq_set.push_constraint(ineq_xpp_max);
   ineq_set.compute_set();
