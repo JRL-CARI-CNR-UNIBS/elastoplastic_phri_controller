@@ -144,17 +144,23 @@ private:
   Couple<bool> m_used_command_interfaces;
 
   struct FloatBaseData {
-    bool enabled {true};
+    FloatBaseData() = delete;
+    FloatBaseData(const bool en)
+        : enabled(en),
+          base_joint_names(en ? std::vector<std::string>({"move_x", "move_y", "rot_z"}) : std::vector<std::string>()) {}
+
+    const bool enabled;
+    const std::vector<std::string> base_joint_names;
+
     size_t nax() const { return enabled ? nax_ : 0; }
-    std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
+    // std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
     Eigen::Vector3d vel_limits;
     Eigen::Vector3d acc_limits;
 
   private:
     constexpr static size_t nax_ {3};
-    const std::vector<std::string> base_joint_names_ {"move_x", "move_y", "rot_z"};
-
-  } m_mobile_base;
+  };
+  std::unique_ptr<FloatBaseData> m_mobile_base;
 
   Eigen::Vector3d m_velocity_base_in_base;
   bool m_mobile_base_pose_updated;
@@ -208,7 +214,7 @@ private:
 
   Eigen::Affine3d m_T_left_shared;
   Eigen::Affine3d m_T_right_shared_ideal;
-  // Da rivedere
+
   Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left, const Eigen::Affine3d& T_world_right) {
     // return T_world_left * m_T_left_shared;
     Eigen::Affine3d T_world_shared;

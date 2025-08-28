@@ -28,6 +28,7 @@ find_package(tf2                         REQUIRED)
 find_package(tf2_eigen                   REQUIRED)
 find_package(urdfdom                     REQUIRED)
 find_package(generate_parameter_library  REQUIRED)
+# find_package(pal_statistics              REQUIRED)
 
 find_package(fmt                         REQUIRED)
 find_package(rdyn_core                   REQUIRED)
@@ -102,6 +103,7 @@ set(AMENT_LIBS
   tf2_eigen
   urdfdom
   state_observers
+  # pal_statistics
   )
 
 ament_target_dependencies(elastoplastic_controller PUBLIC
