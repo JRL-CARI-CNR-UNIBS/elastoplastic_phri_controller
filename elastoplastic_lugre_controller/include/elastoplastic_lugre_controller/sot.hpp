@@ -1,5 +1,5 @@
-#ifndef ELASTOPLASTIC_CONTORLLER__SOT_HPP
-#define ELASTOPLASTIC_CONTORLLER__SOT_HPP
+#ifndef ELASTOPLASTIC_CONTROLLER__SOT_HPP
+#define ELASTOPLASTIC_CONTROLLER__SOT_HPP
 
 #include "Eigen/Dense"
 // #define EIQGUADPROG_TRACE_SOLVER
@@ -14,16 +14,18 @@ private:
   Eigen::MatrixXd m_Ad;
   Eigen::VectorXd m_bd;
   Eigen::MatrixXd m_W;
+  std::string m_description;
 
 public:
   Task() = delete;
-  Task(const size_t problem_size, const size_t task_size)
-      : m_prb_dim(problem_size), m_task_dim(task_size), m_Ad(task_size, problem_size), m_bd(task_size),
-        m_W(task_size, task_size) {
+  Task(const size_t problem_size, const size_t task_size, const std::string& description)
+      : m_prb_dim(problem_size), m_task_dim(task_size), m_Ad(task_size, problem_size), m_bd(task_size), m_W(task_size, task_size),
+        m_description(description) {
     m_Ad.setZero();
     m_bd.setZero();
     m_W.setIdentity();
   }
+  Task(const size_t problem_size, const size_t task_size) : Task(problem_size, task_size, "") {}
 
   Eigen::MatrixXd& A() { return m_Ad; }
   Eigen::VectorXd& b() { return m_bd; }
@@ -31,6 +33,7 @@ public:
   const Eigen::VectorXd& b() const { return m_bd; }
   Eigen::MatrixXd& W() { return m_W; }
   Eigen::VectorXd value(const Eigen::VectorXd& x) { return m_Ad * x + m_bd; }
+  const std::string& describe() { return m_description; }
   double cost(const Eigen::VectorXd& x) const {
     return (x.transpose() * m_Ad.transpose() * m_W * m_Ad * x + m_bd.transpose() * m_W * m_Ad * x).eval()(0);
   }
@@ -51,6 +54,7 @@ private:
   const double m_level_step;
   Eigen::MatrixXd m_G;
   Eigen::VectorXd m_F;
+  std::vector<std::tuple<Eigen::MatrixXd, Eigen::VectorXd, std::string>> m_stack;
 
 public:
   Stack(const size_t problem_size, const double level_step = 1e-3, const double level_zero = 0)
@@ -64,15 +68,28 @@ public:
   int level(void) const { return m_level; }
   void push_task(Task& t, const double relative_task_weight = 1.0) {
     auto [G, F] = t.update_task();
+    m_stack.emplace_back(std::make_tuple(G * relative_task_weight * std::pow(m_level_step, m_level),
+                                         F * relative_task_weight * std::pow(m_level_step, m_level), t.describe()));
     m_G += G * relative_task_weight * std::pow(m_level_step, m_level);
     m_F += F * relative_task_weight * std::pow(m_level_step, m_level);
   }
   void insert_task(Task& t, const int level, const double relative_task_weight = 1.0) {
     auto [G, F] = t.update_task();
+    m_stack.emplace_back(std::make_tuple(G * relative_task_weight * std::pow(m_level_step, level),
+                                         F * relative_task_weight * std::pow(m_level_step, level), t.describe()));
     m_G += G * relative_task_weight * std::pow(m_level_step, level);
     m_F += F * relative_task_weight * std::pow(m_level_step, level);
   }
 
+  std::vector<std::pair<std::string, double>> contibutions(const Eigen::VectorXd& q) {
+    std::vector<std::pair<std::string, double>> c(m_stack.size());
+    double final_cost = (q.transpose() * m_G * q + 2.0 * m_F.transpose() * q)(0, 0);
+    std::transform(m_stack.begin(), m_stack.end(), c.begin(), [&q, &final_cost](const auto& tup) {
+      double cost = (q.transpose() * std::get<0>(tup) * q + 2.0 * std::get<1>(tup).transpose() * q)(0, 0);
+      return std::make_pair(std::get<2>(tup), cost / final_cost);
+    });
+    return c;
+  }
   void clear(void) {
     prepare();
     m_level = 0;
@@ -285,4 +302,4 @@ public:
 
 } // namespace elastoplastic
 
-#endif // SOT_HPP
+#endif // ELASTOPLASTIC_CONTROLLER__SOT_HPP
