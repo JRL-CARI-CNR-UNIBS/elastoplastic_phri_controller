@@ -200,9 +200,10 @@ private:
   enum class FTSource { FT_SENSOR, TOPIC, TORQUE } m_ft_source;
 
   Eigen::Vector6d get_wrench_from_sensor() {
-    auto [fx, fy, fz] = m_ft_sensor->get_forces();
-    auto [tx, ty, tz] = m_ft_sensor->get_torques();
-    return Eigen::Vector6d({-fx, -fy, -fz, -tx, -ty, -tz});
+    geometry_msgs::msg::Wrench w;
+    m_ft_sensor->get_values_as_message(w);
+    double s = m_parameters.ft_invert_sign ? -1.0 : 1.0;
+    return Eigen::Vector6d({s * w.force.x, s * w.force.y, s * w.force.z, s * w.torque.x, s * w.torque.y, s * w.torque.z});
   }
 
   bool m_invert_torque;

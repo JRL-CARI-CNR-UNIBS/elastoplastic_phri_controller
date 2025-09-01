@@ -35,6 +35,11 @@ elastoplastic_controller:
       not_empty<>: []
     }
   }
+  ft_invert_sign: {
+    type: bool,
+    default_value: false,
+    description: "Invert sign of the force detected. Useful when the FT-sensor provide the reaction force"
+  }
   frames:
     map: {
       type: string,
