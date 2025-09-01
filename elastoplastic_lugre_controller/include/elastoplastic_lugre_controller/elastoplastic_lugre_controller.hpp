@@ -3,7 +3,6 @@
 
 // local libs
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
-#include "elastoplastic_lugre_controller/notch_filter.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 #include "elastoplastic_parameters.hpp"
 #include "elastoplastic_variable_model.hpp"
@@ -27,7 +26,6 @@
 
 // ros msgs
 // IWYU pragma: begin_keep
-#include "control_msgs/msg/admittance_controller_state.hpp"
 #include "elastoplastic_msgs/msg/elastoplastic_controller_state.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
@@ -41,9 +39,6 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/string.hpp"
 // IWYU pragma: end_keep
-
-// stdlib
-#include <semaphore>
 
 namespace elastoplastic
 {
@@ -78,7 +73,6 @@ private:
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
   std::unique_ptr<rclcpp::executors::MultiThreadedExecutor> m_support_node_exec;
   rclcpp::Node::SharedPtr m_node_support; // tf and log
-  std::binary_semaphore m_node_semaph{0};
   void update_base_pose_from_tf();
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
@@ -137,24 +131,29 @@ private:
 
 
   struct FloatBaseData {
-    bool enabled {true};
+    FloatBaseData() = delete;
+    FloatBaseData(const bool en)
+        : enabled(en),
+          base_joint_names(en ? std::vector<std::string>({"move_x", "move_y", "rot_z"}) : std::vector<std::string>()) {}
+
+    const bool enabled;
+    const std::vector<std::string> base_joint_names;
+
     size_t nax() const { return enabled ? nax_ : 0; }
-    std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
+    // std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
     Eigen::Vector3d vel_limits;
     Eigen::Vector3d acc_limits;
 
   private:
     constexpr static size_t nax_ {3};
-    const std::vector<std::string> base_joint_names_ {"move_x", "move_y", "rot_z"};
-
-  } m_mobile_base;
+  };
+  std::unique_ptr<FloatBaseData> m_mobile_base;
 
   Eigen::Vector3d m_velocity_base_in_base;
   bool m_mobile_base_pose_updated;
 
   std::vector<std::string> m_state_interfaces_names;
   std::vector<std::string> m_command_interfaces_names;
-
 
   struct Limits {
     Eigen::VectorXd pos_upper;
@@ -164,12 +163,6 @@ private:
   } m_limits;
 
   std::unique_ptr<ElastoplasticModel> m_elastoplastic_model;
-
-  struct IntegralState {
-    Eigen::Vector6d position;
-    Eigen::Vector6d velocity;
-    void clear() {position.setZero(); velocity.setZero();}
-  } m_delta_elastoplastic_in_world;
 
   struct ClikData {
     const Eigen::VectorXd &position_references, velocity_references;
@@ -210,8 +203,6 @@ private:
   Eigen::Vector6d get_wrench_from_torque(const Eigen::JacobiSVD<Eigen::Matrix6Xd>& svd, const Eigen::VectorXd& tau) {
     return m_invert_torque * svd.solve(tau);
   }
-
-  std::vector<std::shared_ptr<NotchFilter>> m_wrench_notch;
 
   bool m_base_use_cmd_ifaces;
 
@@ -255,6 +246,7 @@ protected:
   Eigen::VectorXd compute_clik_as_inv(const ClikData& data, const Eigen::Vector6d& a_position_error,
                                       const Eigen::Vector6d& a_twist_error, const Eigen::Vector6d& a_acc_non_linear);
 
+  bool write_cmd_vel_zero();
   bool write_cmd_vel(const Eigen::Ref<Eigen::Vector3d>& v);
   void get_target_callback(const geometry_msgs::msg::Twist& msg);
   void get_mobile_base_target_callback(const geometry_msgs::msg::Twist& msg);
