@@ -109,11 +109,6 @@ elastoplastic_controller_dual:
       lower_element_bounds<>: [0.0]
     }
   }
-  soft_limits: {
-    type: double_array,
-    default_value: [],
-    description: "joint constraint = |joint_limit| - soft_limit",
-  }
   kalman_filter:
     manipulator:
       position: {
