@@ -6,8 +6,7 @@ namespace elastoplastic {
 
 void normalize(elastoplastic::Task& t) {
   auto [H, F] = t.update_task();
-  if (H.trace() > utils::K_REL_EPSILON)
-    t.W() *= 1 / std::sqrt(H.trace());
+  t.W() *= std::max(utils::K_ABS_EPSILON, 1 / std::sqrt(H.trace()));
 }
 
 std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData& data) {
@@ -92,7 +91,7 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   Eigen::Vector6d pose_error_shared_world_in_world;
   utils::get_frame_distance(data.T_world_shared, m_computed_target_T_world_shared, pose_error_shared_world_in_world);
 
-  Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * std::pow(m_dt, 2);
+  Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt + 0.5 * invM * K * m_dt * m_dt;
   task_admittance.A() << adm * m_grasp_matrix_twist * data.J_world_tools_in_world, -adm;
   task_admittance.b() << adm * m_grasp_matrix_twist * acc_non_linear_in_world + invM * D * twist_error_shared_world_in_world +
                            invM * K *
@@ -100,7 +99,6 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
                               pose_error_shared_world_in_world.cwiseProduct(Eigen::Vector6d::Ones() - enabled_axis)) -
                            invM * (data.wrench_shared_in_world);
   normalize(task_admittance);
-
 
   // Weighting matrix
   m_W.setIdentity();
@@ -118,29 +116,29 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   // Task: Minimize joint acceleration and weighting
   task_minimize_joint_acc.A().leftCols(m_full_nax).setIdentity();
   task_minimize_joint_acc.b().setZero();
-  normalize(task_minimize_joint_acc);
   task_minimize_joint_acc.W() = m_W.transpose() * m_W;
+  normalize(task_minimize_joint_acc);
 
 
   // Task: Joint Velocity
   task_joint_vel.A().leftCols(m_full_nax) += -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   task_joint_vel.b() += (data.velocity_references - m_qp);
-  normalize(task_joint_vel);
   task_joint_vel.W() *= m_W.transpose() * m_W;
+  normalize(task_joint_vel);
 
 
   // Task: Joint Position
   task_joint_pos.A().leftCols(m_full_nax) += -0.5 * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * std::pow(m_dt, 2);
   task_joint_pos.b() += (data.position_references - (m_q + m_qp * m_dt));
-  normalize(task_joint_pos);
   task_joint_pos.W() *= m_W.transpose() * m_W;
+  normalize(task_joint_pos);
 
 
-  elastoplastic::Task task_minimize_joint_vel(prb_dim, m_full_nax);
+  elastoplastic::Task task_minimize_joint_vel(prb_dim, m_full_nax, "Joint minimize velocity");
   task_minimize_joint_vel.A().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   task_minimize_joint_vel.b() << m_qp;
-  normalize(task_minimize_joint_vel);
   task_minimize_joint_vel.W() *= m_W.transpose() * m_W;
+  normalize(task_minimize_joint_vel);
 
 
   elastoplastic::Task task_force_continuity(prb_dim, M_SE3);
@@ -214,16 +212,16 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   sot.push_task(task_keep_relative_vel);
   sot.new_level();
   sot.push_task(task_admittance);
-  if (m_mobile_base->enabled)
-    sot.push_task(task_keep_base_orientation);
+  // if (m_mobile_base->enabled)
+  //   sot.push_task(task_keep_base_orientation);
   sot.new_level();
   sot.push_task(task_joint_vel, m_kv_joint_task);
   sot.push_task(task_joint_pos, m_kp_joint_task);
   sot.push_task(task_minimize_cart_acc);
+  sot.push_task(task_minimize_joint_acc, 1e-1);
   sot.new_level();
   // sot.push_task(task_force_continuity);
   sot.push_task(task_minimize_joint_vel);
-  // sot.push_task(task_minimize_joint_acc, 1e-1);
 
   /********************
    ** EQ Constraints **
@@ -369,8 +367,13 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
     return std::nullopt;
   }
 
-  // RCLCPP_WARN_STREAM(get_node()->get_logger(), "task_cart_pos residue:" << task_cart_pos.value(solutionQP).transpose());
-
+  auto contrib = sot.contibutions(solutionQP);
+  std::stringstream ss;
+  ss << "++++++++++++++++++\ncontributions: ";
+  std::for_each(contrib.begin(), contrib.end(),
+                [&ss](const auto& ct) { ss << "\nTask: " << ct.first << "\t| contrib: " << ct.second; });
+  ss << "\n------------------";
+  RCLCPP_INFO_STREAM(get_node()->get_logger(), ss.str());
   m_admittance_value = task_admittance.value(solutionQP) + invM * (data.wrench_shared_in_world);
   return solutionQP;
 }
