@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(elastoplastic_lugre_controller)
-set(CMAKE_BUILD_TYPE Debug)
+if(NOT CMAKE_BUILD_TYPE)
+ set(CMAKE_BUILD_TYPE Debug)
+endif()
 # set(CMAKE_BUILD_TYPE RelWithDebInfo)
 # set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_STANDARD 20)
@@ -110,9 +112,15 @@ ament_target_dependencies(elastoplastic_controller PUBLIC
 ${AMENT_LIBS}
 )
 
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set (RDYN_CONDITIONAL_TARGET rdyn_core::rdyn_core_compiled)
+else()
+  set (RDYN_CONDITIONAL_TARGET rdyn_core::rdyn_core)
+endif()
+
 target_link_libraries(elastoplastic_controller
   PUBLIC elastoplastic_parameters
-  PUBLIC rdyn_core::rdyn_core_compiled
+  PUBLIC ${RDYN_CONDITIONAL_TARGET}
   PUBLIC Eigen3::Eigen
   PUBLIC fmt::fmt
   PUBLIC eiquadprog::eiquadprog
@@ -124,7 +132,7 @@ ${AMENT_LIBS}
 
 target_link_libraries(elastoplastic_controller_dual
   PUBLIC elastoplastic_dual_parameters
-  PUBLIC rdyn_core::rdyn_core_compiled
+  PUBLIC ${RDYN_CONDITIONAL_TARGET}
   PUBLIC Eigen3::Eigen
   PUBLIC fmt::fmt
   PUBLIC eiquadprog::eiquadprog
