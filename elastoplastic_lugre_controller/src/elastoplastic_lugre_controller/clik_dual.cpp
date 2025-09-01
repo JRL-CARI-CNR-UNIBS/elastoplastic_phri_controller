@@ -22,15 +22,15 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   const unsigned int prb_dim = m_full_nax + M_SE3;
   Eigen::Vector6d enabled_axis = m_elastoplastic_model->get_enabled_axis();
 
-  elastoplastic::Task task_cart_vel(prb_dim, M_SE3);
-  elastoplastic::Task task_cart_pos(prb_dim, M_SE3);
-  elastoplastic::Task task_joint_pos(prb_dim, m_full_nax);
-  elastoplastic::Task task_joint_vel(prb_dim, m_full_nax);
-  elastoplastic::Task task_minimize_cart_acc(prb_dim, M_SE3);
-  elastoplastic::Task task_minimize_joint_acc(prb_dim, m_full_nax);
-  elastoplastic::Task task_admittance(prb_dim, M_SE3);
-  elastoplastic::Task task_keep_relative_vel(prb_dim, M_SE3);
-  elastoplastic::Task task_minimize_jerk(prb_dim, M_SE3);
+  elastoplastic::Task task_cart_vel(prb_dim, M_SE3, "Cartesian velocity tracking");
+  elastoplastic::Task task_cart_pos(prb_dim, M_SE3, "Cartesian position tracking");
+  elastoplastic::Task task_joint_pos(prb_dim, m_full_nax, "Joint position tracking");
+  elastoplastic::Task task_joint_vel(prb_dim, m_full_nax, "Joint velocity tracking");
+  elastoplastic::Task task_minimize_cart_acc(prb_dim, M_SE3, "Cartesian minimize acceleration");
+  elastoplastic::Task task_minimize_joint_acc(prb_dim, m_full_nax, "Joint minimize acceleration");
+  elastoplastic::Task task_admittance(prb_dim, M_SE3, "Admittance");
+  elastoplastic::Task task_keep_relative_vel(prb_dim, M_SE3, "Joint keep constant relative velocity");
+  elastoplastic::Task task_minimize_jerk(prb_dim, M_SE3, "Cartesian minimize jerk");
 
 
   /**********************
