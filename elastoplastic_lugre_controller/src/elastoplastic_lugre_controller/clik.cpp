@@ -6,14 +6,14 @@
 namespace elastoplastic {
 
 void normalize(elastoplastic::Task& t) {
-  auto [H, F] = t.update_task();
-  t.W() *= std::max(utils::K_ABS_EPSILON, 1 / std::sqrt(H.trace()));
+  Eigen::MatrixXd H = t.A().transpose() * t.A();
+  t.W() *= std::max(utils::K_ABS_EPSILON, std::sqrt(t.A().rows()) / std::sqrt(H.trace()));
 }
 
-void whitening(elastoplastic::Task& t) {
-  Eigen::MatrixXd M = t.A().colPivHouseholderQr().matrixQ();
-  t.W() *= M * M.transpose();
-};
+double normalize2(const elastoplastic::Task& t) {
+  Eigen::MatrixXd H = t.A().transpose() * t.A();
+  return std::pow(std::max(utils::K_ABS_EPSILON, std::sqrt(t.A().rows()) / std::sqrt(H.trace())), 2.0);
+}
 
 std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& data) {
 
@@ -82,6 +82,15 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
   normalize(task_admittance);
 
 
+  // elastoplastic::Task task_keep_tool_base_relative_acc(prb_dim, 3);
+  // if (m_mobile_base->enabled) {
+  // task_keep_tool_base_relative_acc.A().leftCols(m_full_nax) =
+  // (m_chain_world_tool->getJacobianLink(m_q, m_parameters.frames.base) - data.J_world_tool_in_world).topRows<3>() * m_dt;
+  // task_keep_tool_base_relative_acc.b() =
+  // (m_chain_world_base->getDTwistNonLinearPartTool(m_q.head<3>(), m_qp.head<3>()) - acc_non_linear_in_world).head<3>() * m_dt +
+  // (m_chain_world_base->getTwistTool(m_q.head<3>(), m_qp.head<3>()) - data.twist_tool_world_in_world).head<3>();
+  // }
+
   // Weighting matrix
   m_W.setIdentity();
   if (m_mobile_base->enabled) {
@@ -97,44 +106,26 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
   // Task: Minimize joint acceleration and weighting
   task_minimize_joint_acc.A().leftCols(m_full_nax).setIdentity();
   task_minimize_joint_acc.b().setZero();
-  task_minimize_joint_acc.W() = m_W.transpose() * m_W;
   normalize(task_minimize_joint_acc);
-
+  task_minimize_joint_acc.W() *= m_W.transpose() * m_W;
 
   // Task: Joint Velocity
   task_joint_vel.A().leftCols(m_full_nax) += -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   task_joint_vel.b() += (data.velocity_references - m_qp);
-  task_joint_vel.W() = m_W.transpose() * m_W;
   normalize(task_joint_vel);
-
+  task_joint_vel.W() *= m_W.transpose() * m_W;
 
   // Task: Joint Position
   task_joint_pos.A().leftCols(m_full_nax) += -0.5 * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * std::pow(m_dt, 2);
   task_joint_pos.b() += (data.position_references - (m_q + m_qp * m_dt));
-  task_joint_pos.W() = m_W.transpose() * m_W;
   normalize(task_joint_pos);
-
-  /*
-    elastoplastic::Task task_keep_T_base_tool(prb_dim, 3);
-    Eigen::Affine3d T_base_tool = m_chain_base_tool->getTransformation(m_q.tail(m_nax));
-    task_keep_T_base_tool.A().middleCols<3>(m_full_nax) = Eigen::Matrix3d::Identity() * 0.5 * m_dt * m_dt;
-    task_keep_T_base_tool.b() = (T_base_tool.translation().head<3>() - m_t_base_tool) +
-                                m_chain_base_tool->getTwistTool(m_q.tail(m_nax), m_qp.tail(m_nax)).head<3>();
-
-    elastoplastic::Task task_base_desired(prb_dim, 2);
-    Eigen::Vector6d base_to_ideal_base;
-    rdyn::getFrameDistance(m_T_world_base, (m_chain_world_tool->getTransformation(m_initial_q) * T_base_tool.inverse()),
-                           base_to_ideal_base);
-    task_base_desired.A().leftCols<2>() = Eigen::Matrix2d::Identity() * 0.5 * m_dt * m_dt;
-    task_base_desired.A().middleCols<2>(m_full_nax) = Eigen::Matrix2d::Identity() * 0.5 * m_dt * m_dt;
-    task_base_desired.b() = base_to_ideal_base.head<2>() + m_qp.head<2>() * m_dt;
-  */
+  task_joint_pos.W() *= m_W.transpose() * m_W;
 
   /****************
    ** Task Stack **
    ****************/
   constexpr double STACK_LEVEL_STEP = 1e-3;
-  constexpr int STACK_LEVEL_ZERO = 0;
+  constexpr int STACK_LEVEL_ZERO = -1;
   elastoplastic::Stack sot(prb_dim, STACK_LEVEL_STEP, STACK_LEVEL_ZERO);
 
   /* Variable stack */
@@ -144,22 +135,24 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
     RCLCPP_DEBUG_STREAM_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1, "Is restoring");
     cart_pos_level = STACK_LEVEL_ZERO;
     m_W.setIdentity();
-    // m_W.diagonal().head<M_SE2>() *= 1 / .head<2>().norm();
     task_joint_pos.W().setIdentity();
-    task_joint_vel.W() = m_W.transpose() * m_W;
-    task_minimize_joint_acc.W() = m_W.transpose() * m_W;
-    // sot.push_task(task_base_desired);
+    task_joint_vel.W() *= m_W.transpose() * m_W;
+    task_minimize_joint_acc.W() *= m_W.transpose() * m_W;
     sot.insert_task(task_cart_pos, cart_pos_level, 10);
   }
 
   /* Constant stack */
   sot.push_task(task_cart_vel, 4);
   sot.new_level();
+  sot.push_task(task_minimize_cart_acc);
+  sot.new_level();
   sot.push_task(task_admittance);
+  // if (m_mobile_base->enabled) {
+  // sot.push_task(task_keep_tool_base_relative_acc);
+  // }
   sot.new_level();
   sot.push_task(task_joint_vel, m_kv_joint_task);
   sot.push_task(task_joint_pos, m_kp_joint_task);
-  sot.push_task(task_minimize_cart_acc);
   sot.new_level();
   sot.push_task(task_minimize_joint_acc);
 
@@ -167,19 +160,6 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
    ** EQ Constraints **
    ********************/
   elastoplastic::EqualitySet eq_set(prb_dim);
-  // eq_set.push_constraint(task_admittance);
-
-  //  elastoplastic::Task task_can_update_base(prb_dim, M_SE2);
-  //  if (m_mobile_base->enabled) {
-  //    // Eq Constraint
-  //    // NOTE: Not the best, but I do not have other ideas on how to sync this with the mobile base controller
-  //    if (!a_data.got_new_odom) {
-  //      task_can_update_base.A().leftCols<M_SE2>().setIdentity();
-  //      task_can_update_base.b().setZero();
-  //    }
-  //    eq_set.push_constraint(task_can_update_base);
-  //  }
-
   eq_set.compute_set();
 
   /***********************
@@ -224,22 +204,12 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
 
   // Move base limits to world
   if (m_mobile_base->enabled) {
-    // BUG: vel limits comes in base from parameters
-    // Velocity
-    // Eigen::Vector6d max_vel_base_in_world = utils::twist_from_base_velocity(m_mobile_base->vel_limits);
-    // Eigen::Vector6d max_vel_base_in_base = rdyn::spatialRotation(max_vel_base_in_world, m_T_world_base.linear().transpose());
-    // Eigen::Vector3d max_vel_base = utils::base_velocity_from_twist(max_vel_base_in_base);
     Eigen::Vector6d max_vel_base_in_base = utils::twist_from_base_velocity(m_mobile_base->vel_limits);
     Eigen::Vector6d max_vel_base_in_world = rdyn::spatialRotation(max_vel_base_in_base, m_T_world_base.linear());
     Eigen::Vector3d max_vel = utils::base_velocity_from_twist(max_vel_base_in_world);
     ineq_qp_min.ci().head<M_SE2>() << m_qp.head<M_SE2>() + max_vel;
     ineq_qp_max.ci().head<M_SE2>() << max_vel - m_qp.head<M_SE2>();
 
-    // BUG: acc limits comes in base from parameters
-    // Acceleration
-    // Eigen::Vector6d max_acc_base_in_world = utils::twist_from_base_velocity(m_mobile_base->acc_limits);
-    // Eigen::Vector6d max_acc_base_in_base = rdyn::spatialRotation(max_acc_base_in_world, m_T_world_base.linear().transpose());
-    // Eigen::Vector3d max_acc_base = utils::base_velocity_from_twist(max_acc_base_in_base);
     Eigen::Vector6d max_acc_base_in_base = utils::twist_from_base_velocity(m_mobile_base->acc_limits);
     Eigen::Vector6d max_acc_base_in_world = rdyn::spatialRotation(max_acc_base_in_base, m_T_world_base.linear());
     Eigen::Vector3d max_acc = utils::base_velocity_from_twist(max_acc_base_in_world);
@@ -299,6 +269,13 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
     return std::nullopt;
   }
 
+  // auto contrib = sot.contibutions(solutionQP);
+  // std::stringstream ss;
+  // ss << "++++++++++++++++++\ncontributions: ";
+  // std::for_each(contrib.begin(), contrib.end(),
+  //               [&ss](const auto& ct) { ss << "\nTask: " << ct.first << "\t| contrib: " << ct.second; });
+  // ss << "\n------------------";
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(), ss.str());
   m_admittance_value = task_admittance.value(solutionQP) + invM * (data.wrench_tool_in_world);
   return solutionQP;
 }

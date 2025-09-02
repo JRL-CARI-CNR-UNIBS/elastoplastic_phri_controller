@@ -208,19 +208,15 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   /* Constant stack */
   sot.push_task(task_cart_vel, 4);
   sot.new_level();
-  // sot.push_task(task_minimize_jerk);
   sot.push_task(task_keep_relative_vel);
   sot.new_level();
   sot.push_task(task_admittance);
-  // if (m_mobile_base->enabled)
-  //   sot.push_task(task_keep_base_orientation);
   sot.new_level();
   sot.push_task(task_joint_vel, m_kv_joint_task);
   sot.push_task(task_joint_pos, m_kp_joint_task);
   sot.push_task(task_minimize_cart_acc);
   sot.push_task(task_minimize_joint_acc, 1e-1);
   sot.new_level();
-  // sot.push_task(task_force_continuity);
   sot.push_task(task_minimize_joint_vel);
 
   /********************
@@ -367,13 +363,13 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
     return std::nullopt;
   }
 
-  auto contrib = sot.contibutions(solutionQP);
-  std::stringstream ss;
-  ss << "++++++++++++++++++\ncontributions: ";
-  std::for_each(contrib.begin(), contrib.end(),
-                [&ss](const auto& ct) { ss << "\nTask: " << ct.first << "\t| contrib: " << ct.second; });
-  ss << "\n------------------";
-  RCLCPP_INFO_STREAM(get_node()->get_logger(), ss.str());
+  // auto contrib = sot.contibutions(solutionQP);
+  // std::stringstream ss;
+  // ss << "++++++++++++++++++\ncontributions: ";
+  // std::for_each(contrib.begin(), contrib.end(),
+  // [&ss](const auto& ct) { ss << "\nTask: " << ct.first << "\t| contrib: " << ct.second; });
+  // ss << "\n------------------";
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(), ss.str());
   m_admittance_value = task_admittance.value(solutionQP) + invM * (data.wrench_shared_in_world);
   return solutionQP;
 }

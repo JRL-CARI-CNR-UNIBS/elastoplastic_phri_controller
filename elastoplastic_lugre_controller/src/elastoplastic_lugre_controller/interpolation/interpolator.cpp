@@ -90,7 +90,7 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
     idx = idx == 0 ? 1 : idx;
   }
   if (idx >= m_plan.time.size()) {
-    std::cerr << "[Interpolator]: Non dovresti essere qui! idx == " << idx << std::endl;
+    // std::cerr << "[Interpolator]: Non dovresti essere qui! idx == " << idx << std::endl;
     pose = m_plan.pose.back();
     twist.setZero();
     return InterpolationResult::OK;

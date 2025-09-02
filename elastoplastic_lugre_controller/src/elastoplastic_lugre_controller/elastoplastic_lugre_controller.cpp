@@ -154,9 +154,9 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
 
   if (m_mobile_base->enabled) {
     urdf::ModelInterfaceSharedPtr mobile_base_model = urdf::parseURDF(utils::MOBILE_BASE_URDF);
-    rdyn::ChainPtr chain_world_base = rdyn::createChain(*mobile_base_model, "x_base", "mount_link", {0, 0, -9.806});
+    m_chain_world_base = rdyn::createChain(*mobile_base_model, "x_base", "mount_link", {0, 0, -9.806});
 
-    m_chain_world_tool = rdyn::joinChains(chain_world_base, m_chain_base_tool);
+    m_chain_world_tool = rdyn::joinChains(m_chain_world_base, m_chain_base_tool);
   } else {
     m_chain_world_tool = rdyn::createChain(*urdf_model, m_parameters.frames.map, m_parameters.frames.tool, gravity);
   }
@@ -945,11 +945,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       reference_target_acc_tool_world_in_world.setZero();
       reference_target_twist_tool_world_in_world.setZero();
       reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_initial_q);
+    } else {
+      reference_target_acc_tool_world_in_world.setZero();
+      reference_target_twist_tool_world_in_world.setZero();
+      reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_initial_q);
     }
-  } else {
-    reference_target_acc_tool_world_in_world.setZero();
-    reference_target_twist_tool_world_in_world.setZero();
-    reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_initial_q);
   }
   if (m_mobile_base->enabled) {
     full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(reference_target_twist_tool_world_in_world);
@@ -1062,13 +1062,13 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   if (!solution_qp.has_value()) {
     RCLCPP_ERROR_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
                           "Cannot find a solution for the CLIK QP problem. Keeping actual position");
-    m_qp.setZero();
-    m_qpp.setZero();
     m_admittance_value.setZero();
+    m_qpp.setZero();
+    m_computed_target_acc_tool_world_in_world.setZero();
   } else {
     Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
-    m_computed_target_acc_tool_world_in_world = solution_qp.value().segment<M_SE3>(m_full_nax);
     m_qpp = qepp;
+    m_computed_target_acc_tool_world_in_world = solution_qp.value().segment<M_SE3>(m_full_nax);
   }
 
   std::tie(m_q, m_qp) = utils::rk4_double([](const auto&, const auto&, const auto& u) { return u; }, m_q, m_qp, m_qpp, m_dt);

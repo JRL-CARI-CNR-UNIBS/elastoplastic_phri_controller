@@ -90,6 +90,7 @@ private:
   rdyn::ChainPtr m_chain_base_tool;
   rdyn::ChainPtr m_chain_base_sensor;
   rdyn::ChainPtr m_chain_world_tool;
+  rdyn::ChainPtr m_chain_world_base;
 
   std::vector<std::string> m_joint_names;
 
