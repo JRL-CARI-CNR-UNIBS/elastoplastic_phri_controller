@@ -287,6 +287,27 @@ elastoplastic_controller_dual:
         gt_eq<>: 0
       }
     }
+    notch_filter:
+      enable: {
+        type: bool,
+        default_value: true
+      }
+      fc: {
+        type: double,
+        default_value: 3.45,
+        description: "Cut frequency for wrench notch filter [Hz]",
+        validation: {
+          gt_eq<>: 0.0
+        }
+      }
+      Q: {
+        type: double,
+        default_value: 1.0,
+        description: "Quality factor",
+        validation: {
+          gt<>: 0.0
+        }
+      }
   impedance:
     enable_axis: {
       type: bool_array,

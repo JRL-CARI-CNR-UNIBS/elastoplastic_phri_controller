@@ -13,8 +13,9 @@
 #include <algorithm>
 #include <chrono>
 
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
+// #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
+// #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
 #define USE_CARTESIAN_REFERENCE
 
 namespace elastoplastic {
@@ -207,7 +208,6 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
   m_robot_description_configuration = RDStatus::OK;
 }
 
-
 controller_interface::CallbackReturn ElastoplasticController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
   m_parameters = m_param_listener->get_params();
 
@@ -223,6 +223,11 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   m_elastoplastic_model = std::make_unique<ElastoplasticModel>(utils::get_model_data(m_parameters, update_rate));
 
   m_mobile_base = std::make_unique<FloatBaseData>(m_parameters.mobile_base.enabled);
+
+  m_wrench_filters.reserve(6);
+  for (int idx = 0; idx < 6; idx++) {
+    m_wrench_filters.emplace_back(m_parameters.wrench.notch_filter.fc, m_parameters.wrench.notch_filter.Q, get_update_rate());
+  }
 
   m_full_nax = m_mobile_base->enabled ? m_parameters.joints.size() + m_mobile_base->nax() : m_parameters.joints.size();
   m_nax = m_parameters.joints.size();
@@ -376,7 +381,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
   kfjQ.setIdentity();
   kfjQ.diagonal() << Eigen::Map<Eigen::VectorXd>(m_parameters.kalman_filter.manipulator.position.data(), m_nax),
     Eigen::Map<Eigen::VectorXd>(m_parameters.kalman_filter.manipulator.velocity.data(), m_nax),
-    Eigen::VectorXd::Constant(m_nax, 1e-6);
+    Eigen::VectorXd::Constant(m_nax, 1e-3);
   kfjR.setIdentity();
   m_joint_filter = state_observer::KalmanFilter(kfjA, kfjB, kfjC, kfjQ, kfjR);
 
@@ -483,6 +488,12 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     std_msgs::msg::String::SharedPtr rd = std::make_shared<std_msgs::msg::String>();
     rd->data = this->get_robot_description();
     configure_after_robot_description_callback(rd);
+
+    if (m_parameters.wrench.notch_filter.enable) {
+      std::ranges::for_each(m_wrench_filters, [this](NotchFilter& f) {
+        f.configure(m_parameters.wrench.notch_filter.fc, m_parameters.wrench.notch_filter.Q, get_update_rate());
+      });
+    }
   }
 
   m_rt_pub_full_state =
@@ -873,7 +884,6 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), q_qp_in.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
   // Kalman filter
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN_
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
   q_qp_out = m_joint_filter.update(q_qp_in, m_qpp.tail(m_nax));
   m_q.tail(m_nax) = q_qp_out.head(m_nax);
@@ -1013,6 +1023,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     } else {
       wrench_sensor_in_sensor.tail<3>().normalized() *
         (wrench_sensor_in_sensor.tail<3>().norm() - m_parameters.wrench.deadband[1]);
+    }
+
+    if (m_parameters.wrench.notch_filter.enable) {
+      std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_wrench_filters.begin(),
+                     wrench_sensor_in_sensor.begin(), [](const double w, NotchFilter& f) { return f.update(w); });
     }
 
     // Exponential filter

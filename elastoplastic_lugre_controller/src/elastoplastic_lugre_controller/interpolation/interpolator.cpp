@@ -74,6 +74,7 @@ Eigen::Vector3d interpolateRotationVector(const Eigen::Matrix3d& Cs, const Eigen
 Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& now, Eigen::Vector6d& acc, Eigen::Vector6d& twist,
                                                             Eigen::Affine3d& pose) {
   if (m_state == State::Empty || m_state == State::Available) {
+    std::cerr << "[Interpolator]: Interpolation not started";
     return InterpolationResult::InterpolatorNotStarted;
   }
   const rclcpp::Duration T = now - m_plan.start;
@@ -90,7 +91,7 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
     idx = idx == 0 ? 1 : idx;
   }
   if (idx >= m_plan.time.size()) {
-    // std::cerr << "[Interpolator]: Non dovresti essere qui! idx == " << idx << std::endl;
+    std::cerr << "[Interpolator]: Interpolation ended" << std::endl;
     pose = m_plan.pose.back();
     twist.setZero();
     return InterpolationResult::OK;

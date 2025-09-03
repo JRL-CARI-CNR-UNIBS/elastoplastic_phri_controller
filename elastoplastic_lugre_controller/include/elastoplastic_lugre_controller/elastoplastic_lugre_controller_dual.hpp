@@ -4,6 +4,7 @@
 // local libs
 #include "elastoplastic_dual_parameters.hpp"
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
+#include "elastoplastic_lugre_controller/notch_filter.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 #include "elastoplastic_variable_model.hpp"
 
@@ -245,6 +246,8 @@ private:
 
   std::mutex m_mutex;
   Eigen::Affine3d m_T_world_shared;
+
+  std::vector<NotchFilter> m_wrench_filters;
 
 public:
   ElastoplasticControllerDual() = default;

@@ -265,6 +265,11 @@ ElastoplasticControllerDual::on_configure(const rclcpp_lifecycle::State& /*previ
 
   m_mobile_base = std::make_unique<FloatBaseData>(m_parameters.mobile_base.enabled);
 
+  m_wrench_filters.reserve(12);
+  for (int idx = 0; idx < 12; idx++) {
+    m_wrench_filters.emplace_back(m_parameters.wrench.notch_filter.fc, m_parameters.wrench.notch_filter.Q, get_update_rate());
+  }
+
   m_split_nax[Side::LEFT] = m_parameters.joints.left.size();
   m_split_nax[Side::RIGHT] = m_parameters.joints.right.size();
   m_split_nax[Side::COMMON] = m_parameters.joints.common.size();
@@ -545,6 +550,12 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(co
     std_msgs::msg::String::SharedPtr rd = std::make_shared<std_msgs::msg::String>();
     rd->data = this->get_robot_description();
     configure_after_robot_description_callback(rd);
+
+    if (m_parameters.wrench.notch_filter.enable) {
+      std::ranges::for_each(m_wrench_filters, [this](NotchFilter& f) {
+        f.configure(m_parameters.wrench.notch_filter.fc, m_parameters.wrench.notch_filter.Q, get_update_rate());
+      });
+    }
   }
 
   m_rt_pub_full_state =
@@ -1054,6 +1065,11 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
                  wrench_sensor_in_sensor.begin(), [](const double w, const double deadband) {
                    return std::abs(w) > deadband ? utils::sgn(w) * (std::abs(w) - deadband) : 0.0;
                  });
+
+  if (m_parameters.wrench.notch_filter.enable) {
+    std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_wrench_filters.begin(),
+                   wrench_sensor_in_sensor.begin(), [](const double w, NotchFilter& f) { return f.update(w); });
+  }
 
   // Exponential filter
   std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_wrench_in_sensor_prec.begin(),

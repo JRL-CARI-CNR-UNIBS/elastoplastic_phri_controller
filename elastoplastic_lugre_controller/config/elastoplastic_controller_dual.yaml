@@ -4,14 +4,14 @@ elastoplastic_controller_dual:
     use_sim_time: False
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
-    cmd_vel_topic: "~/cmd_vel_sent"
+    cmd_vel_topic: "/cmd_vel"
     ft_sensor_names:
     - wrist_left_ft_sensor
     - wrist_right_ft_sensor
-    ft_invert_sign: false
+    ft_invert_sign: true
     frames:
-      # map: map
-      map: base_footprint
+      map: map
+      # map: base_footprint
       base: base_footprint
       fork: torso_lift_link
       tools:
@@ -83,30 +83,34 @@ elastoplastic_controller_dual:
       - velocity
       # - torque
     mobile_base:
-      enabled: false
+      enabled: true
       enable_z_rotation: false
       input_target_topic: "/target_cmd_vel"
       localization_topic: "/amcl_pose" # Unused
       odom: "/odom"
-      use_command_interfaces: true
+      use_command_interfaces: false
       command_interfaces:
       - "mobile_base_controller/linear/x"
       - "mobile_base_controller/linear/y"
       - "mobile_base_controller/angular/z"
       max_vel:
-        linear: [5.0, 5.0]
-        angular: 5.0
-      max_acc_x: 50.0
-      max_dec_x: 50.0
-      max_acc_y: 50.0
-      max_dec_y: 50.0
-      max_acc_yaw: 50.0
-      max_dec_yaw: 50.0
+        linear: [0.5, 0.5]
+        angular: 0.2
+      max_acc_x: 0.1
+      max_dec_x: 0.1
+      max_acc_y: 0.1
+      max_dec_y: 0.1
+      max_acc_yaw: 0.1
+      max_dec_yaw: 0.1
     wrench:
       deadband: [1.0, 1.0, 1.0, 1.0]
       filter_alfa: 0.1
       source: "ft_sensor" #"torque"
       invert_torque: true
+      notch_filter:
+        enable: true
+        fc: 3.45
+        Q: 1.0
     impedance:
       enable_axis: [true, true, true, false, false, false]
       inertia:
@@ -130,21 +134,21 @@ elastoplastic_controller_dual:
         - 10.0
         - 10.0
         - 10.0
-      z_max:   0.15 # [0.15, 0.15] # 0.1
-      z_kmax:  0.14 # [0.14, 0.14] # 0.1
-      z_start: 0.1  # [0.1, 0.1]   # 0.05
+      z_max:   0.1 # [0.15, 0.15] # 0.1
+      z_kmax:  0.098 # [0.14, 0.14] # 0.1
+      z_start: 0.05  # [0.1, 0.1]   # 0.05
       logistic:
         max: 1.0
         slope: 10.0
         inflection: 0.5
       leak_coefficient: 0.02
       reset:
-        time: 10.0
+        time: 5.0
         threshold: 1e-2
       plastic_restoration: false
     offset_force_window: 1.0 # seconds
     clik:
       alpha_gain: 1.0e6
       joint_task:
-        kp: 1e1 # 1e1
-        kv: 1e2 # 1e2
+        kp: 1e0 # 1e1
+        kv: 1e1 # 1e2

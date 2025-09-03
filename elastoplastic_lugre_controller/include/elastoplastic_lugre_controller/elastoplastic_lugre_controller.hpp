@@ -3,6 +3,7 @@
 
 // local libs
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
+#include "elastoplastic_lugre_controller/notch_filter.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 #include "elastoplastic_parameters.hpp"
 #include "elastoplastic_variable_model.hpp"
@@ -178,6 +179,8 @@ private:
     const Eigen::Vector6d& wrench_tool_in_world;
     const bool got_new_odom;
   };
+
+  std::vector<NotchFilter> m_wrench_filters;
 
   Eigen::Vector6d m_zp;
 

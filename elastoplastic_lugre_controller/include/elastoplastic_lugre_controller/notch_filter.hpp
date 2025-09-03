@@ -2,15 +2,42 @@
 #define NOTCH_FILTER_HPP
 
 #include <cmath>
+#include <numbers>
+
+/**
+ * @brief The NotchFilter class
+ *
+ * Implement a biquad notch filter of type H(z)= 1+a1​*z^{−1}+a2*​z*{−2} / b0​ + b1*​z^{−1}+b2*​^z{−2​}
+ *
+ * b0 = 1 / (1+a)
+ * b1 = -2cos(w0) / (1+a)
+ * b2 = 1 / (1+a)
+ * a1 = -2cos(w0) / (1+a)
+ * a2 = (1-a) / (1+a)
+ *
+ * w0 = 2*pi*fc / fs
+ * a = sin(w0) / (2Q)
+ *
+ */
 
 class NotchFilter {
 public:
-  NotchFilter(const double cut_freq, const double Q, const double sample_rate) : z1(0), z2(0) {
-    configure(cut_freq, Q, sample_rate);
-  };
+  /**
+   * @brief NotchFilter
+   * @param fc: notch center frequency [Hz]
+   * @param Q: quality factor
+   * @param sample_rate: fs [Hz]
+   */
+  NotchFilter(const double fc, const double Q, const double sample_rate) : z1(0), z2(0) { configure(fc, Q, sample_rate); };
 
-  void configure(const double cut_freq, const double Q, const double sample_rate) {
-    const double omega = 2.0 * M_PI * cut_freq / sample_rate;
+  /**
+   * @brief configure
+   * @param fc: notch center frequency [Hz]
+   * @param Q: quality factor
+   * @param sample_rate: fs [Hz]
+   */
+  void configure(const double fc, const double Q, const double sample_rate) {
+    const double omega = 2.0 * std::numbers::pi * fc / sample_rate;
     const double sn = std::sin(omega);
     const double cs = std::cos(omega);
     // alpha determines bandwidth: alpha = sin(ω0)/(2Q)

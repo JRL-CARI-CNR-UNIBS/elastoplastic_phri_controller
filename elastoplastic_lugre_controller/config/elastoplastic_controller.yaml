@@ -6,6 +6,7 @@ elastoplastic_controller:
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
     ft_sensor_name: wrist_right_ft_sensor
+    ft_invert_sign: true
     frames:
       map: map
       # map: base_footprint
@@ -32,13 +33,13 @@ elastoplastic_controller:
     kalman_filter:
       manipulator:
         position:
-          - 1e-3
-          - 1e-3
-          - 1e-3
-          - 1e-3
-          - 1e-3
-          - 1e-3
-          - 1e-3
+          - 1e-1
+          - 1e-1
+          - 1e-1
+          - 1e-1
+          - 1e-1
+          - 1e-1
+          - 1e-1
         velocity:
           - 1e0
           - 1e0
@@ -68,13 +69,13 @@ elastoplastic_controller:
       - "mobile_base_controller/angular/z"
       max_vel:
         linear: [0.5, 0.5]
-        angular: 1.0
+        angular: 0.2
       max_acc_x: 0.5
       max_dec_x: 0.5
       max_acc_y: 0.5
       max_dec_y: 0.5
-      max_acc_yaw: 1.0
-      max_dec_yaw: 1.0
+      max_acc_yaw: 0.5
+      max_dec_yaw: 0.5
     wrench:
       deadband:
       - 1.0
@@ -83,6 +84,10 @@ elastoplastic_controller:
       # source: "ft_sensor" #"torque"
       source: "ft_sensor"
       invert_torque: true # used only for if source==torque
+      notch_filter:
+        enable: true
+        fc: 3.45
+        Q: 1.0
     impedance:
       enable_axis: [true, true, true, false, false, false]
       inertia:
