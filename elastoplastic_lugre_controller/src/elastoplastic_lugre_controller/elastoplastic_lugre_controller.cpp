@@ -945,16 +945,19 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       reference_target_acc_tool_world_in_world.setZero();
       reference_target_twist_tool_world_in_world.setZero();
       reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_initial_q);
-    } else {
-      reference_target_acc_tool_world_in_world.setZero();
-      reference_target_twist_tool_world_in_world.setZero();
-      reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_initial_q);
     }
+  } else {
+    reference_target_acc_tool_world_in_world.setZero();
+    reference_target_twist_tool_world_in_world.setZero();
+    reference_target_T_world_tool = m_chain_world_tool->getTransformation(m_initial_q);
   }
   if (m_mobile_base->enabled) {
-    full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(reference_target_twist_tool_world_in_world);
+    // full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(reference_target_twist_tool_world_in_world);
+    // full_position_references.head<M_SE2>() = utils::base_velocity_from_twist(utils::vector_from_affine(
+    // reference_target_T_world_tool * m_chain_base_tool->getTransformation(m_initial_q.tail(m_nax)).inverse()));
+    full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(m_computed_target_twist_tool_world_in_world);
     full_position_references.head<M_SE2>() = utils::base_velocity_from_twist(utils::vector_from_affine(
-      reference_target_T_world_tool * m_chain_base_tool->getTransformation(m_initial_q.tail(m_nax)).inverse()));
+      m_computed_target_T_world_tool * m_chain_base_tool->getTransformation(m_initial_q.tail(m_nax)).inverse()));
   }
 
 #endif
@@ -1107,10 +1110,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     // If the QP works, this shouldn't be necessary
     for (size_t idx = 0; idx < M_SE2; ++idx) {
       if (std::abs(m_velocity_base_in_base(idx)) > m_mobile_base->vel_limits(idx)) {
-        RCLCPP_WARN_STREAM(this->get_node()->get_logger(),
-                           "Saturation of Velocity on base linear direction "
-                             << idx << ": " << m_velocity_base_in_base(idx) << " should be "
-                             << utils::sgn(m_velocity_base_in_base(idx)) * m_mobile_base->vel_limits(idx));
+        LOG_ERROR_THROTTLE_COUNT(this->get_node()->get_logger(), get_node()->get_clock(), 1,
+                                 "Saturation of Velocity on base linear direction "
+                                   << idx << ": " << m_velocity_base_in_base(idx) << " should be "
+                                   << utils::sgn(m_velocity_base_in_base(idx)) * m_mobile_base->vel_limits(idx));
         m_velocity_base_in_base(idx) = utils::sgn(m_velocity_base_in_base(idx)) * m_mobile_base->vel_limits(idx);
       }
     }

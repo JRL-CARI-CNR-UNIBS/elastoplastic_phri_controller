@@ -1016,14 +1016,14 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
                        m_chain_world_tools[Side::RIGHT]->getTransformation(m_initial_q(m_sel[Side::RIGHT])));
   }
   if (m_mobile_base->enabled) {
-    full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(reference_target_twist_shared_world_in_world);
+    full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(m_computed_target_twist_shared_world_in_world);
     Eigen::Affine3d T_world_base_ref =
       m_chain_world_tools[Side::LEFT]->getTransformationLink(m_initial_q(m_sel[Side::LEFT]), m_parameters.frames.base);
     Eigen::Affine3d T_world_shared_ref =
       get_shared_frame(m_chain_world_tools[Side::LEFT]->getTransformation(m_initial_q(m_sel[Side::LEFT])),
                        m_chain_world_tools[Side::RIGHT]->getTransformation(m_initial_q(m_sel[Side::RIGHT])));
     full_position_references.head<M_SE2>() = utils::base_velocity_from_twist(
-      utils::vector_from_affine(reference_target_T_world_shared * T_world_shared_ref.inverse() * T_world_base_ref));
+      utils::vector_from_affine(m_computed_target_T_world_shared * T_world_shared_ref.inverse() * T_world_base_ref));
   }
 
 #endif

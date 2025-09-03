@@ -116,29 +116,29 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   // Task: Minimize joint acceleration and weighting
   task_minimize_joint_acc.A().leftCols(m_full_nax).setIdentity();
   task_minimize_joint_acc.b().setZero();
-  task_minimize_joint_acc.W() = m_W.transpose() * m_W;
   normalize(task_minimize_joint_acc);
+  task_minimize_joint_acc.W() = m_W.transpose() * m_W;
 
 
   // Task: Joint Velocity
   task_joint_vel.A().leftCols(m_full_nax) += -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   task_joint_vel.b() += (data.velocity_references - m_qp);
-  task_joint_vel.W() *= m_W.transpose() * m_W;
   normalize(task_joint_vel);
+  task_joint_vel.W() *= m_W.transpose() * m_W;
 
 
   // Task: Joint Position
   task_joint_pos.A().leftCols(m_full_nax) += -0.5 * Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * std::pow(m_dt, 2);
   task_joint_pos.b() += (data.position_references - (m_q + m_qp * m_dt));
-  task_joint_pos.W() *= m_W.transpose() * m_W;
   normalize(task_joint_pos);
+  task_joint_pos.W() *= m_W.transpose() * m_W;
 
 
   elastoplastic::Task task_minimize_joint_vel(prb_dim, m_full_nax, "Joint minimize velocity");
   task_minimize_joint_vel.A().leftCols(m_full_nax) << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   task_minimize_joint_vel.b() << m_qp;
-  task_minimize_joint_vel.W() *= m_W.transpose() * m_W;
   normalize(task_minimize_joint_vel);
+  task_minimize_joint_vel.W() *= m_W.transpose() * m_W;
 
 
   elastoplastic::Task task_force_continuity(prb_dim, M_SE3);
@@ -206,9 +206,9 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   }
 
   /* Constant stack */
+  sot.push_task(task_keep_relative_vel);
   sot.push_task(task_cart_vel, 4);
   sot.new_level();
-  sot.push_task(task_keep_relative_vel);
   sot.new_level();
   sot.push_task(task_admittance);
   sot.new_level();
@@ -314,8 +314,8 @@ std::optional<Eigen::VectorXd> ElastoplasticControllerDual::clik(const ClikData&
   ineq_set.push_constraint(ineq_q_max);
   ineq_set.push_constraint(ineq_qp_min);
   ineq_set.push_constraint(ineq_qp_max);
-  // ineq_set.push_constraint(ineq_qpp_min);
-  // ineq_set.push_constraint(ineq_qpp_max);
+  ineq_set.push_constraint(ineq_qpp_min);
+  ineq_set.push_constraint(ineq_qpp_max);
   ineq_set.push_constraint(ineq_xpp_min);
   ineq_set.push_constraint(ineq_xpp_max);
   ineq_set.compute_set();

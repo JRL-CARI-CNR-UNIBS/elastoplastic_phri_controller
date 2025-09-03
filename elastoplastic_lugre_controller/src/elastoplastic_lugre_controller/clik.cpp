@@ -107,7 +107,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
   task_minimize_joint_acc.A().leftCols(m_full_nax).setIdentity();
   task_minimize_joint_acc.b().setZero();
   normalize(task_minimize_joint_acc);
-  task_minimize_joint_acc.W() *= m_W.transpose() * m_W;
+  // task_minimize_joint_acc.W() *= m_W.transpose() * m_W;
 
   // Task: Joint Velocity
   task_joint_vel.A().leftCols(m_full_nax) += -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
@@ -129,17 +129,17 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
   elastoplastic::Stack sot(prb_dim, STACK_LEVEL_STEP, STACK_LEVEL_ZERO);
 
   /* Variable stack */
-  constexpr int CART_POS_LEVEL_OFFSET = 3;
+  constexpr int CART_POS_LEVEL_OFFSET = 2;
   int cart_pos_level = STACK_LEVEL_ZERO + CART_POS_LEVEL_OFFSET;
   if (!m_elastoplastic_model->is_plastic() && m_elastoplastic_model->to_restore() && m_parameters.impedance.plastic_restoration) {
     RCLCPP_DEBUG_STREAM_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1, "Is restoring");
-    cart_pos_level = STACK_LEVEL_ZERO;
+    cart_pos_level = STACK_LEVEL_ZERO + 1;
     m_W.setIdentity();
     task_joint_pos.W().setIdentity();
     task_joint_vel.W() *= m_W.transpose() * m_W;
     task_minimize_joint_acc.W() *= m_W.transpose() * m_W;
-    sot.insert_task(task_cart_pos, cart_pos_level, 10);
   }
+  sot.insert_task(task_cart_pos, cart_pos_level, 1);
 
   /* Constant stack */
   sot.push_task(task_cart_vel, 4);
@@ -147,9 +147,6 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
   sot.push_task(task_minimize_cart_acc);
   sot.new_level();
   sot.push_task(task_admittance);
-  // if (m_mobile_base->enabled) {
-  // sot.push_task(task_keep_tool_base_relative_acc);
-  // }
   sot.new_level();
   sot.push_task(task_joint_vel, m_kv_joint_task);
   sot.push_task(task_joint_pos, m_kp_joint_task);
@@ -160,6 +157,18 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
    ** EQ Constraints **
    ********************/
   elastoplastic::EqualitySet eq_set(prb_dim);
+
+  // elastoplastic::EqualityConstraint eq_z(prb_dim, M_SE3);
+  // eq_z.A().leftCols(m_full_nax) = data.J_world_tool_in_world * m_dt * m_dt;
+  // eq_z.A().rightCols<M_SE3>() = -Eigen::Matrix6d::Identity() * m_dt * m_dt;
+  // eq_z.b() = acc_non_linear_in_world * m_dt * m_dt +
+  // (data.twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world) +
+  // utils::get_frame_distance(data.T_world_tool, m_computed_target_T_world_tool) + m_elastoplastic_model->z();
+
+  // if (!m_elastoplastic_model->is_plastic()) {
+  // eq_set.push_constraint(eq_z);
+  // }
+
   eq_set.compute_set();
 
   /***********************
