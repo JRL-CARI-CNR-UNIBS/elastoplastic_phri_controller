@@ -284,14 +284,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     }
   }
   if (m_ft_source == FTSource::TORQUE) {
-    auto it = std::ranges::find(m_parameters.state_interfaces, hardware_interface::HW_IF_TORQUE);
-    if (it == m_parameters.state_interfaces.end()) {
-      RCLCPP_ERROR(get_node()->get_logger(), "Missing State interfaces from parameters");
-      return controller_interface::CallbackReturn::FAILURE;
-    } else {
-      m_state_interfaces_names.push_back(*it);
-      RCLCPP_INFO(get_node()->get_logger(), "State interface name: %s", (*it).c_str());
-    }
+    m_state_interfaces_names.push_back(hardware_interface::HW_IF_TORQUE);
+    RCLCPP_INFO(get_node()->get_logger(), "State interface name: %s", hardware_interface::HW_IF_TORQUE);
   }
 
   for (const auto& interface : m_required_interface_types) {
