@@ -15,6 +15,12 @@
 #include <chrono>
 #include <numeric>
 
+#ifdef USE_LATEST_ROS2_CONTROL
+#define GET_VALUE_FROM_INTERFACE(interface) interface.get_optional().value()
+#else
+#define GET_VALUE_FROM_INTERFACE(interface) interface.get_value();
+#endif
+
 #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 #define USE_CARTESIAN_REFERENCE
@@ -618,9 +624,9 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(co
 
   // Joint initialization
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   m_qpp.setZero();
 
   m_last_odom_msg_time = this->get_node()->get_clock()->now();
@@ -743,9 +749,9 @@ controller_interface::CallbackReturn
 ElastoplasticControllerDual::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) {
 
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   m_qpp.setZero();
 
   m_computed_target_T_world_shared =
@@ -840,8 +846,8 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
     RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000, "[Waiting] Computing Offset Force");
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
-      result &=
-        m_joint_command_interfaces.at(0).at(idx).get().set_value(m_joint_state_interfaces.at(0).at(idx).get().get_optional().value());
+      result &= m_joint_command_interfaces.at(0).at(idx).get().set_value(
+        GET_VALUE_FROM_INTERFACE(m_joint_state_interfaces.at(0).at(idx).get()));
     }
     if (!result) {
       RCLCPP_ERROR(get_node()->get_logger(), "Could not copy state interface position into command interfaces");
@@ -898,7 +904,7 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
 
     // Eigen::Vector4d wheel_vel;
     // std::transform(m_mobile_base_state_interfaces.begin(), m_mobile_base_state_interfaces.end(), wheel_vel.begin(),
-    // [](const hardware_interface::LoanedStateInterface& lsi) -> double { return lsi.get_optional().value(); });
+    // [](const hardware_interface::LoanedStateInterface& lsi) -> double { return GET_VALUE_FROM_INTERFACE(lsi); });
     // twist_base_world_in_base = utils::mecanum_direct_kinematics(wheel_vel, m_parameters.mobile_base.wheel_radius,
     // m_parameters.mobile_base.sum_of_lx_and_ly);
 
@@ -928,9 +934,9 @@ controller_interface::return_type ElastoplasticControllerDual::update_and_write_
   // Manipulator State
   Eigen::VectorXd q_qp_in(2 * m_nax), q_qp_out(2 * m_nax);
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), q_qp_in.head(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), q_qp_in.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   // Kalman filter
 #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN_
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
