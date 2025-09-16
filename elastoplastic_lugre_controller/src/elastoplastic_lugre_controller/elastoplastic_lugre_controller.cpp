@@ -13,6 +13,12 @@
 #include <algorithm>
 #include <chrono>
 
+#ifdef USE_LATEST_ROS2_CONTROL
+#define GET_VALUE_FROM_INTERFACE(interface) interface.get_optional().value()
+#else
+#define GET_VALUE_FROM_INTERFACE(interface) interface.get_value();
+#endif
+
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
@@ -601,9 +607,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
   // Joint initialization
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   m_qpp.setZero();
 
   m_last_odom_msg_time = this->get_node()->get_clock()->now();
@@ -650,7 +656,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
       Eigen::VectorXd tau_j(m_nax);
       for (int idx = 0; idx < offset_force_window; ++idx) {
         std::transform(m_joint_state_interfaces.at(2).begin(), m_joint_state_interfaces.at(2).end(), tau_j.head(m_nax).begin(),
-                       [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                       [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
         Eigen::Vector6d wr = get_wrench_from_torque(svd, tau_j);
         utils::deadband(m_parameters.wrench.deadband[0], m_parameters.wrench.deadband[1], wr);
         std::transform(wr.begin(), wr.end(), offset_wrench.begin(), offset_wrench.begin(), std::plus<double>{});
@@ -721,9 +727,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
 
 controller_interface::CallbackReturn ElastoplasticController::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) {
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   m_qpp.setZero();
 
   m_computed_target_T_world_tool = m_chain_world_tool->getTransformation(m_q);
@@ -820,7 +826,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
       result &= m_joint_command_interfaces.at(0).at(idx).get().set_value(
-        m_joint_state_interfaces.at(0).at(idx).get().get_optional().value());
+        GET_VALUE_FROM_INTERFACE(m_joint_state_interfaces.at(0).at(idx).get()));
     }
     if (!result) {
       RCLCPP_ERROR(get_node()->get_logger(), "Could not copy state interface position into command interfaces");
@@ -877,7 +883,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
     // Eigen::Vector4d wheel_vel;
     // std::transform(m_mobile_base_state_interfaces.begin(), m_mobile_base_state_interfaces.end(), wheel_vel.begin(),
-    // [](const hardware_interface::LoanedStateInterface& lsi) -> double { return lsi.get_optional().value(); });
+    // [](const hardware_interface::LoanedStateInterface& lsi) -> double { return GET_VALUE_FROM_INTERFACE(lsi); });
     // twist_base_world_in_base = utils::mecanum_direct_kinematics(wheel_vel, m_parameters.mobile_base.wheel_radius,
     // m_parameters.mobile_base.sum_of_lx_and_ly);
 
@@ -908,9 +914,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   // Manipulator State
   Eigen::VectorXd q_qp_in(2 * m_nax), q_qp_out(2 * m_nax);
   std::transform(m_joint_state_interfaces.at(0).begin(), m_joint_state_interfaces.at(0).end(), q_qp_in.head(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   std::transform(m_joint_state_interfaces.at(1).begin(), m_joint_state_interfaces.at(1).end(), q_qp_in.tail(m_nax).begin(),
-                 [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                 [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
   // Kalman filter
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
   q_qp_out = m_joint_filter.update(q_qp_in, m_qpp.tail(m_nax));
@@ -1008,7 +1014,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::VectorXd tau_j(m_nax);
     Eigen::JacobiSVD<Eigen::Matrix6Xd> svd_torque(J_world_tool_in_world.transpose(), Eigen::ComputeThinU | Eigen::ComputeThinV);
     std::transform(m_joint_state_interfaces.at(2).begin(), m_joint_state_interfaces.at(2).end(), tau_j.head(m_nax).begin(),
-                   [](const hardware_interface::LoanedStateInterface& lsi) { return lsi.get_optional().value(); });
+                   [](const hardware_interface::LoanedStateInterface& lsi) { return GET_VALUE_FROM_INTERFACE(lsi); });
     wrench_tool_in_world = get_wrench_from_torque(svd_torque, tau_j);
 
     utils::deadband(m_parameters.wrench.deadband[0], m_parameters.wrench.deadband[1], wrench_tool_in_world);
@@ -1324,7 +1330,7 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   }
 
   // std::for_each(command_interfaces_.begin(), command_interfaces_.end(), [&](const auto& rif) {
-  //   RCLCPP_INFO_STREAM(get_node()->get_logger(), "Interface: " << rif.get_name() << " - " << rif.get_optional().value());
+  //   RCLCPP_INFO_STREAM(get_node()->get_logger(), "Interface: " << rif.get_name() << " - " << GET_VALUE_FROM_INTERFACE(rif));
   // });
 
   return controller_interface::return_type::OK;
