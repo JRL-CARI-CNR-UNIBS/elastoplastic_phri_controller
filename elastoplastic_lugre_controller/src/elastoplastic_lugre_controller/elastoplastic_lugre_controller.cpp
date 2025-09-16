@@ -16,7 +16,7 @@
 #ifdef USE_LATEST_ROS2_CONTROL
 #define GET_VALUE_FROM_INTERFACE(interface) interface.get_optional().value()
 #else
-#define GET_VALUE_FROM_INTERFACE(interface) interface.get_value();
+#define GET_VALUE_FROM_INTERFACE(interface) interface.get_value()
 #endif
 
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
