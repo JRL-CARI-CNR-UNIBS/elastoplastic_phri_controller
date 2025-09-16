@@ -196,6 +196,15 @@ private:
 
   enum class FTSource { FT_SENSOR, TOPIC, TORQUE } m_ft_source;
 
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr m_wrench_sub;
+  constexpr static char FT_TOPIC[] = "~/wrench_input";
+  realtime_tools::RealtimeBuffer<geometry_msgs::msg::WrenchStamped> m_wrench_topic_buffer;
+
+  Eigen::Vector6d get_wrench_from_topic() {
+    auto w = m_wrench_topic_buffer.readFromRT()->wrench;
+    return Eigen::Vector6d({w.force.x, w.force.y, w.force.z, w.torque.x, w.torque.y, w.torque.z});
+  }
+
   Eigen::Vector6d get_wrench_from_sensor() {
     geometry_msgs::msg::Wrench w;
     m_ft_sensor->get_values_as_message(w);

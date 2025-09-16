@@ -8,12 +8,12 @@ elastoplastic_controller:
     ft_sensor_name: wrist_right_ft_sensor
     ft_invert_sign: true
     frames:
-      map: map
-      # map: base_footprint
+      # map: map
+      map: base_footprint
       base: base_footprint
       tool: arm_right_tool_link
-      sensor: wrist_right_ft_sensor_link
-      # sensor: arm_right_tool_link
+      # sensor: wrist_right_ft_sensor_link
+      sensor: arm_right_tool_link
     joints:
       - arm_right_1_joint
       - arm_right_2_joint
@@ -51,11 +51,9 @@ elastoplastic_controller:
     acceleration_limits_coeff: 1.0
     command_interfaces:
       - position
-      #- velocity
     state_interfaces:
       - position
       - velocity
-      # - torque
     mobile_base:
       enabled: true
       enable_z_rotation: false
@@ -82,7 +80,7 @@ elastoplastic_controller:
       - 1.0
       filter_alfa: 0.2
       # source: "ft_sensor" #"torque"
-      source: "ft_sensor"
+      source: "topic"
       invert_torque: true # used only for if source==torque
       notch_filter:
         enable: true
