@@ -57,8 +57,6 @@ private:
   // InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
   InterfaceReference<hardware_interface::LoanedCommandInterface> m_mobile_base_command_interfaces;
 
-  size_t m_joint_reference_interfaces_size;
-
   std::unique_ptr<semantic_components::ForceTorqueSensor> m_ft_sensor;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_mobile_base_target;

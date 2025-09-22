@@ -10,6 +10,7 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <depend>backward_ros</depend>
   <depend>eigen</depend>
   <!--  <depend>eiquadprog</depend> -->
   <depend>controller_interface</depend>
@@ -29,6 +30,7 @@
   <depend>state_observers</depend>
   <depend>generate_parameter_library</depend>
 
+  <depend>eiquadprog</depend>
   <depend>rdyn_core</depend>
   <depend>fmt</depend>
 

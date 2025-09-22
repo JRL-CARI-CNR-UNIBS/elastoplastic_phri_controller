@@ -147,7 +147,18 @@ void ElastoplasticController::configure_after_robot_description_callback(const s
     get_node()->declare_parameter("robot_description", robot_description);
   }
 
-  urdf::ModelInterfaceSharedPtr urdf_model = urdf::parseURDF(robot_description);
+  RCLCPP_INFO(get_node()->get_logger(), "[[DEBUG]] creation URDF");
+
+  // RCLCPP_INFO(get_node()->get_logger(), "robot_description:\n%s", robot_description.c_str());
+
+  urdf::ModelInterfaceSharedPtr urdf_model;
+  try {
+    urdf_model = urdf::parseURDF(robot_description);
+  } catch (std::exception& ex) {
+    RCLCPP_ERROR_STREAM(get_node()->get_logger(), "ex: " << ex.what());
+  }
+
+  RCLCPP_INFO(get_node()->get_logger(), "URDF model created 1");
   if (not urdf_model) {
     RCLCPP_ERROR(get_node()->get_logger(), "Cannot create URDF model from robot_description provided by controller_manager");
     m_robot_description_configuration = RDStatus::ERROR;
@@ -328,6 +339,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     return controller_interface::CallbackReturn::FAILURE;
   }
 
+  RCLCPP_INFO(get_node()->get_logger(), "Pre Robot description");
+
   // Robot description-related operations
   if (get_node()->has_parameter("robot_description")) {
     RCLCPP_DEBUG(get_node()->get_logger(), "Robot description from parameter");
@@ -344,12 +357,14 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     RCLCPP_DEBUG(get_node()->get_logger(), "Robot description from topic");
     rclcpp::QoS qos(1);
     qos.transient_local();
+    m_robot_description_configuration = RDStatus::EMPTY;
     m_sub_robot_description = get_node()->create_subscription<std_msgs::msg::String>(
       m_parameters.robot_description_topic, qos,
       std::bind(&ElastoplasticController::configure_after_robot_description_callback, this, std::placeholders::_1));
-    m_robot_description_configuration = RDStatus::EMPTY;
 #endif
   }
+
+  RCLCPP_INFO(get_node()->get_logger(), "Pre Init vari");
 
   std::ranges::fill(m_used_command_interfaces, false);
   if (std::ranges::find(m_command_interfaces_names, m_required_interface_types[0]) != m_command_interfaces_names.end()) {
@@ -388,6 +403,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   m_rt_buffer_base_odom.initRT(nav_msgs::msg::Odometry(rosidl_runtime_cpp::MessageInitialization::ALL));
 
+  RCLCPP_INFO(get_node()->get_logger(), "Pre Kalman");
+
   // Joint Kalman filter
   Eigen::MatrixXd kfjA(3 * m_nax, 3 * m_nax), kfjB(3 * m_nax, m_nax), kfjC(2 * m_nax, 3 * m_nax), kfjQ(3 * m_nax, 3 * m_nax),
     kfjR(2 * m_nax, 2 * m_nax);
@@ -406,6 +423,8 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
     Eigen::VectorXd::Constant(m_nax, 1e-3);
   kfjR.setIdentity();
   m_joint_filter = state_observer::KalmanFilter(kfjA, kfjB, kfjC, kfjQ, kfjR);
+
+  RCLCPP_INFO(get_node()->get_logger(), "Pre TF");
 
   // Map->base transform handling
   m_tf_buffer = std::make_shared<tf2_ros::Buffer>(get_node()->get_clock());
@@ -428,7 +447,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 }
 
 void ElastoplasticController::update_base_pose_from_tf() {
-  RCLCPP_INFO(m_node_support->get_logger(), "New thread...");
   m_node_support =
     rclcpp::Node::make_shared("elastoplastic_controller_support_node",
                               fmt::format("{}{}", this->get_node()->get_namespace(), this->get_node()->get_name()));
@@ -779,22 +797,12 @@ controller_interface::CallbackReturn ElastoplasticController::on_error(const rcl
 
 
 std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_export_reference_interfaces() {
-  std::vector<hardware_interface::CommandInterface> reference_interfaces;
-
-  m_joint_reference_interfaces_size =
-    m_parameters.joints.size() *
-    m_required_interface_types.size(); // There must be both position and velocity reference interfaces!
-
-  reference_interfaces_.resize(m_joint_reference_interfaces_size);
-  reference_interfaces.reserve(m_joint_reference_interfaces_size);
-
-  size_t idx = 0;
+  std::vector<hardware_interface::CommandInterface> reference_interfaces{};
   for (const auto& hwi : m_required_interface_types) {
     for (const auto& jnt : m_parameters.joints) {
 
-      reference_interfaces.emplace_back(hardware_interface::CommandInterface(
-        std::string(get_node()->get_name()), fmt::format("{}/{}", jnt, hwi), &reference_interfaces_[idx]));
-      ++idx;
+      reference_interfaces.push_back(hardware_interface::CommandInterface(get_node()->get_name(), fmt::format("{}/{}", jnt, hwi),
+                                                                          &reference_interfaces_[reference_interfaces.size()]));
     }
   }
 

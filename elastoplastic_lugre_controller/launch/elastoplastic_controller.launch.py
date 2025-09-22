@@ -26,7 +26,7 @@ def launch_setup(context):
   controller_spawner = Node(
     package='controller_manager',
     executable='spawner',
-    arguments=['elastoplastic_controller', '--param-file', LaunchConfiguration('config'), '--inactive']
+    arguments=['elastoplastic_controller', '--param-file', LaunchConfiguration('config'), '--load-only']
   )
 
   return [

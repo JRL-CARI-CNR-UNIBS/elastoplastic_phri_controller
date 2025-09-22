@@ -13,6 +13,7 @@ set(BUILD_TESTING OFF)
 option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" OFF)
 
 find_package(ament_cmake                 REQUIRED)
+find_package(backward_ros                REQUIRED)
 find_package(controller_interface        REQUIRED)
 find_package(hardware_interface          REQUIRED)
 find_package(control_toolbox             REQUIRED)
@@ -127,7 +128,7 @@ target_link_libraries(elastoplastic_controller
 )
 
 ament_target_dependencies(elastoplastic_controller_dual PUBLIC
-${AMENT_LIBS}
+  ${AMENT_LIBS}
 )
 
 target_link_libraries(elastoplastic_controller_dual
