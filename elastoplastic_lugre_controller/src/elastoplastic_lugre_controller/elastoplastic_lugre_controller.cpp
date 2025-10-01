@@ -14,7 +14,8 @@
 #include <chrono>
 
 #ifdef USE_LATEST_ROS2_CONTROL
-#define GET_VALUE_FROM_INTERFACE(interface) interface.get_optional().value()
+//#define GET_VALUE_FROM_INTERFACE(interface) interface.get_optional().value()
+#define GET_VALUE_FROM_INTERFACE(interface) interface.get_value()
 #else
 #define GET_VALUE_FROM_INTERFACE(interface) interface.get_value()
 #endif
@@ -428,16 +429,22 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 
   // Map->base transform handling
   m_tf_buffer = std::make_shared<tf2_ros::Buffer>(get_node()->get_clock());
-  m_tf_buffer->setUsingDedicatedThread(true);
-  m_tf_buffer->setCreateTimerInterface(
-    std::make_shared<tf2_ros::CreateTimerROS>(get_node()->get_node_base_interface(), get_node()->get_node_timers_interface()));
-  m_tf_base_pose_recovery_thread = std::make_unique<std::thread>(&ElastoplasticController::update_base_pose_from_tf, this);
-  bool can_transform{false};
-  do {
-    can_transform = m_tf_buffer->canTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero);
-  } while (!can_transform);
-  m_T_world_base =
-    tf2::transformToEigen(m_tf_buffer->lookupTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero));
+  // m_tf_buffer->setUsingDedicatedThread(true);
+  // m_tf_buffer->setCreateTimerInterface(
+    // std::make_shared<tf2_ros::CreateTimerROS>(get_node()->get_node_base_interface(), get_node()->get_node_timers_interface()));
+  m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer, this->get_node(), true);
+  // m_tf_base_pose_recovery_thread = std::make_unique<std::thread>(&ElastoplasticController::update_base_pose_from_tf, this);
+  if(m_mobile_base->enabled){
+    bool can_transform{false};
+    do {
+      can_transform = m_tf_buffer->canTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero);
+    } while (!can_transform);
+    RCLCPP_INFO(get_node()->get_logger(), "Found transform from map to base");
+    m_T_world_base =
+      tf2::transformToEigen(m_tf_buffer->lookupTransform(m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero));
+  } else {
+    m_T_world_base.setIdentity();
+  }
 
   m_base_use_cmd_ifaces = m_parameters.mobile_base.use_command_interfaces;
 
@@ -447,21 +454,21 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
 }
 
 void ElastoplasticController::update_base_pose_from_tf() {
-  m_node_support =
-    rclcpp::Node::make_shared("elastoplastic_controller_support_node",
-                              fmt::format("{}{}", this->get_node()->get_namespace(), this->get_node()->get_name()));
-  RCLCPP_INFO(m_node_support->get_logger(), "Support node created...");
-  m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer, m_node_support, false);
-  RCLCPP_INFO(m_node_support->get_logger(), "listener created...");
-  m_support_node_exec = std::make_unique<rclcpp::executors::MultiThreadedExecutor>();
-  RCLCPP_INFO(m_node_support->get_logger(), "Executor created...");
-  m_support_node_exec->add_node(m_node_support);
-  RCLCPP_INFO(m_node_support->get_logger(), "Node added. Start spinning...");
-  m_support_node_exec->spin();
+  // m_node_support =
+    // rclcpp::Node::make_shared("elastoplastic_controller_support_node",
+                              // fmt::format("{}{}", this->get_node()->get_namespace(), this->get_node()->get_name()));
+  // RCLCPP_INFO(m_node_support->get_logger(), "Support node created...");
+  // m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer, m_node_support, false);
+  // RCLCPP_INFO(m_node_support->get_logger(), "listener created...");
+  // m_support_node_exec = std::make_unique<rclcpp::executors::MultiThreadedExecutor>();
+  // RCLCPP_INFO(m_node_support->get_logger(), "Executor created...");
+  // m_support_node_exec->add_node(m_node_support);
+  // RCLCPP_INFO(m_node_support->get_logger(), "Node added. Start spinning...");
+  // m_support_node_exec->spin();
 }
 
 controller_interface::InterfaceConfiguration ElastoplasticController::state_interface_configuration() const {
-  RCLCPP_INFO(m_node_support->get_logger(), "Starting state interface export");
+  RCLCPP_INFO(get_node()->get_logger(), "Starting state interface export");
   controller_interface::InterfaceConfiguration state_interface_configuration;
   state_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
@@ -469,11 +476,11 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
 
   for (const auto& jnt : m_parameters.joints) {
     state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_POSITION));
-    RCLCPP_INFO(get_node()->get_logger(), "State Interface: %s", state_interface_configuration.names.back().c_str());
+    RCLCPP_INFO(get_node()->get_logger(), "State Interface (position): %s", state_interface_configuration.names.back().c_str());
   }
   for (const auto& jnt : m_parameters.joints) {
     state_interface_configuration.names.emplace_back(fmt::format("{}/{}", jnt, hardware_interface::HW_IF_VELOCITY));
-    RCLCPP_INFO(get_node()->get_logger(), "State Interface: %s", state_interface_configuration.names.back().c_str());
+    RCLCPP_INFO(get_node()->get_logger(), "State Interface (velocity): %s", state_interface_configuration.names.back().c_str());
   }
 
   // for (const auto& jnt : m_parameters.mobile_base.joints) {
@@ -497,7 +504,7 @@ controller_interface::InterfaceConfiguration ElastoplasticController::state_inte
 
 
 controller_interface::InterfaceConfiguration ElastoplasticController::command_interface_configuration() const {
-  RCLCPP_INFO(m_node_support->get_logger(), "Starting command interface export");
+  RCLCPP_INFO(get_node()->get_logger(), "Starting command interface export");
   controller_interface::InterfaceConfiguration command_interface_configuration;
   command_interface_configuration.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
@@ -738,7 +745,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
   m_joint_filter.initialize(
     (Eigen::VectorXd(3 * m_nax) << m_q.tail(m_nax), m_qp.tail(m_nax), Eigen::VectorXd::Zero(m_nax)).finished());
 
-  RCLCPP_DEBUG(m_node_support->get_logger(), "Activated...");
+  RCLCPP_DEBUG(get_node()->get_logger(), "Activated...");
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -781,12 +788,12 @@ controller_interface::CallbackReturn ElastoplasticController::on_deactivate(cons
 }
 
 controller_interface::CallbackReturn ElastoplasticController::on_cleanup(const rclcpp_lifecycle::State& /*previous_state*/) {
-  if (m_support_node_exec->is_spinning()) {
-    m_support_node_exec->cancel();
-  }
-  if (m_tf_base_pose_recovery_thread->joinable())
-    m_tf_base_pose_recovery_thread->join();
-  m_support_node_exec->remove_node(m_node_support);
+  // if (m_support_node_exec->is_spinning()) {
+  //   m_support_node_exec->cancel();
+  // }
+  // if (m_tf_base_pose_recovery_thread->joinable())
+  //   m_tf_base_pose_recovery_thread->join();
+  // m_support_node_exec->remove_node(m_node_support);
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -797,6 +804,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_error(const rcl
 
 
 std::vector<hardware_interface::CommandInterface> ElastoplasticController::on_export_reference_interfaces() {
+  reference_interfaces_.resize(m_parameters.joints.size() * m_required_interface_types.size());
   std::vector<hardware_interface::CommandInterface> reference_interfaces{};
   for (const auto& hwi : m_required_interface_types) {
     for (const auto& jnt : m_parameters.joints) {

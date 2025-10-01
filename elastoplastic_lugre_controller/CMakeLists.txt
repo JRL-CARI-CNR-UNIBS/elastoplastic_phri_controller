@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(elastoplastic_lugre_controller)
 if(NOT CMAKE_BUILD_TYPE)
  set(CMAKE_BUILD_TYPE Debug)
@@ -10,15 +10,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(BUILD_TESTING OFF)
 
-option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" OFF)
+option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" ON)
+
 
 find_package(ament_cmake                 REQUIRED)
 find_package(backward_ros                REQUIRED)
+
 find_package(controller_interface        REQUIRED)
 find_package(hardware_interface          REQUIRED)
+find_package(filters 2.2.2               REQUIRED)
 find_package(control_toolbox             REQUIRED)
+message(${filters_DIR})
 find_package(control_msgs                REQUIRED)
-find_package(realtime_tools              REQUIRED)
+# find_package(realtime_tools              REQUIRED)
 find_package(pluginlib                   REQUIRED)
 find_package(rclcpp                      REQUIRED)
 find_package(rclcpp_lifecycle            REQUIRED)
@@ -31,7 +35,9 @@ find_package(tf2                         REQUIRED)
 find_package(tf2_eigen                   REQUIRED)
 find_package(urdfdom                     REQUIRED)
 find_package(generate_parameter_library  REQUIRED)
-# find_package(pal_statistics              REQUIRED)
+
+find_package(pal_statistics              REQUIRED)
+find_package(pal_statistics_msgs         REQUIRED)
 
 find_package(fmt                         REQUIRED)
 find_package(rdyn_core                   REQUIRED)
@@ -71,28 +77,29 @@ add_library(elastoplastic_controller SHARED
   ${COMMON_FILES}
 )
 
-add_library(elastoplastic_controller_dual SHARED
-  src/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.cpp
-  src/${PROJECT_NAME}/clik_dual.cpp
-  include/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.hpp
-  ${COMMON_FILES}
-)
+# add_library(elastoplastic_controller_dual SHARED
+#   src/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.cpp
+#   src/${PROJECT_NAME}/clik_dual.cpp
+#   include/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.hpp
+#   ${COMMON_FILES}
+# )
 
 add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
-add_library(elastoplastic_controller::elastoplastic_controller_dual ALIAS elastoplastic_controller_dual)
+#add_library(elastoplastic_controller::elastoplastic_controller_dual ALIAS elastoplastic_controller_dual)
 
 pluginlib_export_plugin_description_file(controller_interface elastoplastic.plugin.xml)
 
 if(USE_LATEST_ROS2_CONTROL)
   target_compile_definitions(elastoplastic_controller PUBLIC USE_LATEST_ROS2_CONTROL)
-  target_compile_definitions(elastoplastic_controller_dual PUBLIC USE_LATEST_ROS2_CONTROL)
+  # target_compile_definitions(elastoplastic_controller_dual PUBLIC USE_LATEST_ROS2_CONTROL)
 endif()
 
 set(AMENT_LIBS
   controller_interface
   hardware_interface
+  filters
   control_toolbox
-  control_msgs
+  # control_msgs
   realtime_tools
   pluginlib
   rclcpp
@@ -106,12 +113,9 @@ set(AMENT_LIBS
   tf2_eigen
   urdfdom
   state_observers
-  # pal_statistics
+  pal_statistics_msgs
+  pal_statistics
   )
-
-ament_target_dependencies(elastoplastic_controller PUBLIC
-${AMENT_LIBS}
-)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   set (RDYN_CONDITIONAL_TARGET rdyn_core::rdyn_core_compiled)
@@ -120,39 +124,61 @@ else()
 endif()
 
 target_link_libraries(elastoplastic_controller
-  PUBLIC elastoplastic_parameters
-  PUBLIC ${RDYN_CONDITIONAL_TARGET}
-  PUBLIC Eigen3::Eigen
-  PUBLIC fmt::fmt
-  PUBLIC eiquadprog::eiquadprog
+    PUBLIC elastoplastic_parameters
+    PUBLIC ${RDYN_CONDITIONAL_TARGET}
+    PUBLIC Eigen3::Eigen
+    PUBLIC fmt::fmt
+    PUBLIC eiquadprog::eiquadprog
+    # libcontroller_interface.so
+    # libhardware_interface.so
+    #libpal_statistics.so
+    # librealtime_tools.so
+  )
+
+# target_link_directories(elastoplastic_controller
+  # PUBLIC "/opt/pal/alum/lib"
+# )
+
+ament_target_dependencies(elastoplastic_controller PUBLIC
+${AMENT_LIBS}
 )
 
-ament_target_dependencies(elastoplastic_controller_dual PUBLIC
-  ${AMENT_LIBS}
-)
 
-target_link_libraries(elastoplastic_controller_dual
-  PUBLIC elastoplastic_dual_parameters
-  PUBLIC ${RDYN_CONDITIONAL_TARGET}
-  PUBLIC Eigen3::Eigen
-  PUBLIC fmt::fmt
-  PUBLIC eiquadprog::eiquadprog
-)
+# ament_target_dependencies(elastoplastic_controller_dual PUBLIC
+#   ${AMENT_LIBS}
+# )
+
+# target_link_libraries(elastoplastic_controller_dual
+#   PUBLIC elastoplastic_dual_parameters
+#   PUBLIC ${RDYN_CONDITIONAL_TARGET}
+#   PUBLIC Eigen3::Eigen
+#   PUBLIC fmt::fmt
+#   PUBLIC eiquadprog::eiquadprog
+# )
 
 target_include_directories(elastoplastic_controller PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
+  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>"
+  # "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../ros2_control/controller_interface/include>"
+  # "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../ros2_control/hardware_interface/include>"
+  # "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../ros2_control/joint_limits/include>"
+  # "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE\_DIR}/../../pal_statistics/pal_statistics/include>"
+  )
 
-target_include_directories(elastoplastic_controller_dual PUBLIC
-  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
+# target_include_directories(elastoplastic_controller_dual PUBLIC
+#   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+#   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
  # -ffast-math option is not added due to the std::isinf() function present in the code
 # target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -funroll-loops -Wall -O3)
 target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
-target_compile_definitions(elastoplastic_controller_dual PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
+# target_compile_definitions(elastoplastic_controller_dual PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
-install(TARGETS elastoplastic_controller elastoplastic_controller_dual elastoplastic_parameters elastoplastic_dual_parameters
+install(TARGETS 
+  elastoplastic_controller 
+  elastoplastic_parameters 
+  # elastoplastic_controller_dual 
+  # elastoplastic_dual_parameters
         EXPORT export_elastoplastic_controller
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
@@ -168,8 +194,8 @@ install(DIRECTORY config launch
 )
 
 ament_export_targets(export_elastoplastic_controller HAS_LIBRARY_TARGET)
-ament_export_dependencies(controller_interface
-  hardware_interface
+ament_export_dependencies(#controller_interface
+  # hardware_interface
   pluginlib
   rclcpp
   rclcpp_lifecycle
@@ -179,30 +205,43 @@ ament_export_dependencies(controller_interface
   tf2
   tf2_eigen
   urdfdom
-  realtime_tools
+  #realtime_tools
   control_toolbox
   state_observers
   elastoplastic_msgs
 )
 
-if(BUILD_TESTING)
-  find_package(ament_cmake_gtest REQUIRED)
+if(ON)
+  find_package(ament_cmake_gmock REQUIRED)
+  find_package(controller_manager_msgs REQUIRED)
   find_package(controller_manager REQUIRED)
+  find_package(ros2_control_test_assets REQUIRED)
 
-  ament_add_gtest(test_elastoplastic_model
-      test/test_elastoplastic_model.cpp)
-  target_include_directories(test_elastoplastic_model PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+  # ament_add_gtest(test_elastoplastic_model
+  #     test/test_elastoplastic_model.cpp)
+  # target_include_directories(test_elastoplastic_model PUBLIC
+  #   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  #   $<INSTALL_INTERFACE:include>
+  # )
+  # target_link_libraries(test_elastoplastic_model
+  #   elastoplastic_controller::elastoplastic_controller
+  # )
+  # ament_target_dependencies(test_elastoplastic_model
+  #   rclcpp
+  #   rclcpp_lifecycle
+  # )
+  # target_compile_definitions(elastoplastic_controller PUBLIC "BUILD_TESTING")
+
+  add_definitions(-DTEST_FILES_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/test")
+  ament_add_gmock(test_cm_elastoplastic_controller
+    test/test_cm_elastoplastic_controller.cpp
   )
-  target_link_libraries(test_elastoplastic_model
-    elastoplastic_controller::elastoplastic_controller
+  target_link_libraries(test_cm_elastoplastic_controller
+    elastoplastic_controller
+    controller_manager::controller_manager
+    controller_manager_msgs::controller_manager_msgs__rosidl_typesupport_cpp
+    ros2_control_test_assets::ros2_control_test_assets
   )
-  ament_target_dependencies(test_elastoplastic_model
-    rclcpp
-    rclcpp_lifecycle
-  )
-  target_compile_definitions(elastoplastic_controller PUBLIC "BUILD_TESTING")
 
   # ament_add_gtest(test_elastoplastic_controller
   #     test/test_elastoplastic_controller.cpp
