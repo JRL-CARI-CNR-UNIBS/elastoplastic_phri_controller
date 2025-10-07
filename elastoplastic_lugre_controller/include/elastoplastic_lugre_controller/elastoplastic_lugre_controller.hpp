@@ -80,6 +80,7 @@ private:
   std::unique_ptr<realtime_tools::RealtimePublisher<elastoplastic_msgs::msg::ElastoplasticControllerState>> m_rt_pub_full_state;
 
   constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
+  constexpr static double M_INITIAL_INTERPOLATOR_DELTA{5e-3};
   constexpr static unsigned int M_SE3{6};
   constexpr static unsigned int M_SE2{3};
 

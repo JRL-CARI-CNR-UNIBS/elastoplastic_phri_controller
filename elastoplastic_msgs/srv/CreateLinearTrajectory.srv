@@ -1,0 +1,7 @@
+std_msgs/Header header
+float64[6] delta
+float64 duration
+
+---
+
+bool success

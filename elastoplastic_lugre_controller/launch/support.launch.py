@@ -10,10 +10,8 @@ from ament_index_python.packages import get_package_share_directory, PackageNotF
 package_name = 'elastoplastic_lugre_controller'
 
 def generate_launch_description():
-  default_config = os.path.join(get_package_share_directory(package_name), 'config', 'elastoplastic_controller.yaml')
 
   launch_args = [
-    DeclareLaunchArgument('config', default_value=default_config, description='Controller config path'),
   ]
 
   launch_actions = [
@@ -24,19 +22,24 @@ def generate_launch_description():
 
 def launch_setup(context):
 
-  controller_spawner = Node(
-    package='controller_manager',
-    executable='spawner',
-    arguments=['elastoplastic_controller', '--param-file', LaunchConfiguration('config'), '--inactive']
+  support_package = 'tiago_pro_elastoplastic'
+
+  generate_cart_trj_node = Node(
+    package=support_package,
+    executable='generate_cartesian_trajectory',
+    parameters=[{
+      'frame' : 'robotiq_ft_frame_id',
+      'world_frame' : 'map',
+      'axis' : [1,1,1,0,0,0],
+    }],
   )
 
-  ft_bcast_spawner = Node(
-    package='controller_manager',
-    executable='spawner',
-    arguments=['arm_right_ft_sensor_robotiq', '--param-file', LaunchConfiguration('config')]
+  publish_trj_tf_node = Node(
+    package=support_package,
+    executable='publish_tf_trajectory',
   )
 
   return [
-    controller_spawner,
-    ft_bcast_spawner,
+    generate_cart_trj_node,
+    publish_trj_tf_node,
   ]

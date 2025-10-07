@@ -18,8 +18,13 @@ set(msg_files
   "msg/ElastoplasticDualControllerState.msg"
 )
 
+set(srv_files
+  "srv/CreateLinearTrajectory.srv"
+)
+
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${msg_files}
+  ${srv_files}
   DEPENDENCIES
     std_msgs
     geometry_msgs

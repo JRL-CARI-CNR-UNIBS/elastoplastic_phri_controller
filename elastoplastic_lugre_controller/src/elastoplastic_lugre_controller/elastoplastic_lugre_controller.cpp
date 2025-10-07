@@ -398,6 +398,16 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(const
                                                        << msg.header.frame_id << "}. Skipping");
         return;
       }
+      if([this](const moveit_msgs::msg::CartesianTrajectoryPoint& p) -> bool {
+          return 
+          (p.point.pose.position.x - this->m_computed_target_T_world_tool.translation().x() > M_INITIAL_INTERPOLATOR_DELTA) || 
+          (p.point.pose.position.y - this->m_computed_target_T_world_tool.translation().y() > M_INITIAL_INTERPOLATOR_DELTA) ||
+          (p.point.pose.position.z - this->m_computed_target_T_world_tool.translation().z() > M_INITIAL_INTERPOLATOR_DELTA);
+        } (msg.points.front())
+      ) {
+        RCLCPP_WARN_STREAM(get_node()->get_logger(), "Trajectory first point is not the actual point!");
+        return;
+      }
       m_interpolator = utils::interpolation::Interpolator::from_msg(msg);
       RCLCPP_INFO_STREAM(get_node()->get_logger(), "-> " << m_interpolator.is_empty());
     });
