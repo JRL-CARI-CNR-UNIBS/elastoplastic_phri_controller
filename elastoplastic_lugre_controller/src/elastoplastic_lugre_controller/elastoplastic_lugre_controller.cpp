@@ -1030,9 +1030,18 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     // full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(reference_target_twist_tool_world_in_world);
     // full_position_references.head<M_SE2>() = utils::base_velocity_from_twist(utils::vector_from_affine(
     // reference_target_T_world_tool * m_chain_base_tool->getTransformation(m_initial_q.tail(m_nax)).inverse()));
+    // ---
+    // full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(m_computed_target_twist_tool_world_in_world);
+    // full_position_references.head<M_SE2>() = utils::base_velocity_from_twist(utils::vector_from_affine(
+    //   m_computed_target_T_world_tool * m_chain_base_tool->getTransformation(m_initial_q.tail(m_nax)).inverse()));
+    // ---
     full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(m_computed_target_twist_tool_world_in_world);
-    full_position_references.head<M_SE2>() = utils::base_velocity_from_twist(utils::vector_from_affine(
-      m_computed_target_T_world_tool * m_chain_base_tool->getTransformation(m_initial_q.tail(m_nax)).inverse()));
+    Eigen::Affine3d T_world_base_ref =
+      m_chain_world_tool->getTransformationLink(m_initial_q, m_parameters.frames.base);
+    Eigen::Affine3d T_world_tool_ref =
+      m_chain_world_tool->getTransformation(m_initial_q);
+    full_position_references.head<M_SE2>() = utils::base_velocity_from_twist(
+      utils::vector_from_affine(m_computed_target_T_world_tool * T_world_tool_ref.inverse() * T_world_base_ref));
   }
 
 #endif
