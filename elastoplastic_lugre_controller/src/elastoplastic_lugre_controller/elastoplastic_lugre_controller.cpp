@@ -95,8 +95,8 @@ bool ElastoplasticController::write_cmd_vel(const Eigen::Ref<Eigen::Vector3d>& v
     msg.linear.y = v(1);
     msg.angular.z = v(2);
     if (!m_rt_pub_cmd_vel->tryPublish(msg)) {
-      LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(), 1,
-                               "Could not publish on " << m_parameters.cmd_vel_topic);
+      LOG_WARN_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(), 1,
+                               "Missed publish on " << m_parameters.cmd_vel_topic);
       b = false;
     }
   }
@@ -115,8 +115,8 @@ bool ElastoplasticController::write_cmd_vel_zero() {
     msg.linear.y = 0.0;
     msg.angular.z = 0.0;
     if (!m_rt_pub_cmd_vel->tryPublish(msg)) {
-      LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(), 1,
-                               "Could not publish on " << m_parameters.cmd_vel_topic);
+      LOG_WARN_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(), 1,
+                               "Missed publish on " << m_parameters.cmd_vel_topic);
       b = false;
     }
   }
@@ -673,6 +673,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
     Eigen::Vector6d offset_wrench;
     offset_wrench.setZero();
     const double offset_force_window = std::round(m_parameters.offset_force_window * get_update_rate());
+    Eigen::Vector6d exp_filter_prec_state = Eigen::Vector6d::Zero();
 
     if (m_ft_source == FTSource::TORQUE) {
       // Wrench is already in world
@@ -693,12 +694,26 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(const 
       Eigen::Vector6d offset_wrench_sensor_in_sensor = Eigen::Vector6d::Zero();
       for (int idx = 0; idx < offset_force_window; ++idx) {
         Eigen::Vector6d wr = get_wrench_from_sensor();
-        utils::deadband(m_parameters.wrench.deadband[0], m_parameters.wrench.deadband[1], wr);
+
+        if (m_parameters.wrench.notch_filter.enable) {
+          std::transform(wr.begin(), wr.end(), m_wrench_filters.begin(),
+                       wr.begin(), [](const double w, NotchFilter& f) { return f.update(w); });
+        }
+
+        // Exponential filter
+        std::transform(wr.begin(), wr.end(), exp_filter_prec_state.begin(),
+                   wr.begin(), [this](const double w, const double w_prec) {
+                     return filters::exponentialSmoothing(w, w_prec, m_parameters.wrench.filter_alfa);
+                   });
+
+        // accumulate
         std::transform(wr.begin(), wr.end(), offset_wrench_sensor_in_sensor.begin(), offset_wrench_sensor_in_sensor.begin(),
                        std::plus<double>{});
+
         std::this_thread::sleep_for(rclcpp::Rate(get_update_rate()).period());
       }
       offset_wrench_sensor_in_sensor /= offset_force_window;
+      // utils::deadband(m_parameters.wrench.deadband[0], m_parameters.wrench.deadband[1], offset_wrench_sensor_in_sensor);
 
       // Transform wrench offset in world
       Eigen::Vector6d offset_wrench_tool_in_tool = rdyn::spatialDualTranformation(
@@ -1056,8 +1071,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
       wrench_sensor_in_sensor.setZero();
     }
 
-    // Wrench deadband
-    utils::deadband(m_parameters.wrench.deadband[0], m_parameters.wrench.deadband[1], wrench_sensor_in_sensor);
+    // // Wrench deadband
+    // utils::deadband(m_parameters.wrench.deadband[0], m_parameters.wrench.deadband[1], wrench_sensor_in_sensor);
 
     if (m_parameters.wrench.notch_filter.enable) {
       std::transform(wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(), m_wrench_filters.begin(),
@@ -1073,6 +1088,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
     Eigen::Vector6d wrench_tool_in_tool = rdyn::spatialDualTranformation(wrench_sensor_in_sensor, m_T_tool_sensor);
     wrench_tool_in_world = rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear()) - m_offset_wrench_tool_in_world;
+
+    utils::deadband(m_parameters.wrench.deadband[0], m_parameters.wrench.deadband[1], wrench_tool_in_world);
 
   } else if (m_ft_source == FTSource::TOPIC) {
     // Expected wrench_on_tool_in_tool
@@ -1147,8 +1164,9 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     RCLCPP_ERROR_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
                           "Cannot find a solution for the CLIK QP problem. Keeping actual position");
     m_admittance_value.setZero();
-    m_qpp.setZero();
-    m_computed_target_acc_tool_world_in_world.setZero();
+    m_qpp = -m_qp/m_dt;
+    //m_computed_target_acc_tool_world_in_world.setZero();
+    m_computed_target_acc_tool_world_in_world = -m_computed_target_twist_tool_world_in_world/m_dt;
   } else {
     Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
     m_qpp = qepp;
@@ -1212,10 +1230,10 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_qp(idx + (m_full_nax - m_nax)) =
       std::max(-m_limits.vel(idx), std::min(m_limits.vel(idx), m_qp(idx + (m_full_nax - m_nax))));
     if (!utils::almost_equal(q, m_q(idx + (m_full_nax - m_nax)))) {
-      // RCLCPP_WARN(get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld", idx);
+      RCLCPP_WARN(get_node()->get_logger(), "Saturation of POSITION on manipulator joint with index %ld", idx);
     }
     if (!utils::almost_equal(dq, m_qp(idx + (m_full_nax - m_nax)))) {
-      // RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld", idx);
+      RCLCPP_WARN(get_node()->get_logger(), "Saturation of VELOCITY on manipulator joint with index %ld", idx);
     }
   }
   // END - Saturation Manipulator
@@ -1244,11 +1262,11 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     Eigen::Vector6d base_twist_in_base = utils::twist_from_base_velocity(m_velocity_base_in_base);
 
     bool is_mobile_base_write_ok = write_cmd_vel(m_velocity_base_in_base);
-    if (!is_mobile_base_write_ok) {
-      write_cmd_vel_zero();
-      RCLCPP_ERROR_STREAM(get_node()->get_logger(),
-                          "Problem occurred while writing on mobile base interfaces! Stopping the movement");
-    }
+    // if (!is_mobile_base_write_ok) {
+    //   write_cmd_vel_zero();
+    //   RCLCPP_ERROR_STREAM(get_node()->get_logger(),
+    //                       "Problem occurred while writing on mobile base interfaces! Stopping the movement");
+    // }
 
     m_T_world_base = rdyn::spatialIntegration(m_T_world_base, base_twist_in_base, m_dt);
   }

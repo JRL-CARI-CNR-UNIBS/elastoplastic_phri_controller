@@ -11,7 +11,7 @@
 #define _CONCAT(a, b) a##b
 #define UNIQUE_NAME(base) _CONCAT(base, __LINE__)
 
-// Throttled INFO with a call-count
+// Throttled ERROR with a call-count
 #define LOG_ERROR_THROTTLE_COUNT(logger, clock, period_sec, message)                                                             \
   do {                                                                                                                           \
     /* static variables per call-site */                                                                                         \
@@ -28,6 +28,32 @@
     if ((UNIQUE_NAME(_now_) - UNIQUE_NAME(_last_time_)).seconds() >= (period_sec)) {                                             \
       /* log the count + your message */                                                                                         \
       RCLCPP_ERROR_STREAM((logger), "Throttled over " << (period_sec)                                                            \
+                                                      << "s: "                                                                   \
+                                                         "("                                                                     \
+                                                      << UNIQUE_NAME(_call_count_) << " calls) " << message);                    \
+                                                                                                                                 \
+      /* reset */                                                                                                                \
+      UNIQUE_NAME(_last_time_) = UNIQUE_NAME(_now_);                                                                             \
+      UNIQUE_NAME(_call_count_) = 0;                                                                                             \
+    }                                                                                                                            \
+  } while (false)
+
+#define LOG_WARN_THROTTLE_COUNT(logger, clock, period_sec, message)                                                             \
+  do {                                                                                                                           \
+    /* static variables per call-site */                                                                                         \
+    static rclcpp::Time UNIQUE_NAME(_last_time_) = rclcpp::Time(0, 0, RCL_ROS_TIME);                                             \
+    static size_t UNIQUE_NAME(_call_count_) = 0;                                                                                 \
+                                                                                                                                 \
+    /* increment counter */                                                                                                      \
+    UNIQUE_NAME(_call_count_)++;                                                                                                 \
+                                                                                                                                 \
+    /* current time */                                                                                                           \
+    auto UNIQUE_NAME(_now_) = clock->now();                                                                                      \
+                                                                                                                                 \
+    /* if enough time has elapsed… */                                                                                          \
+    if ((UNIQUE_NAME(_now_) - UNIQUE_NAME(_last_time_)).seconds() >= (period_sec)) {                                             \
+      /* log the count + your message */                                                                                         \
+      RCLCPP_WARN_STREAM((logger), "Throttled over " << (period_sec)                                                            \
                                                       << "s: "                                                                   \
                                                          "("                                                                     \
                                                       << UNIQUE_NAME(_call_count_) << " calls) " << message);                    \

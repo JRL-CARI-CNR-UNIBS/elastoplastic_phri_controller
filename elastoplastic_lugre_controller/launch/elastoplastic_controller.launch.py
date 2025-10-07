@@ -26,9 +26,16 @@ def launch_setup(context):
   controller_spawner = Node(
     package='controller_manager',
     executable='spawner',
-    arguments=['elastoplastic_controller', '--param-file', LaunchConfiguration('config'), '--load-only']
+    arguments=['elastoplastic_controller', '--param-file', LaunchConfiguration('config'), '--inactive']
+  )
+
+  ft_bcast_spawner = Node(
+    package='controller_manager',
+    executable='spawner',
+    arguments=['arm_right_ft_sensor_robotiq', '--param-file', LaunchConfiguration('config')]
   )
 
   return [
-    controller_spawner
+    controller_spawner,
+    ft_bcast_spawner
   ]
