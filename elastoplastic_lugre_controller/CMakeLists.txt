@@ -20,9 +20,8 @@ find_package(controller_interface        REQUIRED)
 find_package(hardware_interface          REQUIRED)
 find_package(filters 2.2.2               REQUIRED)
 find_package(control_toolbox             REQUIRED)
-message(${filters_DIR})
 find_package(control_msgs                REQUIRED)
-# find_package(realtime_tools              REQUIRED)
+find_package(realtime_tools              REQUIRED)
 find_package(pluginlib                   REQUIRED)
 find_package(rclcpp                      REQUIRED)
 find_package(rclcpp_lifecycle            REQUIRED)
@@ -77,21 +76,21 @@ add_library(elastoplastic_controller SHARED
   ${COMMON_FILES}
 )
 
-# add_library(elastoplastic_controller_dual SHARED
-#   src/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.cpp
-#   src/${PROJECT_NAME}/clik_dual.cpp
-#   include/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.hpp
-#   ${COMMON_FILES}
-# )
+add_library(elastoplastic_controller_dual SHARED
+  src/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.cpp
+  src/${PROJECT_NAME}/clik_dual.cpp
+  include/${PROJECT_NAME}/elastoplastic_lugre_controller_dual.hpp
+  ${COMMON_FILES}
+)
 
 add_library(elastoplastic_controller::elastoplastic_controller ALIAS elastoplastic_controller)
-#add_library(elastoplastic_controller::elastoplastic_controller_dual ALIAS elastoplastic_controller_dual)
+add_library(elastoplastic_controller::elastoplastic_controller_dual ALIAS elastoplastic_controller_dual)
 
 pluginlib_export_plugin_description_file(controller_interface elastoplastic.plugin.xml)
 
 if(USE_LATEST_ROS2_CONTROL)
   target_compile_definitions(elastoplastic_controller PUBLIC USE_LATEST_ROS2_CONTROL)
-  # target_compile_definitions(elastoplastic_controller_dual PUBLIC USE_LATEST_ROS2_CONTROL)
+  target_compile_definitions(elastoplastic_controller_dual PUBLIC USE_LATEST_ROS2_CONTROL)
 endif()
 
 set(AMENT_LIBS
@@ -99,7 +98,6 @@ set(AMENT_LIBS
   hardware_interface
   filters
   control_toolbox
-  # control_msgs
   realtime_tools
   pluginlib
   rclcpp
@@ -144,17 +142,17 @@ ${AMENT_LIBS}
 )
 
 
-# ament_target_dependencies(elastoplastic_controller_dual PUBLIC
-#   ${AMENT_LIBS}
-# )
+ament_target_dependencies(elastoplastic_controller_dual PUBLIC
+  ${AMENT_LIBS}
+)
 
-# target_link_libraries(elastoplastic_controller_dual
-#   PUBLIC elastoplastic_dual_parameters
-#   PUBLIC ${RDYN_CONDITIONAL_TARGET}
-#   PUBLIC Eigen3::Eigen
-#   PUBLIC fmt::fmt
-#   PUBLIC eiquadprog::eiquadprog
-# )
+target_link_libraries(elastoplastic_controller_dual
+  PUBLIC elastoplastic_dual_parameters
+  PUBLIC ${RDYN_CONDITIONAL_TARGET}
+  PUBLIC Eigen3::Eigen
+  PUBLIC fmt::fmt
+  PUBLIC eiquadprog::eiquadprog
+)
 
 target_include_directories(elastoplastic_controller PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -165,20 +163,20 @@ target_include_directories(elastoplastic_controller PUBLIC
   # "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE\_DIR}/../../pal_statistics/pal_statistics/include>"
   )
 
-# target_include_directories(elastoplastic_controller_dual PUBLIC
-#   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-#   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
+target_include_directories(elastoplastic_controller_dual PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
  # -ffast-math option is not added due to the std::isinf() function present in the code
 # target_compile_options(elastoplastic_controller PUBLIC -Wno-unknown-pragmas -funroll-loops -Wall -O3)
 target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
-# target_compile_definitions(elastoplastic_controller_dual PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
+target_compile_definitions(elastoplastic_controller_dual PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
 install(TARGETS 
   elastoplastic_controller 
   elastoplastic_parameters 
-  # elastoplastic_controller_dual 
-  # elastoplastic_dual_parameters
+  elastoplastic_controller_dual 
+  elastoplastic_dual_parameters
         EXPORT export_elastoplastic_controller
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib

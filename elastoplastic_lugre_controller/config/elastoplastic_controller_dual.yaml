@@ -1,26 +1,29 @@
+arm_right_ft_sensor_robotiq:
+  ros__parameters:
+    type: force_torque_sensor_broadcaster/ForceTorqueSensorBroadcaster
+    frame_id: robotiq_ft_frame_id
+    sensor_name: robotiq_ft_sensor
+
 elastoplastic_controller_dual:
   ros__parameters:
     type: elastoplastic/ElastoplasticControllerDual
-    use_sim_time: False
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
     ft_sensor_names:
     - wrist_left_ft_sensor
-    - wrist_right_ft_sensor
-    ft_invert_sign: true
+    - robotiq_ft_sensor
+    ft_invert_sign: false
     frames:
       map: map
-      # map: base_footprint
       base: base_footprint
       fork: torso_lift_link
       tools:
       - arm_left_tool_link
-      - arm_right_tool_link
-      # sensor: arm_right_tool_link
+      - robotiq_ft_frame_id
       sensors:
       - wrist_left_ft_sensor_link
-      - wrist_right_ft_sensor_link
+      - robotiq_ft_frame_id
     joints:
       left:
       - arm_left_1_joint
@@ -74,20 +77,18 @@ elastoplastic_controller_dual:
           - 1e0
           - 1e0
           - 1e0
-    acceleration_limits_coeff: 5.0
+    acceleration_limits_coeff: 1.0
     command_interfaces:
       - position
-      #- velocity
     state_interfaces:
       - position
       - velocity
-      # - torque
     mobile_base:
       enabled: true
       enable_z_rotation: false
       input_target_topic: "/target_cmd_vel"
       localization_topic: "/amcl_pose" # Unused
-      odom: "/odom"
+      odom: "/direct_laser_odometry/odom"
       use_command_interfaces: false
       command_interfaces:
       - "mobile_base_controller/linear/x"
@@ -96,17 +97,16 @@ elastoplastic_controller_dual:
       max_vel:
         linear: [0.5, 0.5]
         angular: 0.2
-      max_acc_x: 0.1
-      max_dec_x: 0.1
-      max_acc_y: 0.1
-      max_dec_y: 0.1
-      max_acc_yaw: 0.1
-      max_dec_yaw: 0.1
+      max_acc_x: 0.5
+      max_dec_x: 0.5
+      max_acc_y: 0.5
+      max_dec_y: 0.5
+      max_acc_yaw: 0.5
+      max_dec_yaw: 0.5
     wrench:
-      deadband: [1.0, 1.0, 1.0, 1.0]
-      filter_alfa: 0.1
-      source: "ft_sensor" #"torque"
-      invert_torque: true
+      deadband: [2.0, 2.0, 2.0, 2.0]
+      filter_alfa: 0.2
+      source: "ft_sensor"
       notch_filter:
         enable: true
         fc: 3.45
@@ -128,15 +128,15 @@ elastoplastic_controller_dual:
         - 40.0
         - 40.0
       d:
-        - 10.0
-        - 10.0
-        - 10.0
-        - 10.0
-        - 10.0
-        - 10.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
       z_max:   0.1 # [0.15, 0.15] # 0.1
       z_kmax:  0.098 # [0.14, 0.14] # 0.1
-      z_start: 0.05  # [0.1, 0.1]   # 0.05
+      z_start: 0.07  # [0.1, 0.1]   # 0.05
       logistic:
         max: 1.0
         slope: 10.0
@@ -144,9 +144,9 @@ elastoplastic_controller_dual:
       leak_coefficient: 0.02
       reset:
         time: 5.0
-        threshold: 1e-2
-      plastic_restoration: false
-    offset_force_window: 1.0 # seconds
+        threshold: 1e0
+      plastic_restoration: true
+    offset_force_window: 2.0 # seconds
     clik:
       alpha_gain: 1.0e6
       joint_task:

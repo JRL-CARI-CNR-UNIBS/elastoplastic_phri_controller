@@ -49,6 +49,8 @@ public:
   bool is_plan_started(){return m_state == State::Started;}
   bool is_plan_ended(){return m_state == State::Terminated;}
 
+  
+
   Interpolator clone_with_transform(const geometry_msgs::msg::TransformStamped& tf);
 
   InterpolationResult interpolate(const rclcpp::Time& now, Eigen::Vector6d& acc, Eigen::Vector6d& twist, Eigen::Affine3d& pose);

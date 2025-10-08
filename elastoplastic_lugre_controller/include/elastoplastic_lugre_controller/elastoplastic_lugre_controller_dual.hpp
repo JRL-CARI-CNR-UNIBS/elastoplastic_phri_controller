@@ -44,32 +44,44 @@
 #include "std_msgs/msg/string.hpp"
 // IWYU pragma: end_keep
 
-namespace elastoplastic
-{
+namespace elastoplastic {
 
 template <typename T> using Couple = std::array<T, 2>;
 
-class ElastoplasticControllerDual : public controller_interface::ChainableControllerInterface {
+class ElastoplasticControllerDual
+    : public controller_interface::ChainableControllerInterface {
 private:
-  std::shared_ptr<elastoplastic_controller_dual::ParamListener> m_param_listener;
+  std::shared_ptr<elastoplastic_controller_dual::ParamListener>
+      m_param_listener;
   elastoplastic_controller_dual::Params m_parameters;
 
-  template <typename T> using InterfaceReference = std::vector<std::reference_wrapper<T>>;
+  template <typename T>
+  using InterfaceReference = std::vector<std::reference_wrapper<T>>;
 
-  std::vector<InterfaceReference<hardware_interface::LoanedStateInterface>> m_joint_state_interfaces;
-  std::vector<InterfaceReference<hardware_interface::LoanedCommandInterface>> m_joint_command_interfaces;
-  // InterfaceReference<hardware_interface::LoanedStateInterface> m_mobile_base_state_interfaces;
-  InterfaceReference<hardware_interface::LoanedCommandInterface> m_mobile_base_command_interfaces;
+  std::vector<InterfaceReference<hardware_interface::LoanedStateInterface>>
+      m_joint_state_interfaces;
+  std::vector<InterfaceReference<hardware_interface::LoanedCommandInterface>>
+      m_joint_command_interfaces;
+  // InterfaceReference<hardware_interface::LoanedStateInterface>
+  // m_mobile_base_state_interfaces;
+  InterfaceReference<hardware_interface::LoanedCommandInterface>
+      m_mobile_base_command_interfaces;
 
   size_t m_joint_reference_interfaces_size;
 
   Couple<std::unique_ptr<semantic_components::ForceTorqueSensor>> m_ft_sensors;
 
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr m_sub_mobile_base_target;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr m_sub_mobile_base_odometry;
-  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr m_sub_mobile_base_pose;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr
+      m_sub_mobile_base_target;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr
+      m_sub_mobile_base_odometry;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
+      m_sub_mobile_base_pose;
 
   realtime_tools::RealtimeBuffer<nav_msgs::msg::Odometry> m_rt_buffer_base_odom;
+  realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovarianceStamped>
+      m_rt_buffer_base_local;
+  std::atomic<bool> m_got_new_base_pose;
 
   rclcpp::Time m_last_odom_msg_time;
 
@@ -83,18 +95,28 @@ private:
   void update_base_pose_from_tf();
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
-  std::unique_ptr<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>> m_rt_pub_cmd_vel;
-  rclcpp::Publisher<elastoplastic_msgs::msg::ElastoplasticDualControllerState>::SharedPtr m_pub_full_state;
-  std::unique_ptr<realtime_tools::RealtimePublisher<elastoplastic_msgs::msg::ElastoplasticDualControllerState>>
-    m_rt_pub_full_state;
+  std::unique_ptr<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>>
+      m_rt_pub_cmd_vel;
+  rclcpp::Publisher<elastoplastic_msgs::msg::ElastoplasticDualControllerState>::
+      SharedPtr m_pub_full_state;
+  std::unique_ptr<realtime_tools::RealtimePublisher<
+      elastoplastic_msgs::msg::ElastoplasticDualControllerState>>
+      m_rt_pub_full_state;
 
   constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
+  constexpr static double M_INITIAL_INTERPOLATOR_DELTA{5e-3};
   constexpr static unsigned int M_SE3{6};
   constexpr static unsigned int M_SE2{3};
   constexpr static char SHARED_FRAME_NAME[]{"shared"};
 
-  enum class RDStatus { OK, ERROR, EMPTY } m_robot_description_configuration{ElastoplasticControllerDual::RDStatus::EMPTY};
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_sub_robot_description;
+  enum class RDStatus {
+    OK,
+    ERROR,
+    EMPTY
+  } m_robot_description_configuration{
+      ElastoplasticControllerDual::RDStatus::EMPTY};
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr
+      m_sub_robot_description;
 
   Couple<rdyn::ChainPtr> m_chain_base_tools;
   Couple<rdyn::ChainPtr> m_chain_base_sensors;
@@ -102,13 +124,16 @@ private:
 
   struct Side {
     enum { LEFT = 0, RIGHT = 1, COMMON = 2, BASE = 3 };
-    constexpr static std::array<int, 2> arms() { return std::array<int, 2>({{LEFT, RIGHT}}); }
+    constexpr static std::array<int, 2> arms() {
+      return std::array<int, 2>({{LEFT, RIGHT}});
+    }
   };
 
   std::vector<std::string> m_joint_names;
 
-  Couple<size_t> m_nax_s;            // number of axis for each single full chain
-  std::array<size_t, 4> m_split_nax; // number of axis for each part. Order based on `Side`
+  Couple<size_t> m_nax_s; // number of axis for each single full chain
+  std::array<size_t, 4>
+      m_split_nax; // number of axis for each part. Order based on `Side`
   std::array<size_t, 3> m_idx_st;
   size_t m_nax;      // number of axis, without mobile base
   size_t m_full_nax; // number of axis + 3 for mobile base
@@ -123,7 +148,7 @@ private:
   double m_kp_joint_task, m_kv_joint_task;
 
   Eigen::MatrixXd m_W; // Weight matrix for CLIK
-  
+
   Eigen::VectorXd m_initial_q;
   Eigen::Vector12d m_wrench_in_sensor_prec;
 
@@ -139,27 +164,28 @@ private:
   state_observer::KalmanFilter m_joint_filter;
 
   // Required both for states and at least one for command
-  const std::vector<std::string> m_allowed_interface_types {
-                                                           hardware_interface::HW_IF_POSITION,
-                                                           hardware_interface::HW_IF_VELOCITY};
+  const std::vector<std::string> m_allowed_interface_types{
+      hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY};
   Couple<bool> m_used_command_interfaces;
 
   struct FloatBaseData {
     FloatBaseData() = delete;
     FloatBaseData(const bool en)
-        : enabled(en),
-          base_joint_names(en ? std::vector<std::string>({"move_x", "move_y", "rot_z"}) : std::vector<std::string>()) {}
+        : enabled(en), base_joint_names(en ? std::vector<std::string>(
+                                                 {"move_x", "move_y", "rot_z"})
+                                           : std::vector<std::string>()) {}
 
     const bool enabled;
     const std::vector<std::string> base_joint_names;
 
     size_t nax() const { return enabled ? nax_ : 0; }
-    // std::vector<std::string> base_joint_names() { return enabled ? base_joint_names_ : std::vector<std::string>{}; }
+    // std::vector<std::string> base_joint_names() { return enabled ?
+    // base_joint_names_ : std::vector<std::string>{}; }
     Eigen::Vector3d vel_limits;
     Eigen::Vector3d acc_limits;
 
   private:
-    constexpr static size_t nax_ {3};
+    constexpr static size_t nax_{3};
   };
   std::unique_ptr<FloatBaseData> m_mobile_base;
 
@@ -181,19 +207,19 @@ private:
 
   struct ClikData {
     const Eigen::VectorXd &position_references, velocity_references;
-    const Eigen::Vector12d& twist_tool_world_in_world;
-    const Eigen::Vector6d& twist_shared_world_in_world;
+    const Eigen::Vector12d &twist_tool_world_in_world;
+    const Eigen::Vector6d &twist_shared_world_in_world;
     //, next_twist_tool_world_in_world;
-    const std::array<Eigen::Affine3d, 2>& T_world_tool;
-    const Eigen::Affine3d& T_world_shared;
+    const std::array<Eigen::Affine3d, 2> &T_world_tool;
+    const Eigen::Affine3d &T_world_shared;
     //, next_T_world_tool;
-    const Eigen::Vector6d& target_acc_tool_target_in_world;
-    const Eigen::Matrix12Xd& J_world_tools_in_world;
+    const Eigen::Vector6d &target_acc_tool_target_in_world;
+    const Eigen::Matrix12Xd &J_world_tools_in_world;
     // const Eigen::Matrix12Xd& J_base_tools_in_world;
-    const Eigen::Affine3d& target_T_world_tool;
-    const Eigen::Vector6d& target_twist_shared_world_in_world;
-    const Eigen::Vector12d& wrench_tool_in_world;
-    const Eigen::Vector6d& wrench_shared_in_world;
+    const Eigen::Affine3d &target_T_world_tool;
+    const Eigen::Vector6d &target_twist_shared_world_in_world;
+    const Eigen::Vector12d &wrench_tool_in_world;
+    const Eigen::Vector6d &wrench_shared_in_world;
     bool got_new_odom;
   };
 
@@ -204,10 +230,13 @@ private:
   utils::Logistic m_logistic;
   double m_logis_prec;
 
-  utils::SigmoidSys m_pos_task_slider;
+  utils::Slider m_pos_task_slider;
+
+  rclcpp::TimerBase::SharedPtr m_tf_timer;
 
   utils::interpolation::Interpolator m_interpolator;
-  rclcpp::Subscription<moveit_msgs::msg::CartesianTrajectory>::SharedPtr m_carteisan_trj_sub;
+  rclcpp::Subscription<moveit_msgs::msg::CartesianTrajectory>::SharedPtr
+      m_carteisan_trj_sub;
 
   Eigen::Vector6d m_computed_target_acc_shared_world_in_world;
   Eigen::Vector6d m_computed_target_twist_shared_world_in_world;
@@ -216,11 +245,14 @@ private:
   Eigen::Affine3d m_T_left_shared;
   Eigen::Affine3d m_T_right_shared_ideal;
 
-  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d& T_world_left, const Eigen::Affine3d& T_world_right) {
+  Eigen::Affine3d get_shared_frame(const Eigen::Affine3d &T_world_left,
+                                   const Eigen::Affine3d &T_world_right) {
     // return T_world_left * m_T_left_shared;
     Eigen::Affine3d T_world_shared;
-    T_world_shared.translation() = 0.5 * (T_world_left.translation() + T_world_right.translation());
-    Eigen::AngleAxisd AA_left_right(T_world_left.linear().transpose() * T_world_right.linear());
+    T_world_shared.translation() =
+        0.5 * (T_world_left.translation() + T_world_right.translation());
+    Eigen::AngleAxisd AA_left_right(T_world_left.linear().transpose() *
+                                    T_world_right.linear());
     AA_left_right.angle() *= 0.5;
     T_world_shared.linear() = T_world_left.linear() * AA_left_right.matrix();
     return T_world_shared;
@@ -230,12 +262,17 @@ private:
     geometry_msgs::msg::Wrench w;
     m_ft_sensors[side]->get_values_as_message(w);
     double s = m_parameters.ft_invert_sign ? -1.0 : 1.0;
-    return Eigen::Vector6d({s * w.force.x, s * w.force.y, s * w.force.z, s * w.torque.x, s * w.torque.y, s * w.torque.z});
+    return Eigen::Vector6d({s * w.force.x, s * w.force.y, s * w.force.z,
+                            s * w.torque.x, s * w.torque.y, s * w.torque.z});
   }
 
-  Eigen::Vector12d get_wrenches() { return (Eigen::Vector12d() << get_wrench(Side::LEFT), get_wrench(Side::RIGHT)).finished(); }
+  Eigen::Vector12d get_wrenches() {
+    return (Eigen::Vector12d() << get_wrench(Side::LEFT),
+            get_wrench(Side::RIGHT))
+        .finished();
+  }
 
-  void update_grasp_matrices(const Eigen::Matrix3d& R_world_shared);
+  void update_grasp_matrices(const Eigen::Matrix3d &R_world_shared);
 
   Eigen::Matrix612d m_grasp_matrix_wrench;
   Eigen::Matrix612d m_grasp_matrix_twist;
@@ -252,55 +289,68 @@ private:
 public:
   ElastoplasticControllerDual() = default;
 
-  controller_interface::InterfaceConfiguration command_interface_configuration() const override;
+  controller_interface::InterfaceConfiguration
+  command_interface_configuration() const override;
 
-  controller_interface::InterfaceConfiguration state_interface_configuration() const override;
+  controller_interface::InterfaceConfiguration
+  state_interface_configuration() const override;
 
-  controller_interface::return_type update_and_write_commands(
-    const rclcpp::Time & time, const rclcpp::Duration & period) override;
+  controller_interface::return_type
+  update_and_write_commands(const rclcpp::Time &time,
+                            const rclcpp::Duration &period) override;
 
   controller_interface::CallbackReturn on_init() override;
 
-  controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& previous_state) override;
+  controller_interface::CallbackReturn
+  on_configure(const rclcpp_lifecycle::State &previous_state) override;
 
-  controller_interface::CallbackReturn on_activate(const rclcpp_lifecycle::State& previous_state) override;
+  controller_interface::CallbackReturn
+  on_activate(const rclcpp_lifecycle::State &previous_state) override;
 
-  controller_interface::CallbackReturn on_deactivate(const rclcpp_lifecycle::State& previous_state) override;
+  controller_interface::CallbackReturn
+  on_deactivate(const rclcpp_lifecycle::State &previous_state) override;
 
-  controller_interface::CallbackReturn on_error(const rclcpp_lifecycle::State& previous_state) override;
+  controller_interface::CallbackReturn
+  on_error(const rclcpp_lifecycle::State &previous_state) override;
 
-  controller_interface::CallbackReturn on_cleanup(const rclcpp_lifecycle::State& previous_state) override;
+  controller_interface::CallbackReturn
+  on_cleanup(const rclcpp_lifecycle::State &previous_state) override;
 
   // controller_interface::CallbackReturn on_shutdown(
   //     const rclcpp_lifecycle::State & previous_state) override;
 
-  bool ready_for_activation()
-  {
+  bool ready_for_activation() {
     return m_robot_description_configuration == RDStatus::OK;
   }
 
 protected:
-  std::vector<hardware_interface::CommandInterface> on_export_reference_interfaces() override;
+  std::vector<hardware_interface::CommandInterface>
+  on_export_reference_interfaces() override;
 
-  controller_interface::return_type update_reference_from_subscribers(
-    const rclcpp::Time & time,
-    const rclcpp::Duration & period)
-  override;
+  controller_interface::return_type
+  update_reference_from_subscribers(const rclcpp::Time &time,
+                                    const rclcpp::Duration &period) override;
 
-  void configure_after_robot_description_callback(const std_msgs::msg::String::SharedPtr msg);
+  void configure_after_robot_description_callback(
+      const std_msgs::msg::String::SharedPtr msg);
 
-  std::optional<Eigen::VectorXd> clik(const ClikData& data);
-  Eigen::VectorXd compute_clik_as_qp(const ClikData &data, const Eigen::Vector6d &a_position_error,
-                                     const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
-  Eigen::VectorXd compute_clik_as_inv(const ClikData &data, const Eigen::Vector6d &a_position_error,
-                                      const Eigen::Vector6d &a_twist_error, const Eigen::Vector6d &a_acc_non_linear);
+  std::optional<Eigen::VectorXd> clik(const ClikData &data);
+  Eigen::VectorXd compute_clik_as_qp(const ClikData &data,
+                                     const Eigen::Vector6d &a_position_error,
+                                     const Eigen::Vector6d &a_twist_error,
+                                     const Eigen::Vector6d &a_acc_non_linear);
+  Eigen::VectorXd compute_clik_as_inv(const ClikData &data,
+                                      const Eigen::Vector6d &a_position_error,
+                                      const Eigen::Vector6d &a_twist_error,
+                                      const Eigen::Vector6d &a_acc_non_linear);
 
-  bool write_cmd_vel(const Eigen::Vector3d& v);
-  void get_target_callback(const geometry_msgs::msg::Twist& msg);
-  void get_mobile_base_target_callback(const geometry_msgs::msg::Twist & msg);
-  void get_odometry_callback(const nav_msgs::msg::Odometry & msg);
-  void get_localization_callback(const geometry_msgs::msg::PoseWithCovarianceStamped & msg);
+  bool write_cmd_vel(const Eigen::Vector3d &v);
+  void get_target_callback(const geometry_msgs::msg::Twist &msg);
+  void get_mobile_base_target_callback(const geometry_msgs::msg::Twist &msg);
+  void get_odometry_callback(const nav_msgs::msg::Odometry &msg);
+  void get_localization_callback(
+      const geometry_msgs::msg::PoseWithCovarianceStamped &msg);
 };
-}
+} // namespace elastoplastic
 
 #endif // ELASTOPLASTIC_LUGRE_CONTROLLER_DUAL_HPP
