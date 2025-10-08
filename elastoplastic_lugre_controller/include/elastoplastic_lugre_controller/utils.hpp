@@ -87,29 +87,47 @@ struct Logistic {
   double get(const Eigen::Array3d& v) { return (max / (1 + Eigen::exp(slope * (v.abs() - inflection)))).minCoeff(); }
 };
 
-struct SigmoidSys {
+struct Slider {
   double x;
   double gain;
   double dx{0};
   constexpr static double X_MAX = 1;
   constexpr static double X_MIN = 0;
 
-  SigmoidSys() = default;
-  void init(const double dir, const double i_gain, const double i_dx) {
+  enum class SliderFunction {
+    LINEAR,
+    SIGMOID,
+  } slider_fun;
+
+  Slider() = default;
+  void init(const double dir, const double i_gain, const double i_dx, const SliderFunction& fun) {
     gain = i_gain;
     dx = i_dx;
+    slider_fun = fun;
     reset(dir);
   }
-  double operator()() { return sigmoid(); }
+
+  double get() {
+    if(slider_fun == SliderFunction::SIGMOID){
+      return sigmoid();
+    } else {
+      return linear();
+    }
+  }
+
+  double operator()() { 
+    return get();
+  }
   double update(const int dir) {
     x += dir > 0 ? dx : -dx;
     x = std::clamp(x, X_MIN, X_MAX);
-    return sigmoid();
+    return get();
   }
   void reset(const int dir) { x = dir > 0 ? X_MIN : X_MAX; }
 
 private:
   double sigmoid() { return gain * 0.5 * (std::cos((x - X_MIN) * std::numbers::pi / (X_MAX - X_MIN)) + 1); }
+  double linear() {return gain * x;}
 };
 
 /* == LIE OPERATORS == */
