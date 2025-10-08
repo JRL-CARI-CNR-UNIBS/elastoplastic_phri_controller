@@ -13,11 +13,10 @@ elastoplastic_controller:
     ft_sensor_name: robotiq_ft_sensor
     ft_invert_sign: false
     frames:
-      # map: map
-      map: base_footprint
+      map: map
+      # map: base_footprint
       base: base_footprint
       tool: robotiq_ft_frame_id
-      # sensor: wrist_right_ft_sensor_link
       sensor: robotiq_ft_frame_id
     joints:
       - arm_right_1_joint
