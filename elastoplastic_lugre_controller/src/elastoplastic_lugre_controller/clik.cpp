@@ -135,9 +135,12 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
     RCLCPP_DEBUG_STREAM_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1, "Is restoring");
     cart_pos_level = STACK_LEVEL_ZERO + 1;
     m_W.setIdentity();
-    task_joint_pos.W().setIdentity();
+    task_joint_pos.W() *= m_W.transpose() * m_W;
     task_joint_vel.W() *= m_W.transpose() * m_W;
     task_minimize_joint_acc.W() *= m_W.transpose() * m_W;
+    m_pos_task_slider.update(1);
+  } else {
+    m_pos_task_slider.update(-1);
   }
   sot.insert_task(task_cart_pos, cart_pos_level, 1);
 
@@ -255,7 +258,7 @@ std::optional<Eigen::VectorXd> ElastoplasticController::clik(const ClikData& dat
 
   if (solutionQP.hasNaN()) {
     RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution!");
-    RCLCPP_DEBUG_STREAM(m_node_support->get_logger(), "Dump: "
+    RCLCPP_DEBUG_STREAM(get_node()->get_logger(), "Dump: "
                                                         << "\n## first round sol [qpp(" << m_full_nax << "), slack("
                                                         << prb_dim - m_full_nax << ")]##\n"
                                                         << solutionQP.transpose() << "\n## first round ret ##\n"
