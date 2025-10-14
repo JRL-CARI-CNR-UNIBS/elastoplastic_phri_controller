@@ -310,10 +310,12 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
       std::make_unique<FloatBaseData>(m_parameters.mobile_base.enabled);
 
   m_wrench_filters.reserve(6);
+  m_low_pass_filters.reserve(6);
   for (int idx = 0; idx < 6; idx++) {
-    m_wrench_filters.emplace_back(m_parameters.wrench.notch_filter.fc,
-                                  m_parameters.wrench.notch_filter.Q,
-                                  get_update_rate());
+    // m_wrench_filters.emplace_back(m_parameters.wrench.notch_filter.fc,
+    // m_parameters.wrench.notch_filter.Q,
+    // get_update_rate());
+    m_low_pass_filters.emplace_back();
   }
 
   m_full_nax = m_mobile_base->enabled
@@ -720,10 +722,16 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(
     configure_after_robot_description_callback(rd);
 
     if (m_parameters.wrench.notch_filter.enable) {
-      std::ranges::for_each(m_wrench_filters, [this](NotchFilter &f) {
-        f.configure(m_parameters.wrench.notch_filter.fc,
-                    m_parameters.wrench.notch_filter.Q, get_update_rate());
-      });
+      // std::ranges::for_each(m_wrench_filters, [this](NotchFilter &f) {
+      // f.configure(m_parameters.wrench.notch_filter.fc,
+      // m_parameters.wrench.notch_filter.Q, get_update_rate());
+      // });
+      for (int idx = 0; idx < m_low_pass_filters.size(); idx++) {
+        m_low_pass_filters.at(idx).activateFilter(
+            m_parameters.wrench.deadband.at(0), 50.0,
+            m_parameters.wrench.notch_filter.fc, m_dt, 0.0);
+      }
+      RCLCPP_INFO(get_node()->get_logger(), "Reconfigured Notch Filter");
     }
   }
 
@@ -896,9 +904,15 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(
         Eigen::Vector6d wr = get_wrench_from_sensor();
 
         if (m_parameters.wrench.notch_filter.enable) {
+          // std::transform(
+          // wr.begin(), wr.end(), m_wrench_filters.begin(), wr.begin(),
+          // [](const double w, NotchFilter &f) { return f.update(w); });
           std::transform(
-              wr.begin(), wr.end(), m_wrench_filters.begin(), wr.begin(),
-              [](const double w, NotchFilter &f) { return f.update(w); });
+              wr.begin(), wr.end(), m_low_pass_filters.begin(), wr.begin(),
+              [](const double w, eigen_control_toolbox::FilteredScalar &f) {
+                f.update(w);
+                return f.getUpdatedValue();
+              });
         }
 
         // Exponential filter
@@ -980,7 +994,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(
                              m_qp.tail(m_nax), Eigen::VectorXd::Zero(m_nax))
                                 .finished());
 
-  m_pos_task_slider.init(1, 1e1, 1e-4, utils::Slider::SliderFunction::SIGMOID);
+  m_pos_task_slider.init(1, 1e3, 1e-4, utils::Slider::SliderFunction::SIGMOID);
   RCLCPP_DEBUG(get_node()->get_logger(), "Activated...");
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -988,6 +1002,9 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(
 controller_interface::CallbackReturn ElastoplasticController::on_deactivate(
     const rclcpp_lifecycle::State & /*previous_state*/) {
   m_interpolator.end_plan();
+  for (int idx = 0; idx < m_low_pass_filters.size(); idx++) {
+    m_low_pass_filters.at(idx).deactivateFilter();
+  }
 
   std::transform(m_joint_state_interfaces.at(0).begin(),
                  m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
@@ -1394,10 +1411,17 @@ ElastoplasticController::update_and_write_commands(
     // m_parameters.wrench.deadband[1], wrench_sensor_in_sensor);
 
     if (m_parameters.wrench.notch_filter.enable) {
+      // std::transform(
+      // wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(),
+      // m_wrench_filters.begin(), wrench_sensor_in_sensor.begin(),
+      // [](const double w, NotchFilter &f) { return f.update(w); });
       std::transform(
           wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(),
-          m_wrench_filters.begin(), wrench_sensor_in_sensor.begin(),
-          [](const double w, NotchFilter &f) { return f.update(w); });
+          m_low_pass_filters.begin(), wrench_sensor_in_sensor.begin(),
+          [](const double w, eigen_control_toolbox::FilteredScalar &f) {
+            f.update(w);
+            return f.getUpdatedValue();
+          });
     }
 
     // Exponential filter
@@ -1592,8 +1616,9 @@ ElastoplasticController::update_and_write_commands(
     double q = m_q(idx + (m_full_nax - m_nax));
     double dq = m_qp(idx + (m_full_nax - m_nax));
     m_q(idx + (m_full_nax - m_nax)) = std::max(
-        m_limits.pos_lower(idx),
-        std::min(m_limits.pos_upper(idx), m_q(idx + (m_full_nax - m_nax))));
+        m_limits.pos_lower(idx) - m_parameters.soft_limits.at(idx),
+        std::min(m_limits.pos_upper(idx) + m_parameters.soft_limits.at(idx),
+                 m_q(idx + (m_full_nax - m_nax))));
     m_qp(idx + (m_full_nax - m_nax)) =
         std::max(-m_limits.vel(idx),
                  std::min(m_limits.vel(idx), m_qp(idx + (m_full_nax - m_nax))));

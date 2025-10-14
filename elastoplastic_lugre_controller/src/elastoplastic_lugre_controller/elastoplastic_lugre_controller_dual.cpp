@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <chrono>
 #include <numeric>
+#include <state_space_filters/filtered_values.h>
 
 #ifdef USE_LATEST_ROS2_CONTROL
 // #define GET_VALUE_FROM_INTERFACE(interface) interface.get_optional().value()
@@ -334,7 +335,7 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_configure(
     const rclcpp_lifecycle::State & /*previous_state*/) {
   m_parameters = m_param_listener->get_params();
 
-  m_enable_shared_frame_bcast = false;
+  m_enable_shared_frame_bcast.store(false);
 
   // The parameter update_rate, if not defined, is provided by the
   // controller_manager
@@ -350,14 +351,24 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_configure(
   m_elastoplastic_model = std::make_unique<ElastoplasticModel>(
       utils::get_model_data(m_parameters, update_rate));
 
+  std::fill_n(m_deadbands.begin(), 3, m_parameters.wrench.deadband[0]);
+  std::fill_n(std::next(m_deadbands.begin(), 3), 3,
+              m_parameters.wrench.deadband[1]);
+  std::fill_n(std::next(m_deadbands.begin(), 6), 3,
+              m_parameters.wrench.deadband[2]);
+  std::fill_n(std::next(m_deadbands.begin(), 9), 3,
+              m_parameters.wrench.deadband[3]);
+
   m_mobile_base =
       std::make_unique<FloatBaseData>(m_parameters.mobile_base.enabled);
 
   m_wrench_filters.reserve(12);
+  m_low_pass_filters.reserve(12);
   for (int idx = 0; idx < 12; idx++) {
-    m_wrench_filters.emplace_back(m_parameters.wrench.notch_filter.fc,
-                                  m_parameters.wrench.notch_filter.Q,
-                                  get_update_rate());
+    // m_wrench_filters.emplace_back(m_parameters.wrench.notch_filter.fc,
+    // m_parameters.wrench.notch_filter.Q,
+    // get_update_rate());
+    m_low_pass_filters.emplace_back();
   }
 
   m_split_nax[Side::LEFT] = m_parameters.joints.left.size();
@@ -627,31 +638,6 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_configure(
   m_tf_bcast = std::make_shared<tf2_ros::TransformBroadcaster>(
       get_node()->shared_from_this());
 
-  m_tf_timer = rclcpp::create_timer(
-      get_node(), get_node()->get_clock(),
-      std::chrono::duration<double>(1e1 / (double)get_update_rate()), [this]() {
-        if (m_enable_shared_frame_bcast) {
-
-          geometry_msgs::msg::TransformStamped t;
-          {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            t = tf2::eigenToTransform(m_T_world_shared);
-          }
-          t.header.frame_id = m_parameters.frames.map;
-          t.child_frame_id = SHARED_FRAME_NAME;
-          t.header.stamp = get_node()->get_clock()->now();
-          m_tf_bcast->sendTransform(t);
-        }
-      });
-
-  std::fill_n(m_deadbands.begin(), 3, m_parameters.wrench.deadband[0]);
-  std::fill_n(std::next(m_deadbands.begin(), 3), 3,
-              m_parameters.wrench.deadband[1]);
-  std::fill_n(std::next(m_deadbands.begin(), 6), 3,
-              m_parameters.wrench.deadband[2]);
-  std::fill_n(std::next(m_deadbands.begin(), 9), 3,
-              m_parameters.wrench.deadband[3]);
-
   m_base_use_cmd_ifaces = m_parameters.mobile_base.use_command_interfaces;
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -763,10 +749,20 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(
     configure_after_robot_description_callback(rd);
 
     if (m_parameters.wrench.notch_filter.enable) {
-      std::ranges::for_each(m_wrench_filters, [this](NotchFilter &f) {
-        f.configure(m_parameters.wrench.notch_filter.fc,
-                    m_parameters.wrench.notch_filter.Q, get_update_rate());
-      });
+      // std::ranges::for_each(m_wrench_filters, [this](NotchFilter &f) {
+      // f.configure(m_parameters.wrench.notch_filter.fc,
+      // m_parameters.wrench.notch_filter.Q, get_update_rate());
+    }
+  }
+
+  if (m_parameters.wrench.notch_filter.enable) {
+    // std::ranges::for_each(m_wrench_filters, [this](NotchFilter &f) {
+    // f.configure(m_parameters.wrench.notch_filter.fc,
+    // m_parameters.wrench.notch_filter.Q, get_update_rate());
+    for (int idx = 0; idx < m_low_pass_filters.size(); idx++) {
+      m_low_pass_filters.at(idx).activateFilter(
+          m_deadbands.at(idx), 50.0, m_parameters.wrench.notch_filter.fc, m_dt,
+          0.0);
     }
   }
 
@@ -895,7 +891,7 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(
   m_T_left_shared = T_world_left.inverse() * T_world_shared;
   m_T_right_shared_ideal = T_world_right.inverse() * T_world_shared;
 
-  m_enable_shared_frame_bcast = m_parameters.enable_shared_frame_broadcast;
+  m_enable_shared_frame_bcast.store(m_parameters.enable_shared_frame_broadcast);
 
   // Eigen::Vector3d p_left_shared_in_world =
   // -utils::get_frame_distance(T_world_shared, T_world_left).head<3>();
@@ -948,11 +944,24 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(
 
     for (int idx = 0; idx < offset_force_window; ++idx) {
       Eigen::Vector12d wr = get_wrenches();
+      if (wr.hasNaN()) {
+        LOG_WARN_THROTTLE_COUNT(get_node()->get_logger(),
+                                get_node()->get_clock(), 1,
+                                "Got NaN from sensor. Replacing with zeros");
+        wr.setZero();
+      }
       // Notch
       if (m_parameters.wrench.notch_filter.enable) {
+        // std::transform(
+        //     wr.begin(), wr.end(), m_wrench_filters.begin(), wr.begin(),
+        //     [](const double w, NotchFilter &f) { return f.update(w); });
+        // -----
         std::transform(
-            wr.begin(), wr.end(), m_wrench_filters.begin(), wr.begin(),
-            [](const double w, NotchFilter &f) { return f.update(w); });
+            wr.begin(), wr.end(), m_low_pass_filters.begin(), wr.begin(),
+            [](const double w, eigen_control_toolbox::FilteredScalar &f) {
+              f.update(w);
+              return f.getUpdatedValue();
+            });
       }
 
       // Exponential filter
@@ -1011,6 +1020,23 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(
                              m_qp.tail(m_nax), Eigen::VectorXd::Zero(m_nax))
                                 .finished());
 
+  m_tf_timer = rclcpp::create_timer(
+      get_node(), get_node()->get_clock(),
+      std::chrono::duration<double>(1e1 / (double)get_update_rate()), [this]() {
+        if (m_enable_shared_frame_bcast.load()) {
+
+          geometry_msgs::msg::TransformStamped t;
+          {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            t = tf2::eigenToTransform(m_T_world_shared);
+          }
+          t.header.frame_id = m_parameters.frames.map;
+          t.child_frame_id = SHARED_FRAME_NAME;
+          t.header.stamp = get_node()->get_clock()->now();
+          m_tf_bcast->sendTransform(t);
+        }
+      });
+
   m_pos_task_slider.init(1, 1e1, 1e-4, utils::Slider::SliderFunction::SIGMOID);
   RCLCPP_DEBUG(get_node()->get_logger(), "Activated...");
   return controller_interface::CallbackReturn::SUCCESS;
@@ -1019,6 +1045,9 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_activate(
 controller_interface::CallbackReturn ElastoplasticControllerDual::on_deactivate(
     const rclcpp_lifecycle::State & /*previous_state*/) {
   m_interpolator.end_plan();
+  for (int idx = 0; idx < m_low_pass_filters.size(); idx++) {
+    m_low_pass_filters.at(idx).deactivateFilter();
+  }
 
   std::transform(m_joint_state_interfaces.at(0).begin(),
                  m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
@@ -1052,7 +1081,8 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_deactivate(
     write_cmd_vel(Eigen::Vector3d::Zero());
   }
 
-  m_enable_shared_frame_bcast = false;
+  m_enable_shared_frame_bcast.store(false);
+  m_tf_timer = nullptr;
 
   m_rt_pub_full_state->stop();
 
@@ -1424,10 +1454,18 @@ ElastoplasticControllerDual::update_and_write_commands(
 
   // Notch filter
   if (m_parameters.wrench.notch_filter.enable) {
-    std::transform(wrench_sensor_in_sensor.begin(),
-                   wrench_sensor_in_sensor.end(), m_wrench_filters.begin(),
-                   wrench_sensor_in_sensor.begin(),
-                   [](const double w, NotchFilter &f) { return f.update(w); });
+    // std::transform(wrench_sensor_in_sensor.begin(),
+    //  wrench_sensor_in_sensor.end(), m_wrench_filters.begin(),
+    //  wrench_sensor_in_sensor.begin(),
+    //  [](const double w, NotchFilter &f) { return f.update(w); });
+    // ----
+    std::transform(
+        wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(),
+        m_low_pass_filters.begin(), wrench_sensor_in_sensor.begin(),
+        [](const double w, eigen_control_toolbox::FilteredScalar &f) {
+          f.update(w);
+          return f.getUpdatedValue();
+        });
   }
 
   // Exponential filter
@@ -1536,8 +1574,12 @@ ElastoplasticControllerDual::update_and_write_commands(
     // this->on_deactivate(rclcpp_lifecycle::State());
     // throw std::runtime_error("Controller crashed");
     // m_qp.setZero();
-    m_qpp.setZero();
-    m_computed_target_acc_shared_world_in_world.setZero();
+    // m_qpp.setZero();
+    // m_computed_target_acc_shared_world_in_world.setZero();
+    m_admittance_value.setZero();
+    m_qpp = -m_qp / m_dt;
+    m_computed_target_acc_shared_world_in_world =
+        -m_computed_target_twist_shared_world_in_world / m_dt;
   } else {
     Eigen::VectorXd qepp = solution_qp.value().head(m_full_nax);
     m_computed_target_acc_shared_world_in_world =
@@ -1659,13 +1701,13 @@ ElastoplasticControllerDual::update_and_write_commands(
         utils::twist_from_base_velocity(m_velocity_base_in_base);
 
     bool is_mobile_base_write_ok = write_cmd_vel(m_velocity_base_in_base);
-    if (!is_mobile_base_write_ok) {
-      write_cmd_vel(Eigen::Vector3d::Zero());
-      LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(),
-                               get_node()->get_clock(), 1,
-                               "Problem occurred while writing on mobile base "
-                               "interfaces! Stopping the movement");
-    }
+    // if (!is_mobile_base_write_ok) {
+    //   write_cmd_vel(Eigen::Vector3d::Zero());
+    //   LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(),
+    //                            get_node()->get_clock(), 1,
+    //                            "Problem occurred while writing on mobile base
+    //                            " "interfaces! Stopping the movement");
+    // }
 
     m_T_world_base =
         rdyn::spatialIntegration(m_T_world_base, base_twist_in_base, m_dt);

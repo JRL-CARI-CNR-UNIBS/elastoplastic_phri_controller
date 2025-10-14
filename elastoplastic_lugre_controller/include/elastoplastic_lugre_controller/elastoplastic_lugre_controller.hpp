@@ -7,6 +7,7 @@
 #include "elastoplastic_lugre_controller/utils.hpp"
 #include "elastoplastic_parameters.hpp"
 #include "elastoplastic_variable_model.hpp"
+#include <state_space_filters/filtered_values.h>
 
 // fundamental libs
 #include "Eigen/Dense"
@@ -201,6 +202,7 @@ private:
   };
 
   std::vector<NotchFilter> m_wrench_filters;
+  std::vector<eigen_control_toolbox::FilteredScalar> m_low_pass_filters;
 
   Eigen::Vector6d m_zp;
 

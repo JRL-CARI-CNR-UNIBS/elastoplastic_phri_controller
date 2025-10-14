@@ -7,6 +7,7 @@
 #include "elastoplastic_lugre_controller/notch_filter.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
 #include "elastoplastic_variable_model.hpp"
+#include <state_space_filters/filtered_values.h>
 
 // fundamental libs
 #include "Eigen/Dense"
@@ -86,7 +87,7 @@ private:
   rclcpp::Time m_last_odom_msg_time;
 
   std::shared_ptr<tf2_ros::TransformBroadcaster> m_tf_bcast;
-  bool m_enable_shared_frame_bcast;
+  std::atomic<bool> m_enable_shared_frame_bcast;
   std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
@@ -285,6 +286,7 @@ private:
   Eigen::Affine3d m_T_world_shared;
 
   std::vector<NotchFilter> m_wrench_filters;
+  std::vector<eigen_control_toolbox::FilteredScalar> m_low_pass_filters;
 
 public:
   ElastoplasticControllerDual() = default;

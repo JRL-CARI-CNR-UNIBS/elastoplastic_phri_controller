@@ -11,7 +11,7 @@ elastoplastic_controller_dual:
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
     ft_sensor_names:
-    - wrist_left_ft_sensor
+    - arm_left_robotiq_ft_sensor
     - robotiq_ft_sensor
     ft_invert_sign: false
     frames:
@@ -20,9 +20,9 @@ elastoplastic_controller_dual:
       fork: torso_lift_link
       tools:
       - arm_left_tool_link
-      - robotiq_ft_frame_id
+      - arm_right_tool_link
       sensors:
-      - wrist_left_ft_sensor_link
+      - arm_left_tool_link
       - robotiq_ft_frame_id
     joints:
       left:
@@ -95,7 +95,7 @@ elastoplastic_controller_dual:
       - "mobile_base_controller/linear/y"
       - "mobile_base_controller/angular/z"
       max_vel:
-        linear: [0.5, 0.5]
+        linear: [0.8, 0.8]
         angular: 0.2
       max_acc_x: 0.5
       max_dec_x: 0.5
@@ -103,13 +103,14 @@ elastoplastic_controller_dual:
       max_dec_y: 0.5
       max_acc_yaw: 0.5
       max_dec_yaw: 0.5
+    enable_shared_frame_broadcast: true
     wrench:
       deadband: [2.0, 2.0, 2.0, 2.0]
       filter_alfa: 0.2
       source: "ft_sensor"
-      notch_filter:
+      notch_filter: # low pass filter
         enable: true
-        fc: 3.45
+        fc: 3.0 #3.45
         Q: 1.0
     impedance:
       enable_axis: [true, true, true, false, false, false]
@@ -145,7 +146,7 @@ elastoplastic_controller_dual:
       reset:
         time: 5.0
         threshold: 1e0
-      plastic_restoration: true
+      plastic_restoration: false
     offset_force_window: 2.0 # seconds
     clik:
       alpha_gain: 1.0e6

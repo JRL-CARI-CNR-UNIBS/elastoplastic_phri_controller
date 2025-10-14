@@ -4,7 +4,6 @@
 #include "Eigen/Core"
 #include "elastoplastic_lugre_controller/elastoplastic_variable_model.hpp"
 
-
 #include <numeric>
 
 // Helpers to get unique names when using __LINE__
@@ -12,67 +11,74 @@
 #define UNIQUE_NAME(base) _CONCAT(base, __LINE__)
 
 // Throttled ERROR with a call-count
-#define LOG_ERROR_THROTTLE_COUNT(logger, clock, period_sec, message)                                                             \
-  do {                                                                                                                           \
-    /* static variables per call-site */                                                                                         \
-    static rclcpp::Time UNIQUE_NAME(_last_time_) = rclcpp::Time(0, 0, RCL_ROS_TIME);                                             \
-    static size_t UNIQUE_NAME(_call_count_) = 0;                                                                                 \
-                                                                                                                                 \
-    /* increment counter */                                                                                                      \
-    UNIQUE_NAME(_call_count_)++;                                                                                                 \
-                                                                                                                                 \
-    /* current time */                                                                                                           \
-    auto UNIQUE_NAME(_now_) = clock->now();                                                                                      \
-                                                                                                                                 \
-    /* if enough time has elapsed… */                                                                                          \
-    if ((UNIQUE_NAME(_now_) - UNIQUE_NAME(_last_time_)).seconds() >= (period_sec)) {                                             \
-      /* log the count + your message */                                                                                         \
-      RCLCPP_ERROR_STREAM((logger), "Throttled over " << (period_sec)                                                            \
-                                                      << "s: "                                                                   \
-                                                         "("                                                                     \
-                                                      << UNIQUE_NAME(_call_count_) << " calls) " << message);                    \
-                                                                                                                                 \
-      /* reset */                                                                                                                \
-      UNIQUE_NAME(_last_time_) = UNIQUE_NAME(_now_);                                                                             \
-      UNIQUE_NAME(_call_count_) = 0;                                                                                             \
-    }                                                                                                                            \
+#define LOG_ERROR_THROTTLE_COUNT(logger, clock, period_sec, message)           \
+  do {                                                                         \
+    /* static variables per call-site */                                       \
+    static rclcpp::Time UNIQUE_NAME(_last_time_) =                             \
+        rclcpp::Time(0, 0, RCL_ROS_TIME);                                      \
+    static size_t UNIQUE_NAME(_call_count_) = 0;                               \
+                                                                               \
+    /* increment counter */                                                    \
+    UNIQUE_NAME(_call_count_)++;                                               \
+                                                                               \
+    /* current time */                                                         \
+    auto UNIQUE_NAME(_now_) = clock->now();                                    \
+                                                                               \
+    /* if enough time has elapsed… */                                        \
+    if ((UNIQUE_NAME(_now_) - UNIQUE_NAME(_last_time_)).seconds() >=           \
+        (period_sec)) {                                                        \
+      /* log the count + your message */                                       \
+      RCLCPP_ERROR_STREAM((logger), "Throttled over "                          \
+                                        << (period_sec)                        \
+                                        << "s: "                               \
+                                           "("                                 \
+                                        << UNIQUE_NAME(_call_count_)           \
+                                        << " calls) " << message);             \
+                                                                               \
+      /* reset */                                                              \
+      UNIQUE_NAME(_last_time_) = UNIQUE_NAME(_now_);                           \
+      UNIQUE_NAME(_call_count_) = 0;                                           \
+    }                                                                          \
   } while (false)
 
-#define LOG_WARN_THROTTLE_COUNT(logger, clock, period_sec, message)                                                             \
-  do {                                                                                                                           \
-    /* static variables per call-site */                                                                                         \
-    static rclcpp::Time UNIQUE_NAME(_last_time_) = rclcpp::Time(0, 0, RCL_ROS_TIME);                                             \
-    static size_t UNIQUE_NAME(_call_count_) = 0;                                                                                 \
-                                                                                                                                 \
-    /* increment counter */                                                                                                      \
-    UNIQUE_NAME(_call_count_)++;                                                                                                 \
-                                                                                                                                 \
-    /* current time */                                                                                                           \
-    auto UNIQUE_NAME(_now_) = clock->now();                                                                                      \
-                                                                                                                                 \
-    /* if enough time has elapsed… */                                                                                          \
-    if ((UNIQUE_NAME(_now_) - UNIQUE_NAME(_last_time_)).seconds() >= (period_sec)) {                                             \
-      /* log the count + your message */                                                                                         \
-      RCLCPP_WARN_STREAM((logger), "Throttled over " << (period_sec)                                                            \
-                                                      << "s: "                                                                   \
-                                                         "("                                                                     \
-                                                      << UNIQUE_NAME(_call_count_) << " calls) " << message);                    \
-                                                                                                                                 \
-      /* reset */                                                                                                                \
-      UNIQUE_NAME(_last_time_) = UNIQUE_NAME(_now_);                                                                             \
-      UNIQUE_NAME(_call_count_) = 0;                                                                                             \
-    }                                                                                                                            \
+#define LOG_WARN_THROTTLE_COUNT(logger, clock, period_sec, message)            \
+  do {                                                                         \
+    /* static variables per call-site */                                       \
+    static rclcpp::Time UNIQUE_NAME(_last_time_) =                             \
+        rclcpp::Time(0, 0, RCL_ROS_TIME);                                      \
+    static size_t UNIQUE_NAME(_call_count_) = 0;                               \
+                                                                               \
+    /* increment counter */                                                    \
+    UNIQUE_NAME(_call_count_)++;                                               \
+                                                                               \
+    /* current time */                                                         \
+    auto UNIQUE_NAME(_now_) = clock->now();                                    \
+                                                                               \
+    /* if enough time has elapsed… */                                        \
+    if ((UNIQUE_NAME(_now_) - UNIQUE_NAME(_last_time_)).seconds() >=           \
+        (period_sec)) {                                                        \
+      /* log the count + your message */                                       \
+      RCLCPP_WARN_STREAM((logger), "Throttled over "                           \
+                                       << (period_sec)                         \
+                                       << "s: "                                \
+                                          "("                                  \
+                                       << UNIQUE_NAME(_call_count_)            \
+                                       << " calls) " << message);              \
+                                                                               \
+      /* reset */                                                              \
+      UNIQUE_NAME(_last_time_) = UNIQUE_NAME(_now_);                           \
+      UNIQUE_NAME(_call_count_) = 0;                                           \
+    }                                                                          \
   } while (false)
-
 
 namespace Eigen {
-using Vector6d = Vector<double,6>;
+using Vector6d = Vector<double, 6>;
 using Vector12d = Vector<double, 12>;
 using Matrix12d = Matrix<double, 12, 12>;
 using Matrix126d = Matrix<double, 12, 6>;
 using Matrix612d = Matrix<double, 6, 12>;
 using Matrix12Xd = Matrix<double, 12, Eigen::Dynamic>;
-}
+} // namespace Eigen
 
 namespace elastoplastic::utils {
 
@@ -84,7 +90,9 @@ struct Logistic {
   double slope;
   Eigen::Array3d inflection;
 
-  double get(const Eigen::Array3d& v) { return (max / (1 + Eigen::exp(slope * (v.abs() - inflection)))).minCoeff(); }
+  double get(const Eigen::Array3d &v) {
+    return (max / (1 + Eigen::exp(slope * (v.abs() - inflection)))).minCoeff();
+  }
 };
 
 struct Slider {
@@ -100,7 +108,8 @@ struct Slider {
   } slider_fun;
 
   Slider() = default;
-  void init(const double dir, const double i_gain, const double i_dx, const SliderFunction& fun) {
+  void init(const double dir, const double i_gain, const double i_dx,
+            const SliderFunction &fun) {
     gain = i_gain;
     dx = i_dx;
     slider_fun = fun;
@@ -108,16 +117,14 @@ struct Slider {
   }
 
   double get() {
-    if(slider_fun == SliderFunction::SIGMOID){
+    if (slider_fun == SliderFunction::SIGMOID) {
       return sigmoid();
     } else {
       return linear();
     }
   }
 
-  double operator()() { 
-    return get();
-  }
+  double operator()() { return get(); }
   double update(const int dir) {
     x += dir > 0 ? dx : -dx;
     x = std::clamp(x, X_MIN, X_MAX);
@@ -126,20 +133,25 @@ struct Slider {
   void reset(const int dir) { x = dir > 0 ? X_MIN : X_MAX; }
 
 private:
-  double sigmoid() { return gain * 0.5 * (std::cos((x - X_MIN) * std::numbers::pi / (X_MAX - X_MIN)) + 1); }
-  double linear() {return gain * x;}
+  double sigmoid() {
+    return gain * 0.5 *
+           (std::cos((x - X_MIN) * std::numbers::pi / (X_MAX - X_MIN)) + 1);
+  }
+  double linear() { return gain * x; }
 };
 
 /* == LIE OPERATORS == */
-inline Eigen::Matrix3d hat(const Eigen::Vector3d& w) {
+inline Eigen::Matrix3d hat(const Eigen::Vector3d &w) {
   Eigen::Matrix3d W;
   W << 0, -w.z(), w.y(), w.z(), 0, -w.x(), -w.y(), w.x(), 0;
   return W;
 }
 
-inline Eigen::Vector3d vee(const Eigen::Matrix3d& W) { return Eigen::Vector3d({W(2, 1), W(0, 2), W(1, 0)}); }
+inline Eigen::Vector3d vee(const Eigen::Matrix3d &W) {
+  return Eigen::Vector3d({W(2, 1), W(0, 2), W(1, 0)});
+}
 
-inline Eigen::Affine3d lieExp(const Eigen::Matrix<double, 6, 1>& xi) {
+inline Eigen::Affine3d lieExp(const Eigen::Matrix<double, 6, 1> &xi) {
   const Eigen::Vector3d omega = xi.template head<3>();
   const Eigen::Vector3d v = xi.template tail<3>();
   const double theta = omega.norm();
@@ -160,10 +172,12 @@ inline Eigen::Affine3d lieExp(const Eigen::Matrix<double, 6, 1>& xi) {
     const double c = std::cos(theta);
 
     // Rodrigues’ formula
-    R = Eigen::Matrix3d::Identity() + (s / theta) * W + ((1 - c) / (theta * theta)) * W2;
+    R = Eigen::Matrix3d::Identity() + (s / theta) * W +
+        ((1 - c) / (theta * theta)) * W2;
 
     // left‐Jacobian J = I + (1−cosθ)/θ² W + (θ−sinθ)/θ³ W²
-    J = Eigen::Matrix3d::Identity() + ((1 - c) / (theta * theta)) * W + ((theta - s) / (theta * theta * theta)) * W2;
+    J = Eigen::Matrix3d::Identity() + ((1 - c) / (theta * theta)) * W +
+        ((theta - s) / (theta * theta * theta)) * W2;
   }
 
   // build the final transform
@@ -180,15 +194,19 @@ inline Eigen::Affine3d lieExp(const Eigen::Matrix<double, 6, 1>& xi) {
  */
 template <typename T> constexpr T constAbs(T x) { return (x < 0 ? -x : x); }
 
-// Return true if the difference between a and b is within epsilon percent of the larger of a and b
+// Return true if the difference between a and b is within epsilon percent of
+// the larger of a and b
 constexpr bool approximately_equal_rel(double a, double b, double relEpsilon) {
   return (constAbs(a - b) <= (std::max(constAbs(a), constAbs(b)) * relEpsilon));
 }
 
-// Return true if the difference between a and b is less than or equal to absEpsilon, or within relEpsilon percent of the larger
-// of a and b
-constexpr bool almost_equal(double a, double b, double absEpsilon = K_ABS_EPSILON, double relEpsilon = K_REL_EPSILON) {
-  // Check if the numbers are really close -- needed when comparing numbers near zero.
+// Return true if the difference between a and b is less than or equal to
+// absEpsilon, or within relEpsilon percent of the larger of a and b
+constexpr bool almost_equal(double a, double b,
+                            double absEpsilon = K_ABS_EPSILON,
+                            double relEpsilon = K_REL_EPSILON) {
+  // Check if the numbers are really close -- needed when comparing numbers near
+  // zero.
   if (constAbs(a - b) <= absEpsilon)
     return true;
 
@@ -196,31 +214,33 @@ constexpr bool almost_equal(double a, double b, double absEpsilon = K_ABS_EPSILO
   return approximately_equal_rel(a, b, relEpsilon);
 }
 
-constexpr bool almost_zero(const double a, const double absEpsilon = K_ABS_EPSILON) { return a < absEpsilon; }
-
+constexpr bool almost_zero(const double a,
+                           const double absEpsilon = K_ABS_EPSILON) {
+  return a < absEpsilon;
+}
 
 template <typename T> int sgn(T val) { return (T(0) < val) - (val < T(0)); }
 
-
 // Eigen::MatrixXd& regularize(Eigen::MatrixXd& m) {
-//   m += Eigen::MatrixXd::Identity(m.rows(), m.cols()) * K_REL_EPSILON * m.trace() / m.cols();
-//   return m;
+//   m += Eigen::MatrixXd::Identity(m.rows(), m.cols()) * K_REL_EPSILON *
+//   m.trace() / m.cols(); return m;
 // }
 
+inline Eigen::Vector3d base_velocity_from_twist(const Eigen::Vector6d &p_w) {
+  return p_w({0, 1, 5});
+}
 
-inline Eigen::Vector3d base_velocity_from_twist(const Eigen::Vector6d& p_w) { return p_w({0, 1, 5}); }
-
-
-inline Eigen::Vector6d twist_from_base_velocity(const Eigen::Vector3d& p_v) {
-  return Eigen::Vector6d {p_v(0), p_v(1), 0, 0, 0, p_v(2)};
+inline Eigen::Vector6d twist_from_base_velocity(const Eigen::Vector3d &p_v) {
+  return Eigen::Vector6d{p_v(0), p_v(1), 0, 0, 0, p_v(2)};
 }
 
 /**
- * @brief Convert from Rototranslation matrix to 6d vector. Angular convention: rotation vector (= angle * axis)
+ * @brief Convert from Rototranslation matrix to 6d vector. Angular convention:
+ * rotation vector (= angle * axis)
  * @param m
  * @return
  */
-inline Eigen::Vector6d vector_from_affine(const Eigen::Affine3d& m) {
+inline Eigen::Vector6d vector_from_affine(const Eigen::Affine3d &m) {
   Eigen::AngleAxisd aa(m.linear());
   Eigen::Vector6d v;
   v << m.translation(), aa.angle() * aa.axis();
@@ -233,7 +253,7 @@ inline Eigen::Vector6d vector_from_affine(const Eigen::Affine3d& m) {
  * @param v  6d vector [tx, ty, tz,  ωx,  ωy,  ωz] where ω = angle*axis
  * @return   Affine3d with translation and rotation
  */
-inline Eigen::Affine3d affine_from_vector(const Eigen::Vector6d& v) {
+inline Eigen::Affine3d affine_from_vector(const Eigen::Vector6d &v) {
   // Extract rotation-vector
   Eigen::Vector3d rot = v.tail<3>();
   double angle = rot.norm();
@@ -259,7 +279,8 @@ inline Eigen::Affine3d affine_from_vector(const Eigen::Vector6d& v) {
  * Template parameters are deduced automatically.
  *
  * @tparam  Func  any callable object with signature  T (const T& x, const T& u)
- * @tparam  T     the state (and input) type – can be a scalar or any Eigen vector/matrix
+ * @tparam  T     the state (and input) type – can be a scalar or any Eigen
+ * vector/matrix
  *
  * @param   fun   derivative function  dx/dt = fun(x,u)
  * @param   x     current state
@@ -268,7 +289,8 @@ inline Eigen::Affine3d affine_from_vector(const Eigen::Vector6d& v) {
  *
  * @return  state after one RK4 step of length dt
  */
-template <typename Func, typename T> constexpr T rk4(Func&& fun, const T& x, const T& u, double dt) {
+template <typename Func, typename T>
+constexpr T rk4(Func &&fun, const T &x, const T &u, double dt) {
   const T k1 = std::forward<Func>(fun)(x, u);
   const T k2 = std::forward<Func>(fun)(x + (dt * 0.5) * k1, u);
   const T k3 = std::forward<Func>(fun)(x + (dt * 0.5) * k2, u);
@@ -285,9 +307,13 @@ template <typename T> struct Rk4State2 {
   T v; // velocity (integral of acceleration)
 
   /* algebra needed by RK4 -------------------------------------------------- */
-  friend constexpr Rk4State2 operator+(const Rk4State2& a, const Rk4State2& b) { return {a.x + b.x, a.v + b.v}; }
+  friend constexpr Rk4State2 operator+(const Rk4State2 &a, const Rk4State2 &b) {
+    return {a.x + b.x, a.v + b.v};
+  }
 
-  friend constexpr Rk4State2 operator*(double k, const Rk4State2& s) { return {k * s.x, k * s.v}; }
+  friend constexpr Rk4State2 operator*(double k, const Rk4State2 &s) {
+    return {k * s.x, k * s.v};
+  }
 };
 
 /* ──────────────────────────────────────────────────────────────────────────────
@@ -312,12 +338,15 @@ template <typename T> struct Rk4State2 {
  * @return  pair  {x_next, v_next}
  */
 template <typename Acc, typename T>
-constexpr std::pair<T, T> rk4_double(Acc&& acc, // a = acc(x,v,u)
-                                     const T& x, const T& v, const T& u, double dt) {
+constexpr std::pair<T, T> rk4_double(Acc &&acc, // a = acc(x,v,u)
+                                     const T &x, const T &v, const T &u,
+                                     double dt) {
   using S = Rk4State2<T>;
 
   /* first-order system:  d/dt [x;v] = [v; a(x,v,u)] */
-  auto sys = [&](const S& s, const T& u_in) -> S { return {s.v, std::forward<Acc>(acc)(s.x, s.v, u_in)}; };
+  auto sys = [&](const S &s, const T &u_in) -> S {
+    return {s.v, std::forward<Acc>(acc)(s.x, s.v, u_in)};
+  };
 
   const S s0{x, v};
 
@@ -331,13 +360,16 @@ constexpr std::pair<T, T> rk4_double(Acc&& acc, // a = acc(x,v,u)
   return {s_next.x, s_next.v};
 }
 
-inline void get_frame_distance(const Eigen::Affine3d& T_wa, const Eigen::Affine3d& T_wb, Eigen::Ref<Eigen::Vector6d> v) {
+inline void get_frame_distance(const Eigen::Affine3d &T_wa,
+                               const Eigen::Affine3d &T_wb,
+                               Eigen::Ref<Eigen::Vector6d> v) {
   v.head<3>() = T_wa.translation() - T_wb.translation();
   Eigen::AngleAxisd aa(T_wb.linear().transpose() * T_wa.linear());
   v.tail<3>() = T_wb.linear() * (aa.angle() * aa.axis());
 }
 
-inline Eigen::Vector6d get_frame_distance(const Eigen::Affine3d& T_wa, const Eigen::Affine3d& T_wb) {
+inline Eigen::Vector6d get_frame_distance(const Eigen::Affine3d &T_wa,
+                                          const Eigen::Affine3d &T_wb) {
   Eigen::Vector6d v;
   get_frame_distance(T_wa, T_wb, v);
   return v;

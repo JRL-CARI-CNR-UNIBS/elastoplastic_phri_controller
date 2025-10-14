@@ -12,6 +12,7 @@ package_name = 'elastoplastic_lugre_controller'
 def generate_launch_description():
 
   launch_args = [
+    DeclareLaunchArgument(name='frame', default_value='robotiq_ft_frame_id', description='Frame to plan for')
   ]
 
   launch_actions = [
@@ -28,7 +29,7 @@ def launch_setup(context):
     package=support_package,
     executable='generate_cartesian_trajectory',
     parameters=[{
-      'frame' : 'robotiq_ft_frame_id',
+      'frame' : LaunchConfiguration('frame'),
       'world_frame' : 'map',
       'axis' : [1,1,1,0,0,0],
     }],
