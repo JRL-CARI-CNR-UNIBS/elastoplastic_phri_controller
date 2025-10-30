@@ -20,4 +20,7 @@ geometry_msgs/Pose  cart_actual_cmd_pose
 geometry_msgs/Twist cart_actual_cmd_twist
 geometry_msgs/Twist cart_actual_cmd_acc
 
+geometry_msgs/Pose  cart_actual_pose
+geometry_msgs/Twist cart_actual_twist
+
 sensor_msgs/JointState joint_reference
