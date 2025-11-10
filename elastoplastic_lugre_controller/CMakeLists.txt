@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(BUILD_TESTING OFF)
 
+option(BUILD_ADAPTIVE_HQP "Build adaptive pseudo-admittance controller" ON)
 option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" ON)
 
 
@@ -44,6 +45,7 @@ find_package(eiquadprog                  REQUIRED)
 find_package(Eigen3 3.4                  REQUIRED)
 
 find_package(state_observers             REQUIRED)
+find_package(cnr_control_toolbox         REQUIRED)
 find_package(Boost REQUIRED COMPONENTS container)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -172,11 +174,43 @@ target_include_directories(elastoplastic_controller_dual PUBLIC
 target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 target_compile_definitions(elastoplastic_controller_dual PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
+if(BUILD_ADAPTIVE_HQP)
+  find_package(pinocchio REQUIRED)
+  add_library(adaptive_hqp SHARED
+    include/adaptive_hqp/adaptive_hqp.hpp
+    src/adaptive_hqp/adaptive_hqp.cpp
+    src/adaptive_hqp/hqp.cpp
+    ${COMMON_FILES})
+  add_library(adaptive_hqp::adaptive_hqp ALIAS adaptive_hqp)
+
+  ament_target_dependencies(adaptive_hqp PUBLIC
+    ${AMENT_LIBS}
+  )
+
+  target_link_libraries(adaptive_hqp PUBLIC
+    elastoplastic_parameters
+    pinocchio::pinocchio
+    PUBLIC ${RDYN_CONDITIONAL_TARGET}
+    PUBLIC Eigen3::Eigen
+    PUBLIC fmt::fmt
+    PUBLIC eiquadprog::eiquadprog
+    PUBLIC state_space_filters::state_space_filters
+  )
+
+  target_include_directories(adaptive_hqp PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
+
+  set(ADAPTIVE_HQP_TARGETS adaptive_hqp)
+  pluginlib_export_plugin_description_file(controller_interface others.plugin.xml)
+endif()
+
 install(TARGETS 
   elastoplastic_controller 
   elastoplastic_parameters 
   elastoplastic_controller_dual 
   elastoplastic_dual_parameters
+  ${ADAPTIVE_HQP_TARGETS}
         EXPORT export_elastoplastic_controller
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
@@ -209,7 +243,8 @@ ament_export_dependencies(#controller_interface
   elastoplastic_msgs
 )
 
-if(ON)
+
+if(BUILD_TESTING)
   find_package(ament_cmake_gmock REQUIRED)
   find_package(controller_manager_msgs REQUIRED)
   find_package(controller_manager REQUIRED)

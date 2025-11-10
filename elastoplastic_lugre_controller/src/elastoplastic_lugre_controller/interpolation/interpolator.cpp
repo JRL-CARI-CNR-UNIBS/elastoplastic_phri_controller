@@ -1,20 +1,23 @@
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
+#include "rdyn_core/spacevect_algebra.h"
 #include <cmath>
 
 #define DEBUG
 namespace elastoplastic::utils::interpolation {
 
-Interpolator::Interpolator(const Trajectory& plan) { this->set_plan(plan); }
+Interpolator::Interpolator(const Trajectory &plan) { this->set_plan(plan); }
 
-Interpolator::Interpolator(): m_state(State::Empty) {}
+Interpolator::Interpolator() : m_state(State::Empty) {}
 
-void Interpolator::set_plan(const Trajectory& plan) {
+void Interpolator::set_plan(const Trajectory &plan) {
   m_plan = plan;
-  m_coeff_rot_spline = prepare_lie_spline(plan.pose, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+  m_coeff_rot_spline = prepare_lie_spline(plan.pose, Eigen::Vector3d::Zero(),
+                                          Eigen::Vector3d::Zero());
   m_state = State::Available;
 }
 
-Interpolator Interpolator::from_msg(const moveit_msgs::msg::CartesianTrajectory& trj) {
+Interpolator
+Interpolator::from_msg(const moveit_msgs::msg::CartesianTrajectory &trj) {
   Trajectory plan;
   size_t size = trj.points.size();
   plan.clear();
@@ -22,21 +25,26 @@ Interpolator Interpolator::from_msg(const moveit_msgs::msg::CartesianTrajectory&
   for (size_t idx = 0; idx < size; ++idx) {
     tf2::fromMsg(trj.points.at(idx).point.pose, plan.pose.at(idx));
     tf2::fromMsg(trj.points.at(idx).point.velocity, plan.twist.at(idx));
-    //    tf2::fromMsg(trj.points.at(idx).point.acceleration, m_plan.acc.at(idx));
-    plan.time.at(idx) = rclcpp::Time(trj.points.at(idx).time_from_start.sec, trj.points.at(idx).time_from_start.nanosec);
+    //    tf2::fromMsg(trj.points.at(idx).point.acceleration,
+    //    m_plan.acc.at(idx));
+    plan.time.at(idx) =
+        rclcpp::Time(trj.points.at(idx).time_from_start.sec,
+                     trj.points.at(idx).time_from_start.nanosec);
   }
-  std::cerr << "New interpolator created from msg, with " << size << "points." << std::endl;
+  std::cerr << "New interpolator created from msg, with " << size << "points."
+            << std::endl;
 
   Interpolator inter(plan);
   return inter;
 }
 
-void Interpolator::start_plan(const rclcpp::Time& time) {
+void Interpolator::start_plan(const rclcpp::Time &time) {
   m_plan.start = time;
   m_state = State::Started;
 }
 
-Interpolator Interpolator::clone_with_transform(const geometry_msgs::msg::TransformStamped& tf) {
+Interpolator Interpolator::clone_with_transform(
+    const geometry_msgs::msg::TransformStamped &tf) {
   Trajectory new_plan;
   new_plan.resize(m_plan.size());
   for (size_t idx = 0; idx < new_plan.size(); ++idx) {
@@ -44,7 +52,8 @@ Interpolator Interpolator::clone_with_transform(const geometry_msgs::msg::Transf
     Eigen::Isometry3d tf_eigen = tf2::transformToEigen(tf);
     new_plan.pose.at(idx) = m_plan.pose.at(idx) * tf_eigen;
     // map -> object * object -> grasp
-    new_plan.twist.at(idx) = rdyn::spatialTranslation(m_plan.twist.at(idx), tf_eigen.translation());
+    new_plan.twist.at(idx) =
+        rdyn::spatialTranslation(m_plan.twist.at(idx), tf_eigen.translation());
     new_plan.time.at(idx) = m_plan.time.at(idx);
   }
   return Interpolator(new_plan);
@@ -53,8 +62,11 @@ Interpolator Interpolator::clone_with_transform(const geometry_msgs::msg::Transf
 // ----------------------------------------------------------------------------
 // Cubic interpolation: returns θ(s) = as + bs² + cs³
 // with a,b,c from eqs. (7a)–(7c), using Θ = log(CsᵀCf), Θ̇ = A(Θ) ωf
-Eigen::Vector3d interpolateRotationVector(const Eigen::Matrix3d& Cs, const Eigen::Matrix3d& Cf, const Eigen::Vector3d& ws,
-                                          const Eigen::Vector3d& wf, double s, double T) {
+Eigen::Vector3d interpolateRotationVector(const Eigen::Matrix3d &Cs,
+                                          const Eigen::Matrix3d &Cf,
+                                          const Eigen::Vector3d &ws,
+                                          const Eigen::Vector3d &wf, double s,
+                                          double T) {
   // total rotation vector Θ = log(Csᵀ Cf)           (5d, 7b–c)
   Eigen::Vector3d theta = so3Log(Cs.transpose() * Cf);
 
@@ -70,12 +82,9 @@ Eigen::Vector3d interpolateRotationVector(const Eigen::Matrix3d& Cs, const Eigen
   return a * s + b * s * s + c * s * s * s;
 }
 
-
-
-
-
-Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& now, Eigen::Vector6d& acc, Eigen::Vector6d& twist,
-                                                            Eigen::Affine3d& pose) {
+Interpolator::InterpolationResult
+Interpolator::interpolate(const rclcpp::Time &now, Eigen::Vector6d &acc,
+                          Eigen::Vector6d &twist, Eigen::Affine3d &pose) {
   if (m_state == State::Empty || m_state == State::Available) {
     std::cerr << "[Interpolator]: Interpolation not started";
     return InterpolationResult::InterpolatorNotStarted;
@@ -93,8 +102,11 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
     twist.setZero();
     return InterpolationResult::OK;
   } else {
-    idx = std::distance(m_plan.time.begin(), std::find_if(m_plan.time.begin(), m_plan.time.end(),
-                                                          [t_from_start](const auto& time) { return t_from_start < time; }));
+    idx = std::distance(m_plan.time.begin(),
+                        std::find_if(m_plan.time.begin(), m_plan.time.end(),
+                                     [t_from_start](const auto &time) {
+                                       return t_from_start < time;
+                                     }));
     idx = idx == 0 ? 1 : idx;
   }
   if (idx >= m_plan.time.size()) {
@@ -104,8 +116,10 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
     return InterpolationResult::OK;
   }
 
-  // TODO: Cambia tutti i tempi in nanoseconds (così da essere interi e non float)
-  const double delta_time = (m_plan.time.at(idx) - m_plan.time.at(idx - 1)).seconds();
+  // TODO: Cambia tutti i tempi in nanoseconds (così da essere interi e non
+  // float)
+  const double delta_time =
+      (m_plan.time.at(idx) - m_plan.time.at(idx - 1)).seconds();
   const double t = (t_from_start - m_plan.time.at(idx - 1)).seconds();
   const double s = t / delta_time;
 
@@ -120,19 +134,32 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   //  double ds = 0.00; //formula vel
   //  double s = 0.0; // formula pos;
 
-  acc.head<3>() = 6 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * s / std::pow(delta_time, 2) +
-                  2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) / std::pow(delta_time, 2);
-  twist.head<3>() = (3 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * std::pow(s, 2) / delta_time +
-                     2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) * s / delta_time + v0);
-  pose.translation() = (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * std::pow(s, 3) +
-                       (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) * std::pow(s, 2) + delta_time * v0 * s + p0;
+  acc.head<3>() =
+      6 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * s /
+          std::pow(delta_time, 2) +
+      2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) /
+          std::pow(delta_time, 2);
+  twist.head<3>() =
+      (3 * (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) *
+           std::pow(s, 2) / delta_time +
+       2 * (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) * s /
+           delta_time +
+       v0);
+  pose.translation() =
+      (2 * p0 + delta_time * v0 - 2 * p1 + delta_time * v1) * std::pow(s, 3) +
+      (-3 * p0 + 3 * p1 - 2 * delta_time * v0 - delta_time * v1) *
+          std::pow(s, 2) +
+      delta_time * v0 * s + p0;
 
-  const Eigen::Quaterniond r0 = Eigen::Quaterniond(m_plan.pose.at(idx - 1).linear());
-  const Eigen::Quaterniond r1 = Eigen::Quaterniond(m_plan.pose.at(idx).linear());
+  const Eigen::Quaterniond r0 =
+      Eigen::Quaterniond(m_plan.pose.at(idx - 1).linear());
+  const Eigen::Quaterniond r1 =
+      Eigen::Quaterniond(m_plan.pose.at(idx).linear());
   const Eigen::Vector3d vr0 = m_plan.twist.at(idx - 1).tail<3>();
   const Eigen::Vector3d vr1 = m_plan.twist.at(idx).tail<3>();
 
-  auto rotateVector = [](const Eigen::Quaterniond& q, const Eigen::Vector3d& v) {
+  auto rotateVector = [](const Eigen::Quaterniond &q,
+                         const Eigen::Vector3d &v) {
     // Eigen::Quaterniond p(0., v.x(), v.y(), v.z());
     // return (q * p * q.conjugate()).vec();
     return q.conjugate() * v;
@@ -175,23 +202,24 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   // double m3 = (6 * s - 2) / std::pow(delta_time, 2);
 
   // Eigen::AngleAxisd r1_sub_r0 = Eigen::AngleAxisd(r1.inverse() * r0);
-  // Eigen::Vector3d wvec = w1 * r1_sub_r0.angle() * r1_sub_r0.axis() + w2 * vr0 + w3 * vr1;
-  // pose.linear() = Eigen::AngleAxisd(wvec.norm(), wvec.normalized()).toRotationMatrix() * r0;
-  // if (v1 == v0) {
+  // Eigen::Vector3d wvec = w1 * r1_sub_r0.angle() * r1_sub_r0.axis() + w2 * vr0
+  // + w3 * vr1; pose.linear() = Eigen::AngleAxisd(wvec.norm(),
+  // wvec.normalized()).toRotationMatrix() * r0; if (v1 == v0) {
   //   twist.tail<3>() = v0;
   //   acc.tail<3>().setZero();
   // } else {
-  //   twist.tail<3>() = q1 * r1_sub_r0.angle() * r1_sub_r0.axis() + q2 * vr0 + q3 * vr1;
-  //   acc.tail<3>() = m1 * r1_sub_r0.angle() * r1_sub_r0.axis() + m2 * vr0 + m3 * vr1;
+  //   twist.tail<3>() = q1 * r1_sub_r0.angle() * r1_sub_r0.axis() + q2 * vr0 +
+  //   q3 * vr1; acc.tail<3>() = m1 * r1_sub_r0.angle() * r1_sub_r0.axis() + m2
+  //   * vr0 + m3 * vr1;
   // }
 
-
   // Eigen::Vector3d pinterp =
-  // interpolateRotationVector(m_plan.pose.at(idx - 1).linear(), m_plan.pose.at(idx).linear(),
-  // m_plan.twist.at(idx - 1).tail<3>(), m_plan.twist.at(idx).tail<3>(), s, delta_time); pose.linear() =
+  // interpolateRotationVector(m_plan.pose.at(idx - 1).linear(),
+  // m_plan.pose.at(idx).linear(), m_plan.twist.at(idx - 1).tail<3>(),
+  // m_plan.twist.at(idx).tail<3>(), s, delta_time); pose.linear() =
   // m_plan.pose.at(idx - 1).linear() * Eigen::AngleAxisd(pinterp.norm(),
-  // pinterp.normalized()).toRotationMatrix(); twist.tail<3>() = pinterp / delta_time; acc.tail<3>().setZero();
-
+  // pinterp.normalized()).toRotationMatrix(); twist.tail<3>() = pinterp /
+  // delta_time; acc.tail<3>().setZero();
 
   /* Lie Spline ?? */
 
@@ -199,13 +227,13 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   // coeff[0] = m_coeff_rot_spline.a.at(idx);
   // coeff[1] = m_coeff_rot_spline.b.at(idx);
   // coeff[2] = m_coeff_rot_spline.c.at(idx);
-  // const auto [mat, vec] = lie_spline(s, delta_time, coeff, m_plan.pose.at(idx-1).linear());
-  // o_pose.linear() = mat;
-  // o_twist.tail<3>() = vec;
-
+  // const auto [mat, vec] = lie_spline(s, delta_time, coeff,
+  // m_plan.pose.at(idx-1).linear()); o_pose.linear() = mat; o_twist.tail<3>() =
+  // vec;
 
   /*******************************************************************************************************
-   * Interactive Control of Interpolations for Animation and Modeling - Gabriel Hanotaux, Bemard Peroche *
+   * Interactive Control of Interpolations for Animation and Modeling - Gabriel
+   *Hanotaux, Bemard Peroche *
    *******************************************************************************************************/
 
   //  Eigen::Quaterniond qi,qim1,qip1,qip2;
@@ -253,23 +281,27 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   //    qli_squared = (qip2.inverse()*qi);
   //    qri_squared = (qim1.inverse()*qip1);
   //  }
-  //  hermite_p.segment<3>(0) = quat_log(Eigen::Quaterniond(m_plan.pose.at(idx-1).linear()));
-  //  hermite_p.segment<3>(3) = 0.5 * qri_squared.axis() * qri_squared.angle()/2;
-  //  hermite_p.segment<3>(6) = quat_log(Eigen::Quaterniond(m_plan.pose.at(idx).linear()));
-  //  hermite_p.segment<3>(9) = 0.5 * qli_squared.axis() * qli_squared.angle()/2;
-  //  const Eigen::Quaterniond q_s = quat_exp(Eigen::Vector3d(
-  //                             s_vec.transpose()*hermite*hermite_p({0,3,6,9}) ,
+  //  hermite_p.segment<3>(0) =
+  //  quat_log(Eigen::Quaterniond(m_plan.pose.at(idx-1).linear()));
+  //  hermite_p.segment<3>(3) = 0.5 * qri_squared.axis() *
+  //  qri_squared.angle()/2; hermite_p.segment<3>(6) =
+  //  quat_log(Eigen::Quaterniond(m_plan.pose.at(idx).linear()));
+  //  hermite_p.segment<3>(9) = 0.5 * qli_squared.axis() *
+  //  qli_squared.angle()/2; const Eigen::Quaterniond q_s =
+  //  quat_exp(Eigen::Vector3d(
+  //                             s_vec.transpose()*hermite*hermite_p({0,3,6,9})
+  //                             ,
   //                             s_vec.transpose()*hermite*hermite_p({1,4,7,10}),
   //                             s_vec.transpose()*hermite*hermite_p({2,5,8,11}))
   //                             );
   //  const Eigen::Quaterniond q_ds = quat_exp(Eigen::Vector3d(
-  //                             s_vec.tail<3>().transpose()*dhermite*hermite_p({0,3,6,9}) ,
+  //                             s_vec.tail<3>().transpose()*dhermite*hermite_p({0,3,6,9})
+  //                             ,
   //                             s_vec.tail<3>().transpose()*dhermite*hermite_p({1,4,7,10}),
   //                             s_vec.tail<3>().transpose()*dhermite*hermite_p({2,5,8,11}))
   //                             );
   //  o_pose.linear() = q_s.toRotationMatrix();
   //  o_twist.tail<3>() = 2*(q_s.inverse() * q_ds).vec();
-
 
   /*********
    * SQUAD *
@@ -284,15 +316,17 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   //   qip1 = Eigen::Quaterniond(m_plan.pose.at(idx).linear());
   //   qim1 = Eigen::Quaterniond(m_plan.pose.at(idx - 2).linear());
 
-  //   qsi = qi * quat_exp(-(quat_log(qi.inverse() * qip1) + quat_log(qi.inverse() * qim1)) / 4.0);
-  //   qsj = Eigen::Quaterniond(m_plan.pose.back().linear());
+  //   qsi = qi * quat_exp(-(quat_log(qi.inverse() * qip1) +
+  //   quat_log(qi.inverse() * qim1)) / 4.0); qsj =
+  //   Eigen::Quaterniond(m_plan.pose.back().linear());
   // } else if (idx == 1) {
   //   qj = Eigen::Quaterniond(m_plan.pose.at(idx).linear());
   //   qjp1 = Eigen::Quaterniond(m_plan.pose.at(idx + 1).linear());
   //   qjm1 = Eigen::Quaterniond(m_plan.pose.at(idx - 1).linear());
 
   //   qsi = Eigen::Quaterniond(m_plan.pose.front().linear());
-  //   qsj = qj * quat_exp(-(quat_log(qj.inverse() * qjp1) + quat_log(qj.inverse() * qjm1)) / 4.0);
+  //   qsj = qj * quat_exp(-(quat_log(qj.inverse() * qjp1) +
+  //   quat_log(qj.inverse() * qjm1)) / 4.0);
   // } else {
   //   qi = Eigen::Quaterniond(m_plan.pose.at(idx - 1).linear());
   //   qip1 = Eigen::Quaterniond(m_plan.pose.at(idx).linear());
@@ -301,13 +335,15 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   //   qjp1 = Eigen::Quaterniond(m_plan.pose.at(idx + 1).linear());
   //   qjm1 = qi;
 
-  //   qsi = qi * quat_exp(-(quat_log(qi.inverse() * qip1) + quat_log(qi.inverse() * qim1)) / 4.0);
-  //   qsj = qj * quat_exp(-(quat_log(qj.inverse() * qjp1) + quat_log(qj.inverse() * qjm1)) / 4.0);
+  //   qsi = qi * quat_exp(-(quat_log(qi.inverse() * qip1) +
+  //   quat_log(qi.inverse() * qim1)) / 4.0); qsj = qj *
+  //   quat_exp(-(quat_log(qj.inverse() * qjp1) + quat_log(qj.inverse() * qjm1))
+  //   / 4.0);
   // }
-  // const Eigen::Quaterniond qr = (qi.slerp(s, qip1)).slerp(2 * s * (1 - s), qsi.slerp(s, qsj));
-  // o_twist.tail<3>() = 2 / (dt)*quat_log(Eigen::Quaterniond(t_q_prev.linear()).inverse() * qr.normalized());
-  // o_pose.linear() = qr.toRotationMatrix();
-
+  // const Eigen::Quaterniond qr = (qi.slerp(s, qip1)).slerp(2 * s * (1 - s),
+  // qsi.slerp(s, qsj)); o_twist.tail<3>() = 2 /
+  // (dt)*quat_log(Eigen::Quaterniond(t_q_prev.linear()).inverse() *
+  // qr.normalized()); o_pose.linear() = qr.toRotationMatrix();
 
   /*******************************************************
    * Smooth Attitude Interpolation, SciPy, March 5, 2019 *
@@ -321,16 +357,17 @@ Interpolator::InterpolationResult Interpolator::interpolate(const rclcpp::Time& 
   // return InterpolationResult::OK;
   // }
   // Eigen::AngleAxisd htheta;
-  // htheta = (m_plan.pose.at(idx - 1).linear().transpose()) * m_plan.pose.at(idx).linear();
-  // const Eigen::Vector3d diff_rotvec = htheta.axis() * htheta.angle() / 2;
-  // const Eigen::Vector3d d_diff_rotvec = left_jacobian(diff_rotvec) * rv1;
-  // const double& Tf = m_plan.time.at(idx).seconds();
-  // const Eigen::Vector3d a = rv0;
-  // const Eigen::Vector3d b = (3 * diff_rotvec - 2 * Tf * rv0 - Tf * d_diff_rotvec) / (Tf * Tf);
-  // const Eigen::Vector3d c = (-2 * diff_rotvec + Tf * rv0 + Tf * d_diff_rotvec) / (Tf * Tf * Tf);
-  // const Eigen::Vector3d th = a * s + b * s * s + c * s * s * s;
-  // const Eigen::Vector3d dth = (a + 2 * b * s + 3 * c * s * s) / delta_time;
-  // o_pose.linear() = m_plan.pose.at(idx - 1).linear() * Eigen::AngleAxisd(th.norm(), 2 * th.normalized()).toRotationMatrix();
+  // htheta = (m_plan.pose.at(idx - 1).linear().transpose()) *
+  // m_plan.pose.at(idx).linear(); const Eigen::Vector3d diff_rotvec =
+  // htheta.axis() * htheta.angle() / 2; const Eigen::Vector3d d_diff_rotvec =
+  // left_jacobian(diff_rotvec) * rv1; const double& Tf =
+  // m_plan.time.at(idx).seconds(); const Eigen::Vector3d a = rv0; const
+  // Eigen::Vector3d b = (3 * diff_rotvec - 2 * Tf * rv0 - Tf * d_diff_rotvec) /
+  // (Tf * Tf); const Eigen::Vector3d c = (-2 * diff_rotvec + Tf * rv0 + Tf *
+  // d_diff_rotvec) / (Tf * Tf * Tf); const Eigen::Vector3d th = a * s + b * s *
+  // s + c * s * s * s; const Eigen::Vector3d dth = (a + 2 * b * s + 3 * c * s *
+  // s) / delta_time; o_pose.linear() = m_plan.pose.at(idx - 1).linear() *
+  // Eigen::AngleAxisd(th.norm(), 2 * th.normalized()).toRotationMatrix();
   // o_twist.tail<3>() = left_jacobian_inv(th) * dth;
 
   return InterpolationResult::OK;
