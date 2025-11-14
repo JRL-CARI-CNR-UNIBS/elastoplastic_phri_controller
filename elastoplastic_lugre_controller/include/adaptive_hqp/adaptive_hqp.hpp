@@ -171,10 +171,11 @@ private:
 
   // Required both for states and at least one for command
   const std::vector<std::string> m_required_interface_types{
-      hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY};
+      hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY,
+      hardware_interface::HW_IF_EFFORT};
   const std::vector<std::string> m_allowed_interface_types{
       hardware_interface::HW_IF_TORQUE};
-  std::array<bool, 2> m_used_command_interfaces;
+  std::array<bool, 3> m_used_command_interfaces;
 
   struct FloatBaseData {
     FloatBaseData() = delete;
@@ -266,7 +267,7 @@ private:
                             s * w.torque.x, s * w.torque.y, s * w.torque.z});
   }
 
-  bool m_invert_torque;
+  double m_invert_torque;
   Eigen::Vector6d
   get_wrench_from_torque(const Eigen::JacobiSVD<Eigen::Matrix6Xd> &svd,
                          const Eigen::VectorXd &tau) {

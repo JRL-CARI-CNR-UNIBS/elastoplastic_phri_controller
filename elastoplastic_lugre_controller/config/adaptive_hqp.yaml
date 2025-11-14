@@ -52,12 +52,13 @@ adaptive_hqp:
           - 1e0
           - 1e0
           - 1e0
-    acceleration_limits_coeff: 1.0
+    acceleration_limits_coeff: 100000000000000.0
     command_interfaces:
-      - position
+      - effort
     state_interfaces:
       - position
       - velocity
+      - effort
     mobile_base:
       enabled: true
       enable_z_rotation: false

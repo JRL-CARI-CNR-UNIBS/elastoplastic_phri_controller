@@ -28,6 +28,7 @@
 #include <pinocchio/multibody/joint/joint-planar.hpp>
 #include <pinocchio/parsers/urdf.hpp>
 #include <pinocchio/spatial/fwd.hpp>
+#include <rclcpp/logging.hpp>
 #include <urdf_parser/urdf_parser.h>
 #include <urdf_world/types.h>
 
@@ -567,6 +568,11 @@ AdaptiveHQP::on_configure(const rclcpp_lifecycle::State & /*previous_state*/) {
       m_command_interfaces_names.end()) {
     m_used_command_interfaces.at(1) = true;
   }
+  if (std::ranges::find(m_command_interfaces_names,
+                        m_required_interface_types[2]) !=
+      m_command_interfaces_names.end()) {
+    m_used_command_interfaces.at(2) = true;
+  }
 
   m_W.setIdentity(m_full_nax, m_full_nax);
 
@@ -722,6 +728,12 @@ AdaptiveHQP::state_interface_configuration() const {
     RCLCPP_INFO(get_node()->get_logger(), "State Interface (velocity): %s",
                 state_interface_configuration.names.back().c_str());
   }
+  for (const auto &jnt : m_parameters.joints) {
+    state_interface_configuration.names.emplace_back(
+        fmt::format("{}/{}", jnt, hardware_interface::HW_IF_EFFORT));
+    RCLCPP_INFO(get_node()->get_logger(), "State Interface (effort): %s",
+                state_interface_configuration.names.back().c_str());
+  }
 
   // for (const auto& jnt : m_parameters.mobile_base.joints) {
   //   state_interface_configuration.names.emplace_back(fmt::format("{}/{}",
@@ -773,6 +785,16 @@ AdaptiveHQP::command_interface_configuration() const {
     for (const auto &jnt : m_parameters.joints) {
       command_interface_configuration.names.emplace_back(
           fmt::format("{}/{}", jnt, m_required_interface_types[1]));
+      RCLCPP_INFO(get_node()->get_logger(), "Command Interface: %s",
+                  command_interface_configuration.names.back().c_str());
+    }
+  }
+  if (std::ranges::find(m_command_interfaces_names,
+                        m_required_interface_types[2]) !=
+      m_command_interfaces_names.end()) {
+    for (const auto &jnt : m_parameters.joints) {
+      command_interface_configuration.names.emplace_back(
+          fmt::format("{}/{}", jnt, m_required_interface_types[2]));
       RCLCPP_INFO(get_node()->get_logger(), "Command Interface: %s",
                   command_interface_configuration.names.back().c_str());
     }
@@ -850,6 +872,7 @@ AdaptiveHQP::on_activate(const rclcpp_lifecycle::State & /*previous_state*/) {
     }
   }
 
+  assert(command_interfaces_.size() == m_parameters.joints.size());
   auto at_least_one_command_interface{false};
   for (const auto &interface : m_required_interface_types) {
     auto it = std::ranges::find(m_required_interface_types, interface);
@@ -1199,24 +1222,6 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
                                        const rclcpp::Duration & /*period*/) {
   rclcpp::Time t_start = get_node()->get_clock()->now();
 
-  if (m_offset_future.wait_for(0s) != std::future_status::ready) {
-    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(),
-                         1000, "[Waiting] Computing Offset Force");
-    bool result{true};
-    for (size_t idx = 0; idx < m_nax; ++idx) {
-      result &= m_joint_command_interfaces.at(0).at(idx).get().set_value(
-          GET_VALUE_FROM_INTERFACE(
-              m_joint_state_interfaces.at(0).at(idx).get()));
-    }
-    if (!result) {
-      RCLCPP_ERROR(
-          get_node()->get_logger(),
-          "Could not copy state interface position into command interfaces");
-      return controller_interface::return_type::ERROR;
-    }
-    return controller_interface::return_type::OK;
-  }
-
   // **********
   // ** Read **
   // **********
@@ -1531,7 +1536,9 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
         wrench_sensor_in_sensor, m_T_tool_sensor);
     wrench_tool_in_world =
         rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear()) -
-        m_offset_wrench_tool_in_world;
+        ((m_offset_future.wait_for(0s) != std::future_status::ready)
+             ? Eigen::Vector6d::Zero()
+             : m_offset_wrench_tool_in_world);
 
     utils::deadband(m_parameters.wrench.deadband[0],
                     m_parameters.wrench.deadband[1], wrench_tool_in_world);
@@ -1606,28 +1613,48 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
                      .got_new_odom = got_new_odom};
 
   std::optional<Eigen::VectorXd> solution_qp = clik(clik_data);
+  Eigen::VectorXd tau_cmd(m_full_nax);
   if (!solution_qp.has_value()) {
-    RCLCPP_ERROR_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(),
-                          1000,
-                          "Cannot find a solution for the CLIK QP problem. "
-                          "Keeping actual position");
+    RCLCPP_ERROR(get_node()->get_logger(),
+                 "Cannot find a solution for the CLIK QP problem. "
+                 "Keeping actual position");
     m_admittance_value.setZero();
     m_qpp = -m_qp / m_dt;
+    tau_cmd.setZero();
     // m_computed_target_acc_tool_world_in_world.setZero();
     // m_computed_target_acc_tool_world_in_world =
     // -m_computed_target_twist_tool_world_in_world / m_dt;
   } else {
     Eigen::VectorXd sol = solution_qp.value();
-    RCLCPP_INFO_STREAM(get_node()->get_logger(), "qepp\n " << sol.transpose());
+    // RCLCPP_INFO_STREAM(get_node()->get_logger(), "qepp\n " <<
+    // sol.transpose());
     m_qpp = sol.head(m_full_nax);
+    tau_cmd = sol.segment(m_full_nax, m_full_nax);
+  }
+
+  // Calcolo offset
+  if (m_offset_future.wait_for(0s) != std::future_status::ready) {
+    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(),
+                         1000, "[Waiting] Computing Offset Force");
+    bool result{true};
+    for (size_t idx = 0; idx < m_nax; ++idx) {
+      result &= m_joint_command_interfaces.at(2).at(idx).get().set_value(
+          tau_cmd(3 + idx));
+    }
+    if (!result) {
+      RCLCPP_ERROR(
+          get_node()->get_logger(),
+          "Could not copy state interface position into command interfaces");
+      return controller_interface::return_type::ERROR;
+    }
+    return controller_interface::return_type::OK;
   }
 
   std::tie(m_q, m_qp) = utils::rk4_double(
       [](const auto &, const auto &, const auto &u) { return u; }, m_q, m_qp,
       m_qpp, m_dt);
 
-  //
-  m_qpp += 1e0 * (m_q - q_in) + 1e1 * (m_qp - qp_in);
+  tau_cmd += 1e1 * (m_q - q_in) + 1e0 * (m_qp - qp_in);
 
   Eigen::Vector6d cmp_t_wt =
       utils::vector_from_affine(m_computed_target_T_world_tool);
@@ -1705,6 +1732,12 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     for (size_t ax = 0; ax < m_nax; ++ax) {
       is_value_set &= m_joint_command_interfaces.at(1).at(ax).get().set_value(
           m_qp(ax + (m_full_nax - m_nax)));
+    }
+  }
+  if (m_used_command_interfaces.at(2)) {
+    for (size_t ax = 0; ax < m_nax; ++ax) {
+      is_value_set &= m_joint_command_interfaces.at(2).at(ax).get().set_value(
+          tau_cmd(ax + (m_full_nax - m_nax)));
     }
   }
   if (!is_value_set) {

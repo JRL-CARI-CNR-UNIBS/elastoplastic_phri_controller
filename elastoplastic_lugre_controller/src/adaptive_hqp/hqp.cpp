@@ -40,6 +40,8 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   qpp(m_jnt_id) = m_qpp.tail(m_nax);
   pin::computeForwardKinematicsDerivatives(m_chain_world_tool_model,
                                            m_chain_world_tool_data, q, qp, qpp);
+  pin::computeJointJacobians(m_chain_world_tool_model, m_chain_world_tool_data,
+                             q);
   pin::computeJointJacobiansTimeVariation(m_chain_world_tool_model,
                                           m_chain_world_tool_data, q, qp);
   pin::updateFramePlacements(m_chain_world_tool_model, m_chain_world_tool_data);
@@ -66,13 +68,43 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   auto t_start_qp = get_node()->get_clock()->now();
   const unsigned int prb_dim = 2 * m_full_nax + M_SE3; // qpp, tau, forces
 
+  //=== Dynamics
+  elastoplastic::EqualityConstraint eq_model(prb_dim, m_full_nax, "Model");
+  Eigen::MatrixXd M = Eigen::MatrixXd::Zero(m_full_nax, m_full_nax);
+  M.bottomRightCorner(m_nax, m_nax) =
+      pin::crba(m_chain_world_tool_model, m_chain_world_tool_data, q)
+          .bottomRightCorner(m_nax, m_nax);
+  M.bottomRightCorner(m_nax, m_nax) =
+      M.bottomRightCorner(m_nax, m_nax).selfadjointView<Eigen::Upper>();
+  M.topLeftCorner<3, 3>() = Eigen::Matrix3d{
+      {20.0, 0.0, 0.0}, {0.0, 20.0, 0.0}, {0.0, 0.0, 4.0}}; // To tune
+
+  Eigen::VectorXd C(m_full_nax);
+  C = pin::computeCoriolisMatrix(m_chain_world_tool_model,
+                                 m_chain_world_tool_data, q, qp) *
+      qp;
+  //   C.head<3>() = Eigen::Matrix3d({{1e-3, 0, 0}, {0, 1e-3, 0}, {0, 0, 1e-4}})
+  //   *
+  // qp.head<3>(); // To Tune
+
+  Eigen::VectorXd grav = pin::computeGeneralizedGravity(
+      m_chain_world_tool_model, m_chain_world_tool_data, q);
+  //   grav.head<3>().setZero();
+
+  RCLCPP_DEBUG_STREAM(get_node()->get_logger(),
+                      "M\n"
+                          << M << "\nC\n"
+                          << C << "\ng\n"
+                          << grav << "\nJ^T f\n"
+                          << J.transpose() * data.wrench_tool_in_world);
+
   //=== Tikhonov
   elastoplastic::Task task_tikhonov_regular(prb_dim, prb_dim);
   task_tikhonov_regular.A() = Eigen::MatrixXd::Identity(prb_dim, prb_dim);
-  task_tikhonov_regular.W().topLeftCorner(m_full_nax, m_full_nax) *= 1e-1;
+  task_tikhonov_regular.W().topLeftCorner(m_full_nax, m_full_nax) *= 1e0;
   task_tikhonov_regular.W().block(m_full_nax, m_full_nax, m_full_nax,
-                                  m_full_nax) *= 1e-3;
-  task_tikhonov_regular.W().bottomRightCorner<6, 6>() *= 1e-3;
+                                  m_full_nax) *= 1e-2;
+  task_tikhonov_regular.W().bottomRightCorner<6, 6>() *= 1e-1;
 
   //=== Task motion tracking
   elastoplastic::Task task_motion_tracking(prb_dim, 6, "Motion tracking");
@@ -102,11 +134,6 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
 
   //=== Task gravity
   elastoplastic::Task task_gravity(prb_dim, m_full_nax, "Gravity");
-
-  Eigen::VectorXd grav = pin::computeGeneralizedGravity(
-      m_chain_world_tool_model, m_chain_world_tool_data, q);
-  grav.head<3>().setZero();
-  //   grav.head<3>().setZero();
   task_gravity.A()
       .middleCols(m_full_nax, m_full_nax)
       //   .bottomRightCorner(m_nax, m_nax)
@@ -120,7 +147,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   task_joint_vel.A().leftCols(m_full_nax) +=
       Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   task_joint_vel.b() += qp;
-  normalize(task_joint_vel);
+  //   normalize(task_joint_vel);
 
   /***********
    ** Stack **
@@ -132,21 +159,20 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   const bool is_force_active =
       true; // data.wrench_tool_in_world.norm() > WRENCH_THRESH;
   if (is_force_active) {
-    LOG_WARN_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(),
-                            1.0, "Force active");
     sot1.push_task(task_pseudo_admittance);
     sot2.push_task(task_gravity);
   } else {
-    LOG_WARN_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(),
-                            1.0, "Warn active");
     sot1.push_task(task_motion_tracking);
     sot2.push_task(task_pseudo_admittance);
   }
-  sot1.push_task(task_tikhonov_regular);
-  sot2.push_task(task_tikhonov_regular);
-  sot3.push_task(task_tikhonov_regular);
-
   sot3.push_task(task_joint_vel);
+
+  sot1.new_level();
+  sot1.push_task(task_tikhonov_regular);
+  sot2.new_level();
+  sot2.push_task(task_tikhonov_regular);
+  sot3.new_level();
+  sot3.push_task(task_tikhonov_regular);
 
   /********************
    ** EQ Constraints **
@@ -154,25 +180,9 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   elastoplastic::EqualitySet eq_set1(prb_dim), eq_set2(prb_dim),
       eq_set3(prb_dim);
 
-  elastoplastic::EqualityConstraint eq_model(prb_dim, m_full_nax, "Model");
-  Eigen::MatrixXd M = Eigen::MatrixXd::Zero(m_full_nax, m_full_nax);
-  M.bottomRightCorner(m_nax, m_nax) =
-      pin::crba(m_chain_world_tool_model, m_chain_world_tool_data, q)
-          .bottomRightCorner(m_nax, m_nax);
-  M.bottomRightCorner(m_nax, m_nax) =
-      M.bottomRightCorner(m_nax, m_nax).selfadjointView<Eigen::Upper>();
-  M.topLeftCorner<3, 3>() = Eigen::Matrix3d{
-      {20.0, 0.0, 0.0}, {0.0, 20.0, 0.0}, {0.0, 0.0, 4.0}}; // To tune
-
-  Eigen::VectorXd C(m_full_nax);
-  C = pin::computeCoriolisMatrix(m_chain_world_tool_model,
-                                 m_chain_world_tool_data, q, qp) *
-      qp;
-  C.head<3>() = Eigen::Matrix3d({{10, 0, 0}, {0, 10, 0}, {0, 0, 5}}) *
-                qp.head<3>(); // To Tune
   eq_model.A() << M, -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax),
       -J.transpose();
-  eq_model.b() = -C - grav;
+  eq_model.b() = C + grav;
   eq_set1.push_constraint(eq_model);
   eq_set1.compute_set();
 
@@ -384,14 +394,6 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   elastoplastic::SolverQP solver3(prb_dim, sot3, eq_set3, ineq_set3);
   std::tie(sol_tmp, stat_tmp) = solver3.solve();
 
-  RCLCPP_ERROR_STREAM(
-      get_node()->get_logger(),
-      "\ntask_admittance:\n"
-          << task_pseudo_admittance.value(solutionQP).transpose()
-          << "\ntask_gravity:\n"
-          << task_gravity.value(solutionQP).transpose() << "\nmodel:\n"
-          << eq_model.value(solutionQP).transpose());
-
   if (stat_tmp != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
     LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(),
                              1.0, "Problem 3 unfeasible");
@@ -404,6 +406,14 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
 
   solutionQP = sol_tmp;
   status = stat_tmp;
+
+  RCLCPP_DEBUG_STREAM(
+      get_node()->get_logger(),
+      "\ntask_admittance:\n"
+          << task_pseudo_admittance.value(solutionQP).transpose()
+          << "\ntask_gravity:\n"
+          << task_gravity.value(solutionQP).transpose() << "\nmodel:\n"
+          << eq_model.value(solutionQP).transpose());
 
   return solutionQP;
 }
