@@ -175,6 +175,11 @@ target_compile_definitions(elastoplastic_controller PUBLIC EIGEN_NO_AUTOMATIC_RE
 target_compile_definitions(elastoplastic_controller_dual PUBLIC EIGEN_NO_AUTOMATIC_RESIZING)
 
 if(BUILD_ADAPTIVE_HQP)
+  generate_parameter_library(
+    adaptive_hqp_parameters # cmake target name for the parameter library
+    src/adaptive_hqp/adaptive_hqp_parameters.yaml # path to input yaml file
+  )
+
   find_package(pinocchio REQUIRED)
   add_library(adaptive_hqp SHARED
     include/adaptive_hqp/adaptive_hqp.hpp
@@ -184,11 +189,11 @@ if(BUILD_ADAPTIVE_HQP)
   add_library(adaptive_hqp::adaptive_hqp ALIAS adaptive_hqp)
 
   ament_target_dependencies(adaptive_hqp PUBLIC
-    ${AMENT_LIBS}
+  ${AMENT_LIBS}
   )
-
+  
   target_link_libraries(adaptive_hqp PUBLIC
-    elastoplastic_parameters
+    adaptive_hqp_parameters
     pinocchio::pinocchio
     PUBLIC ${RDYN_CONDITIONAL_TARGET}
     PUBLIC Eigen3::Eigen
@@ -201,7 +206,7 @@ if(BUILD_ADAPTIVE_HQP)
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 
-  set(ADAPTIVE_HQP_TARGETS adaptive_hqp)
+  set(ADAPTIVE_HQP_TARGETS adaptive_hqp adaptive_hqp_parameters)
   pluginlib_export_plugin_description_file(controller_interface others.plugin.xml)
 endif()
 

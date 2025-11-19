@@ -16,6 +16,7 @@ find_package(rosidl_default_generators REQUIRED)
 set(msg_files
   "msg/ElastoplasticControllerState.msg"
   "msg/ElastoplasticDualControllerState.msg"
+  "msg/AdaptiveHQPControllerState.msg"
 )
 
 set(srv_files

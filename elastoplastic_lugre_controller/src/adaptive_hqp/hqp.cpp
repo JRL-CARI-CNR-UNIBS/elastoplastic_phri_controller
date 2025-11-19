@@ -1,6 +1,7 @@
 #include "adaptive_hqp/adaptive_hqp.hpp"
 #include "elastoplastic_lugre_controller/sot.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
+#include <Eigen/src/Core/DiagonalMatrix.h>
 #include <Eigen/src/Core/Matrix.h>
 #include <Eigen/src/Core/util/Constants.h>
 #include <algorithm>
@@ -30,10 +31,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   constexpr static double WRENCH_THRESH = 1.0;
 
   Eigen::VectorXd q(m_full_nax + 1), qp(m_full_nax), qpp(m_full_nax);
-  q.head<2>() = m_q.head<2>();
-  q(2) = std::cos(m_q(2));
-  q(3) = std::sin(m_q(2));
-  q(m_jnt_id) = m_q.tail(m_nax);
+  q = to_pinocchio_config(m_q);
   qp.head<3>() = m_qp.head<3>();
   qp(m_jnt_id) = m_qp.tail(m_nax);
   qpp.head<3>() = m_qpp.head<3>();
@@ -69,23 +67,28 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   const unsigned int prb_dim = 2 * m_full_nax + M_SE3; // qpp, tau, forces
 
   //=== Dynamics
-  elastoplastic::EqualityConstraint eq_model(prb_dim, m_full_nax, "Model");
   Eigen::MatrixXd M = Eigen::MatrixXd::Zero(m_full_nax, m_full_nax);
   M.bottomRightCorner(m_nax, m_nax) =
       pin::crba(m_chain_world_tool_model, m_chain_world_tool_data, q)
           .bottomRightCorner(m_nax, m_nax);
   M.bottomRightCorner(m_nax, m_nax) =
       M.bottomRightCorner(m_nax, m_nax).selfadjointView<Eigen::Upper>();
-  M.topLeftCorner<3, 3>() = Eigen::Matrix3d{
-      {20.0, 0.0, 0.0}, {0.0, 20.0, 0.0}, {0.0, 0.0, 4.0}}; // To tune
+  M.topLeftCorner<3, 3>() =
+      Eigen::DiagonalMatrix<double, 3>(
+          Eigen::Map<Eigen::Vector3d>(
+              m_parameters.mobile_base.virtual_inertia.data(),
+              m_parameters.mobile_base.virtual_inertia.size()))
+          .toDenseMatrix();
 
-  Eigen::VectorXd C(m_full_nax);
+  Eigen::MatrixXd C(m_full_nax, m_full_nax);
   C = pin::computeCoriolisMatrix(m_chain_world_tool_model,
-                                 m_chain_world_tool_data, q, qp) *
-      qp;
-  //   C.head<3>() = Eigen::Matrix3d({{1e-3, 0, 0}, {0, 1e-3, 0}, {0, 0, 1e-4}})
-  //   *
-  // qp.head<3>(); // To Tune
+                                 m_chain_world_tool_data, q, qp);
+  C.topLeftCorner<3, 3>() =
+      Eigen::DiagonalMatrix<double, 3>(
+          Eigen::Map<Eigen::Vector3d>(
+              m_parameters.mobile_base.virtual_damping.data(),
+              m_parameters.mobile_base.virtual_damping.size()))
+          .toDenseMatrix();
 
   Eigen::VectorXd grav = pin::computeGeneralizedGravity(
       m_chain_world_tool_model, m_chain_world_tool_data, q);
@@ -101,10 +104,12 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   //=== Tikhonov
   elastoplastic::Task task_tikhonov_regular(prb_dim, prb_dim);
   task_tikhonov_regular.A() = Eigen::MatrixXd::Identity(prb_dim, prb_dim);
-  task_tikhonov_regular.W().topLeftCorner(m_full_nax, m_full_nax) *= 1e0;
-  task_tikhonov_regular.W().block(m_full_nax, m_full_nax, m_full_nax,
-                                  m_full_nax) *= 1e-2;
-  task_tikhonov_regular.W().bottomRightCorner<6, 6>() *= 1e-1;
+  task_tikhonov_regular.W().diagonal().segment(m_full_nax, m_full_nax) *= 1e-1;
+  task_tikhonov_regular.W().diagonal().tail<6>() *= 1e-2;
+  //   task_tikhonov_regular.W().topLeftCorner(m_full_nax, m_full_nax) *= 1e0;
+  //   task_tikhonov_regular.W().block(m_full_nax, m_full_nax, m_full_nax,
+  //                                   m_full_nax) *= 1e-2;
+  //   task_tikhonov_regular.W().bottomRightCorner<6, 6>() *= 1e-1;
 
   //=== Task motion tracking
   elastoplastic::Task task_motion_tracking(prb_dim, 6, "Motion tracking");
@@ -167,10 +172,13 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   }
   sot3.push_task(task_joint_vel);
 
+  //   sot1.new_level();
   sot1.new_level();
   sot1.push_task(task_tikhonov_regular);
+  //   sot2.new_level();
   sot2.new_level();
   sot2.push_task(task_tikhonov_regular);
+  //   sot3.new_level();
   sot3.new_level();
   sot3.push_task(task_tikhonov_regular);
 
@@ -179,10 +187,21 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
    ********************/
   elastoplastic::EqualitySet eq_set1(prb_dim), eq_set2(prb_dim),
       eq_set3(prb_dim);
+  elastoplastic::EqualityConstraint eq_model(prb_dim, m_full_nax, "Model");
 
   eq_model.A() << M, -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax),
       -J.transpose();
-  eq_model.b() = C + grav;
+  eq_model.b() = C * qp + grav;
+  eq_model.b().tail(m_nax) +=
+      (Eigen::Map<Eigen::VectorXd>(m_parameters.joints_static_friction.data(),
+                                   m_parameters.joints_static_friction.size())
+           .array() *
+       qp.tail(m_nax).array().sign())
+          .matrix(); // Friction
+  eq_model.b().tail(m_nax) +=
+      Eigen::Map<Eigen::VectorXd>(m_parameters.joints_damping.data(),
+                                  m_parameters.joints_damping.size())
+          .cwiseProduct(qp.tail(m_nax)); // Damping
   eq_set1.push_constraint(eq_model);
   eq_set1.compute_set();
 
@@ -265,18 +284,18 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   ineq_tau_min.CI().middleCols(m_full_nax, m_full_nax)
       << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
   ineq_tau_min.ci().segment(0, m_full_nax) =
-      Eigen::VectorXd::Ones(m_full_nax) * 100;
+      Eigen::VectorXd::Ones(m_full_nax) * 1000;
 
   ineq_tau_max.CI().middleCols(m_full_nax, m_full_nax)
       << -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax);
   ineq_tau_max.ci().segment(0, m_full_nax) =
-      Eigen::VectorXd::Ones(m_full_nax) * 100;
+      Eigen::VectorXd::Ones(m_full_nax) * 1000;
 
   ineq_f_min.CI().rightCols<6>() << Eigen::Matrix6d::Identity();
-  ineq_f_min.ci() = Eigen::Vector6d::Ones() * 100;
+  ineq_f_min.ci() = Eigen::Vector6d::Ones() * 1000;
 
   ineq_f_max.CI().rightCols<6>() << -Eigen::Matrix6d::Identity();
-  ineq_f_max.ci() = Eigen::Vector6d::Ones() * 100;
+  ineq_f_max.ci() = Eigen::Vector6d::Ones() * 1000;
 
   elastoplastic::InequalitySet ineq_set1(prb_dim), ineq_set2(prb_dim),
       ineq_set3(prb_dim);
@@ -338,16 +357,43 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
 
   // First level
   elastoplastic::SolverQP solver1(prb_dim, sot1, eq_set1, ineq_set1);
-  auto [solutionQP, status] = solver1.solve();
+  auto [sol1, status] = solver1.solve();
 
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
-    LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(),
-                             1.0, "Problem unfeasible");
+    RCLCPP_ERROR(get_node()->get_logger(), "Problem unfeasible: ");
+    switch (status) {
+    case SolverStatus::EIQUADPROG_FAST_INFEASIBLE:
+      RCLCPP_ERROR(get_node()->get_logger(), "EIQUADPROG_FAST_INFEASIBLE");
+      break;
+    case SolverStatus::EIQUADPROG_FAST_UNBOUNDED:
+      RCLCPP_ERROR(get_node()->get_logger(), "EIQUADPROG_FAST_UNBOUNDED");
+      break;
+    case SolverStatus::EIQUADPROG_FAST_REDUNDANT_EQUALITIES:
+      RCLCPP_ERROR(get_node()->get_logger(),
+                   "EIQUADPROG_FAST_REDUNDANT_EQUALITIES");
+      break;
+    case SolverStatus::EIQUADPROG_FAST_MAX_ITER_REACHED:
+      RCLCPP_ERROR(get_node()->get_logger(),
+                   "EIQUADPROG_FAST_MAX_ITER_REACHED");
+      break;
+    default:
+      break;
+    }
     return std::nullopt;
-  } else if (solutionQP.hasNaN()) {
-    RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution!");
+  } else if (sol1.hasNaN()) {
+    RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution at level 1!");
+    RCLCPP_ERROR_STREAM(get_node()->get_logger(),
+                        "sot.G\n"
+                            << sot1.G() << "\nsot.F\n"
+                            << sot1.F().transpose() << "\neq_set1.CE\n"
+                            << eq_set1.CE() << "\neq_set1.ce\n"
+                            << eq_set1.ce().transpose() << "\nineq_set1.CI\n"
+                            << ineq_set1.CI() << "\nineq_set1.ci\n"
+                            << ineq_set1.ci());
     return std::nullopt;
   }
+
+  Eigen::VectorXd solutionQP = sol1;
 
   // Second level
   elastoplastic::EqualityConstraint eq_prev_level_1(prb_dim, 6, "Prev level 1");
@@ -363,12 +409,10 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   auto [sol_tmp, stat_tmp] = solver2.solve();
 
   if (stat_tmp != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
-    LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(),
-                             1.0, "Problem 2 unfeasible");
+    RCLCPP_ERROR(get_node()->get_logger(), "Problem 2 unfeasible");
     return solutionQP;
   } else if (sol_tmp.hasNaN()) {
-    LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(),
-                             1.0, "NaN in the solution at level 2 !");
+    RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution at level 2 !");
     return solutionQP;
   }
 
@@ -386,7 +430,8 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   } else {
     eq_prev_level_22.A() = task_pseudo_admittance.A();
   }
-  eq_prev_level_21.b() = -eq_prev_level_21.A() * solutionQP;
+  eq_prev_level_21.A() = eq_prev_level_1.A();
+  eq_prev_level_21.b() = -eq_prev_level_1.A() * sol1;
   eq_prev_level_22.b() = -eq_prev_level_22.A() * solutionQP;
   eq_set3.push_constraint(eq_prev_level_21);
   eq_set3.push_constraint(eq_prev_level_22);
@@ -395,12 +440,10 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   std::tie(sol_tmp, stat_tmp) = solver3.solve();
 
   if (stat_tmp != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
-    LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(),
-                             1.0, "Problem 3 unfeasible");
+    RCLCPP_ERROR(get_node()->get_logger(), "Problem 3 unfeasible");
     return solutionQP;
   } else if (sol_tmp.hasNaN()) {
-    LOG_ERROR_THROTTLE_COUNT(get_node()->get_logger(), get_node()->get_clock(),
-                             1.0, "NaN in the solution at level 3 !");
+    RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution at level 3 !");
     return solutionQP;
   }
 

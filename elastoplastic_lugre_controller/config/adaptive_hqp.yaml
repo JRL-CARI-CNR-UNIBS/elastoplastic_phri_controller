@@ -26,6 +26,38 @@ adaptive_hqp:
       - arm_right_5_joint
       - arm_right_6_joint
       - arm_right_7_joint
+    motor_torque_constants:
+      - 1.0 # -0.08  #-0.103 
+      - 1.0 # -0.095  #-0.103 
+      - 1.0 # -0.045  #-0.06  
+      - 1.0 # -0.04  #-0.06  
+      - 1.0 # -0.15  #-1.0   
+      - 1.0 # -0.04  #-0.08  
+      - 1.0 # -0.06  #-0.06  
+    reduction_ratios:
+      - 1.0 # 121.0
+      - 1.0 # 121.0
+      - 1.0 # 101.0
+      - 1.0 # 101.0
+      - 1.0 # 101.0
+      - 1.0 # 101.0
+      - 1.0 # 101.0
+    joints_static_friction:
+      -  0.0 # 0.05
+      -  0.0 # 0.05
+      -  0.0 # 0.05
+      -  0.0 # 0.05
+      -  0.0 # 0.05
+      -  0.0 # 0.05
+      -  0.0 # 0.05
+    joints_damping:
+      - 0.0 # 0.05
+      - 0.0 # -1.0
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
     soft_limits:
       - 0.07
       - 0.07
@@ -52,15 +84,17 @@ adaptive_hqp:
           - 1e0
           - 1e0
           - 1e0
-    acceleration_limits_coeff: 100000000000000.0
+    acceleration_limits_coeff: 100.0
     command_interfaces:
-      - effort
+      - position
     state_interfaces:
       - position
       - velocity
       - effort
     mobile_base:
       enabled: true
+      virtual_inertia: [20.0,20.0,5.0]
+      virtual_damping: [10.0,10.0,10.0]
       enable_z_rotation: false
       input_target_topic: "/target_cmd_vel"
       localization_topic: "/amcl_pose" # Unused
@@ -81,14 +115,14 @@ adaptive_hqp:
       max_dec_yaw: 0.5
     wrench:
       deadband:
-      - 2.0
-      - 2.0
+      - 1.0
+      - 1.0
       filter_alfa: 0.2
       source: "ft_sensor"
       invert_torque: true # used only for if source==torque
       notch_filter:
         enable: true
-        fc: 1.0
+        fc: 10.0
         Q: 1.0
     impedance:
       enable_axis: [true, true, true, false, false, false]
@@ -129,5 +163,5 @@ adaptive_hqp:
     clik:
       alpha_gain: 1.0e6
       joint_task:
-        kp: 1e1 # 1e1
-        kv: 1e2 # 1e2
+        kp: 1.0 # 1e1
+        kv: 0.1 # 1e2

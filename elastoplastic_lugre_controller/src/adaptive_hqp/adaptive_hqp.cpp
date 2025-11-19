@@ -10,9 +10,12 @@
 
 #include "rclcpp/qos.hpp"
 
+#include <Eigen/src/Core/ArithmeticSequence.h>
+#include <Eigen/src/Core/util/IndexedViewHelper.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <elastoplastic_msgs/msg/detail/adaptive_hqp_controller_state__struct.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 
 #include <pinocchio/algorithm/kinematics-derivatives.hpp>
@@ -20,9 +23,11 @@
 #include <pinocchio/algorithm/model.hpp>
 #include <pinocchio/parsers/urdf.hpp>
 
+#include <pinocchio/algorithm/crba.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/joint-configuration.hpp>
+#include <pinocchio/algorithm/rnea.hpp>
 #include <pinocchio/multibody/fwd.hpp>
 #include <pinocchio/multibody/joint/fwd.hpp>
 #include <pinocchio/multibody/joint/joint-planar.hpp>
@@ -40,7 +45,7 @@
 #endif
 
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
-// #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
 #define USE_CARTESIAN_REFERENCE
 
@@ -98,9 +103,8 @@ void deadband(const double low, const double high, Eigen::Vector6d &wr) {
   }
 }
 
-inline ElastoplasticModelData
-get_model_data(const elastoplastic_controller::Params &params,
-               const double update_rate) {
+inline ElastoplasticModelData get_model_data(const adaptive_hqp::Params &params,
+                                             const double update_rate) {
   ElastoplasticModelData data;
   std::copy(params.impedance.inertia.begin(), params.impedance.inertia.end(),
             data.inertia_inv.diagonal().begin());
@@ -166,8 +170,8 @@ bool AdaptiveHQP::write_cmd_vel_zero() {
 }
 
 controller_interface::CallbackReturn AdaptiveHQP::on_init() {
-  m_param_listener = std::make_shared<elastoplastic_controller::ParamListener>(
-      this->get_node());
+  m_param_listener =
+      std::make_shared<adaptive_hqp::ParamListener>(this->get_node());
   RCLCPP_DEBUG(get_node()->get_logger(),
                "Elastoplastic controller correctly loaded");
   return controller_interface::CallbackReturn::SUCCESS;
@@ -264,6 +268,56 @@ void AdaptiveHQP::configure_after_robot_description_callback(
   }
   RCLCPP_INFO(get_node()->get_logger(), "RDyn chains created");
 
+  // Check motor and transmission ratios array lengths
+  if (m_parameters.motor_torque_constants.size() !=
+      m_parameters.joints.size()) {
+    RCLCPP_ERROR(get_node()->get_logger(),
+                 "Motor torque constants vector has not the same size of the "
+                 "joint vector: %ld != %ld",
+                 m_parameters.motor_torque_constants.size(),
+                 m_parameters.joints.size());
+    m_robot_description_configuration = RDStatus::ERROR;
+  }
+  if (m_parameters.reduction_ratios.size() != m_parameters.joints.size()) {
+    RCLCPP_ERROR(
+        get_node()->get_logger(),
+        "Reduction ratio constants vector has not the same size of the "
+        "joint vector: %ld != %ld",
+        m_parameters.reduction_ratios.size(), m_parameters.joints.size());
+    m_robot_description_configuration = RDStatus::ERROR;
+  }
+  if (m_parameters.joints_static_friction.size() !=
+      m_parameters.joints.size()) {
+    RCLCPP_ERROR(
+        get_node()->get_logger(),
+        "Joint static friction constants vector has not the same size of the "
+        "joint vector: %ld != %ld",
+        m_parameters.joints_static_friction.size(), m_parameters.joints.size());
+    m_robot_description_configuration = RDStatus::ERROR;
+  }
+  if (m_parameters.joints_damping.size() != m_parameters.joints.size()) {
+    RCLCPP_ERROR(get_node()->get_logger(),
+                 "Joint damping constants vector has not the same size of the "
+                 "joint vector: %ld != %ld",
+                 m_parameters.joints_damping.size(),
+                 m_parameters.joints.size());
+    m_robot_description_configuration = RDStatus::ERROR;
+  }
+  if (std::count_if(m_parameters.mobile_base.virtual_inertia.begin(),
+                    m_parameters.mobile_base.virtual_inertia.end(),
+                    [](const double &v) { return v > 0; }) != 3) {
+    RCLCPP_ERROR(get_node()->get_logger(),
+                 "Virtual inertia constants vector have non-positive values");
+    m_robot_description_configuration = RDStatus::ERROR;
+  }
+  if (std::count_if(m_parameters.mobile_base.virtual_damping.begin(),
+                    m_parameters.mobile_base.virtual_damping.end(),
+                    [](const double &v) { return v > 0; }) != 3) {
+    RCLCPP_ERROR(get_node()->get_logger(),
+                 "Virtual damping constants vector have non-positive values");
+    m_robot_description_configuration = RDStatus::ERROR;
+  }
+
   // Pinocchio models
   // Full model
   pin::Model chain_world_tool_full;
@@ -294,6 +348,7 @@ void AdaptiveHQP::configure_after_robot_description_callback(
   m_chain_world_tool_model =
       pin::buildReducedModel(chain_world_tool_full, joint_id_to_lock,
                              pin::neutral(chain_world_tool_full));
+  m_chain_world_tool_model.gravity.linear() << gravity;
   m_chain_world_tool_data = pin::Data(m_chain_world_tool_model);
 
   m_tool_id = m_chain_world_tool_model.getFrameId(m_parameters.frames.tool);
@@ -478,7 +533,7 @@ AdaptiveHQP::on_configure(const rclcpp_lifecycle::State & /*previous_state*/) {
   m_pub_full_state =
       this->get_node()
           ->create_publisher<
-              elastoplastic_msgs::msg::ElastoplasticControllerState>(
+              elastoplastic_msgs::msg::AdaptiveHQPControllerState>(
               "~/full_state", rclcpp::SensorDataQoS());
 
   m_state_interfaces_names.reserve(m_required_interface_types.size());
@@ -851,7 +906,7 @@ AdaptiveHQP::on_activate(const rclcpp_lifecycle::State & /*previous_state*/) {
   }
 
   m_rt_pub_full_state = std::make_unique<realtime_tools::RealtimePublisher<
-      elastoplastic_msgs::msg::ElastoplasticControllerState>>(m_pub_full_state);
+      elastoplastic_msgs::msg::AdaptiveHQPControllerState>>(m_pub_full_state);
 
   m_elastoplastic_model->clear();
 
@@ -1318,9 +1373,10 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   bool got_new_odom = true;
 #endif
 
-  Eigen::VectorXd q_in(m_full_nax), qp_in(m_full_nax);
+  Eigen::VectorXd q_in(m_full_nax), qp_in(m_full_nax), tau_in(m_full_nax);
   q_in.head<3>() = m_q.head<3>();
   qp_in.head<3>() = m_qp.head<3>();
+  tau_in.head<3>().setZero();
   std::transform(m_joint_state_interfaces.at(0).begin(),
                  m_joint_state_interfaces.at(0).end(), q_in.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface &lsi) {
@@ -1329,6 +1385,12 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   std::transform(m_joint_state_interfaces.at(1).begin(),
                  m_joint_state_interfaces.at(1).end(),
                  qp_in.tail(m_nax).begin(),
+                 [](const hardware_interface::LoanedStateInterface &lsi) {
+                   return GET_VALUE_FROM_INTERFACE(lsi);
+                 });
+  std::transform(m_joint_state_interfaces.at(2).begin(),
+                 m_joint_state_interfaces.at(2).end(),
+                 tau_in.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface &lsi) {
                    return GET_VALUE_FROM_INTERFACE(lsi);
                  });
@@ -1614,32 +1676,24 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
 
   std::optional<Eigen::VectorXd> solution_qp = clik(clik_data);
   Eigen::VectorXd tau_cmd(m_full_nax);
-  if (!solution_qp.has_value()) {
-    RCLCPP_ERROR(get_node()->get_logger(),
-                 "Cannot find a solution for the CLIK QP problem. "
-                 "Keeping actual position");
-    m_admittance_value.setZero();
-    m_qpp = -m_qp / m_dt;
-    tau_cmd.setZero();
-    // m_computed_target_acc_tool_world_in_world.setZero();
-    // m_computed_target_acc_tool_world_in_world =
-    // -m_computed_target_twist_tool_world_in_world / m_dt;
-  } else {
-    Eigen::VectorXd sol = solution_qp.value();
-    // RCLCPP_INFO_STREAM(get_node()->get_logger(), "qepp\n " <<
-    // sol.transpose());
-    m_qpp = sol.head(m_full_nax);
-    tau_cmd = sol.segment(m_full_nax, m_full_nax);
-  }
 
   // Calcolo offset
   if (m_offset_future.wait_for(0s) != std::future_status::ready) {
     RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(),
                          1000, "[Waiting] Computing Offset Force");
+    tau_cmd = pin::computeGeneralizedGravity(m_chain_world_tool_model,
+                                             m_chain_world_tool_data,
+                                             to_pinocchio_config(m_q));
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
-      result &= m_joint_command_interfaces.at(2).at(idx).get().set_value(
-          tau_cmd(3 + idx));
+
+      if (m_used_command_interfaces.at(0))
+        result &= m_joint_command_interfaces.at(0).at(idx).get().set_value(
+            GET_VALUE_FROM_INTERFACE(
+                m_joint_state_interfaces.at(0).at(idx).get()));
+      else if (m_used_command_interfaces.at(2))
+        result &= m_joint_command_interfaces.at(2).at(idx).get().set_value(
+            tau_cmd(3 + idx));
     }
     if (!result) {
       RCLCPP_ERROR(
@@ -1650,11 +1704,43 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     return controller_interface::return_type::OK;
   }
 
+  if (!solution_qp.has_value()) {
+    RCLCPP_ERROR(get_node()->get_logger(),
+                 "Cannot find a solution for the CLIK QP problem. "
+                 "Keeping actual position");
+    m_admittance_value.setZero();
+    m_qpp = -(m_qp / m_dt) / 1000;
+    tau_cmd.setZero();
+    // Eigen::MatrixXd M(m_full_nax, m_full_nax);
+    // M.bottomRightCorner(m_nax, m_nax) =
+    //     pin::crba(m_chain_world_tool_model, m_chain_world_tool_data,
+    //               to_pinocchio_config(m_q))
+    //         .bottomRightCorner(m_nax, m_nax);
+    // M.bottomRightCorner(m_nax, m_nax) =
+    //     M.bottomRightCorner(m_nax, m_nax).selfadjointView<Eigen::Upper>();
+    // M.topLeftCorner<3, 3>() = Eigen::Matrix3d{
+    //     {20.0, 0.0, 0.0}, {0.0, 20.0, 0.0}, {0.0, 0.0, 4.0}}; // To tune
+    tau_cmd = tau_in;
+    // m_computed_target_acc_tool_world_in_world.setZero();
+    // m_computed_target_acc_tool_world_in_world =
+    // -m_computed_target_twist_tool_world_in_world / m_dt;
+  } else {
+    Eigen::VectorXd sol = solution_qp.value();
+    // RCLCPP_INFO_STREAM(get_node()->get_logger(), "qepp\n " <<
+    // sol.transpose());
+    m_admittance_value = sol.tail<6>();
+    m_qpp = sol.head(m_full_nax);
+    tau_cmd = sol.segment(m_full_nax, m_full_nax);
+  }
+
   std::tie(m_q, m_qp) = utils::rk4_double(
       [](const auto &, const auto &, const auto &u) { return u; }, m_q, m_qp,
       m_qpp, m_dt);
 
-  tau_cmd += 1e1 * (m_q - q_in) + 1e0 * (m_qp - qp_in);
+  if (m_used_command_interfaces.at(2)) {
+    tau_cmd += m_parameters.clik.joint_task.kp * (m_q - q_in) +
+               m_parameters.clik.joint_task.kv * (m_qp - qp_in);
+  }
 
   Eigen::Vector6d cmp_t_wt =
       utils::vector_from_affine(m_computed_target_T_world_tool);
@@ -1737,7 +1823,9 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   if (m_used_command_interfaces.at(2)) {
     for (size_t ax = 0; ax < m_nax; ++ax) {
       is_value_set &= m_joint_command_interfaces.at(2).at(ax).get().set_value(
-          tau_cmd(ax + (m_full_nax - m_nax)));
+          tau_cmd(ax + (m_full_nax - m_nax)) /
+          (m_parameters.reduction_ratios[ax] *
+           m_parameters.motor_torque_constants[ax]));
     }
   }
   if (!is_value_set) {
@@ -1767,7 +1855,11 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   // ** PUBLISH **
   // *************
   auto time_now = this->get_node()->get_clock()->now();
-  elastoplastic_msgs::msg::ElastoplasticControllerState msg;
+  elastoplastic_msgs::msg::AdaptiveHQPControllerState msg;
+
+  msg.tau_cmd.resize(m_nax);
+  std::copy(std::next(tau_cmd.begin(), m_mobile_base->nax()), tau_cmd.end(),
+            msg.tau_cmd.begin());
 
   msg.header.stamp = time_now;
   msg.header.frame_id = m_parameters.frames.map;
@@ -1867,13 +1959,13 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
 
   if (m_elastoplastic_model->is_plastic()) {
     msg.mode =
-        elastoplastic_msgs::msg::ElastoplasticControllerState::MODE_PLASTIC;
+        elastoplastic_msgs::msg::AdaptiveHQPControllerState::MODE_PLASTIC;
   } else if (m_elastoplastic_model->to_restore()) {
     msg.mode =
-        elastoplastic_msgs::msg::ElastoplasticControllerState::MODE_RESTORE;
+        elastoplastic_msgs::msg::AdaptiveHQPControllerState::MODE_RESTORE;
   } else {
     msg.mode =
-        elastoplastic_msgs::msg::ElastoplasticControllerState::MODE_ELASTIC;
+        elastoplastic_msgs::msg::AdaptiveHQPControllerState::MODE_ELASTIC;
   }
 
   if (m_rt_pub_full_state->trylock()) {

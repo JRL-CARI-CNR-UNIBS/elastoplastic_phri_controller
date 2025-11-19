@@ -2,12 +2,13 @@
 #define ADAPTIVE_HQP_HPP
 
 // local libs
+#include "adaptive_hqp_parameters.hpp"
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
 #include "elastoplastic_lugre_controller/notch_filter.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
-#include "elastoplastic_parameters.hpp"
 // #include "elastoplastic_variable_model.hpp"
 #include <Eigen/src/Core/util/Constants.h>
+#include <elastoplastic_msgs/msg/detail/adaptive_hqp_controller_state__struct.hpp>
 #include <pinocchio/multibody/fwd.hpp>
 #include <state_space_filters/filtered_values.h>
 
@@ -32,7 +33,7 @@
 
 // ros msgs
 // IWYU pragma: begin_keep
-#include "elastoplastic_msgs/msg/elastoplastic_controller_state.hpp"
+#include "elastoplastic_msgs/msg/adaptive_hqp_controller_state.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
@@ -54,10 +55,19 @@ namespace elastoplastic {
 
 namespace pin = pinocchio;
 
+inline Eigen::VectorXd to_pinocchio_config(const Eigen::VectorXd &q) {
+  Eigen::VectorXd out(q.size() + 1);
+  out.head<2>() = q.head<2>();
+  out(2) = std::cos(q(2));
+  out(3) = std::sin(q(2));
+  out.tail(out.size() - 4) = q.tail(q.size() - 3);
+  return out;
+}
+
 class AdaptiveHQP : public controller_interface::ChainableControllerInterface {
 private:
-  std::shared_ptr<elastoplastic_controller::ParamListener> m_param_listener;
-  elastoplastic_controller::Params m_parameters;
+  std::shared_ptr<adaptive_hqp::ParamListener> m_param_listener;
+  adaptive_hqp::Params m_parameters;
 
   template <typename T>
   using InterfaceReference = std::vector<std::reference_wrapper<T>>;
@@ -97,10 +107,10 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
   std::unique_ptr<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>>
       m_rt_pub_cmd_vel;
-  rclcpp::Publisher<elastoplastic_msgs::msg::ElastoplasticControllerState>::
+  rclcpp::Publisher<elastoplastic_msgs::msg::AdaptiveHQPControllerState>::
       SharedPtr m_pub_full_state;
   std::unique_ptr<realtime_tools::RealtimePublisher<
-      elastoplastic_msgs::msg::ElastoplasticControllerState>>
+      elastoplastic_msgs::msg::AdaptiveHQPControllerState>>
       m_rt_pub_full_state;
 
   constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
