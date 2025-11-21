@@ -133,10 +133,6 @@ private:
   rdyn::ChainPtr m_chain_world_tool;
   rdyn::ChainPtr m_chain_world_base;
 
-  pin::Model m_chain_base_tool_model;
-  pin::Data m_chain_base_tool_data;
-  pin::Model m_chain_world_base_model;
-  pin::Data m_chain_world_base_data;
   pin::Model m_chain_world_tool_model;
   pin::Data m_chain_world_tool_data;
 

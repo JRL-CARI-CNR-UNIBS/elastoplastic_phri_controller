@@ -10,11 +10,10 @@
 
 #include "rclcpp/qos.hpp"
 
-#include <Eigen/src/Core/ArithmeticSequence.h>
-#include <Eigen/src/Core/util/IndexedViewHelper.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <control_toolbox/filters.hpp>
 #include <elastoplastic_msgs/msg/detail/adaptive_hqp_controller_state__struct.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 
@@ -249,8 +248,8 @@ void AdaptiveHQP::configure_after_robot_description_callback(
   if (m_mobile_base->enabled) {
     urdf::ModelInterfaceSharedPtr mobile_base_model =
         urdf::parseURDF(utils::MOBILE_BASE_URDF);
-    m_chain_world_base = rdyn::createChain(*mobile_base_model, "x_base",
-                                           "mount_link", {0, 0, -9.806});
+    m_chain_world_base =
+        rdyn::createChain(*mobile_base_model, "x_base", "mount_link", gravity);
 
     m_chain_world_tool =
         rdyn::joinChains(m_chain_world_base, m_chain_base_tool);
@@ -259,13 +258,14 @@ void AdaptiveHQP::configure_after_robot_description_callback(
                                            m_parameters.frames.tool, gravity);
   }
 
-  if (not m_chain_world_tool) {
+  if (!m_chain_world_tool) {
     RCLCPP_ERROR(get_node()->get_logger(),
                  "Cannot create rdyn chain from world to tool (%s)",
                  m_parameters.frames.tool.c_str());
     m_robot_description_configuration = RDStatus::ERROR;
     return;
   }
+
   RCLCPP_INFO(get_node()->get_logger(), "RDyn chains created");
 
   // Check motor and transmission ratios array lengths
@@ -350,6 +350,13 @@ void AdaptiveHQP::configure_after_robot_description_callback(
                              pin::neutral(chain_world_tool_full));
   m_chain_world_tool_model.gravity.linear() << gravity;
   m_chain_world_tool_data = pin::Data(m_chain_world_tool_model);
+
+  RCLCPP_INFO(get_node()->get_logger(), "Pinocchio joints:");
+  std::for_each(m_chain_world_tool_model.names.begin(),
+                m_chain_world_tool_model.names.end(),
+                [this](const std::string &s) {
+                  RCLCPP_INFO(get_node()->get_logger(), "joint: %s", s.c_str());
+                });
 
   m_tool_id = m_chain_world_tool_model.getFrameId(m_parameters.frames.tool);
   if (m_chain_world_tool_model.nframes == m_tool_id) {
@@ -1709,7 +1716,7 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
                  "Cannot find a solution for the CLIK QP problem. "
                  "Keeping actual position");
     m_admittance_value.setZero();
-    m_qpp = -(m_qp / m_dt) / 1000;
+    m_qpp = -(m_qp / m_dt);
     tau_cmd.setZero();
     // Eigen::MatrixXd M(m_full_nax, m_full_nax);
     // M.bottomRightCorner(m_nax, m_nax) =
@@ -1737,9 +1744,14 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
       [](const auto &, const auto &, const auto &u) { return u; }, m_q, m_qp,
       m_qpp, m_dt);
 
+  // std::transform(m_q.begin(), m_q.end(), m_q_prec.begin(), m_q.begin(),
+  //                [](const double d, const double d2) {
+  //                  return filters::exponentialSmoothing(d, d2, 0.99);
+  //                });
+
   if (m_used_command_interfaces.at(2)) {
     tau_cmd += m_parameters.clik.joint_task.kp * (m_q - q_in) +
-               m_parameters.clik.joint_task.kv * (m_qp - qp_in);
+               m_parameters.clik.joint_task.kv * (qp_in);
   }
 
   Eigen::Vector6d cmp_t_wt =
@@ -1747,38 +1759,43 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
 
   m_computed_target_T_world_tool = utils::affine_from_vector(cmp_t_wt);
 
-  if (m_mobile_base->enabled) {
-    Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
-    qp_base_in_world = utils::twist_from_base_velocity(m_qp.head<M_SE2>());
+  // if (m_mobile_base->enabled) {
+  //   Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
+  //   qp_base_in_world = utils::twist_from_base_velocity(m_qp.head<M_SE2>());
 
-    Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(
-        qp_base_in_world, m_T_world_base.linear().transpose());
-    // qp_base_in_base = qp_base_in_base.unaryExpr([this](double vel) { return
-    // std::abs(vel) < M_VELOCITY_TOLLERANCE ? 0.0 : vel;
-    // });
-    m_velocity_base_in_base = utils::base_velocity_from_twist(qp_base_in_base);
+  //   Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(
+  //       qp_base_in_world, m_T_world_base.linear().transpose());
+  //   // qp_base_in_base = qp_base_in_base.unaryExpr([this](double vel) {
+  //   return
+  //   // std::abs(vel) < M_VELOCITY_TOLLERANCE ? 0.0 : vel;
+  //   // });
+  //   m_velocity_base_in_base =
+  //   utils::base_velocity_from_twist(qp_base_in_base);
 
-    // BEGIN - Check Saturation Base
-    // If the QP works, this shouldn't be necessary
-    for (size_t idx = 0; idx < M_SE2; ++idx) {
-      if (std::abs(m_velocity_base_in_base(idx)) >
-          m_mobile_base->vel_limits(idx)) {
-        LOG_ERROR_THROTTLE_COUNT(
-            this->get_node()->get_logger(), get_node()->get_clock(), 1,
-            "Saturation of Velocity on base linear direction "
-                << idx << ": " << m_velocity_base_in_base(idx) << " should be "
-                << utils::sgn(m_velocity_base_in_base(idx)) *
-                       m_mobile_base->vel_limits(idx));
-        m_velocity_base_in_base(idx) =
-            utils::sgn(m_velocity_base_in_base(idx)) *
-            m_mobile_base->vel_limits(idx);
-      }
-    }
-    m_qp.head<M_SE2>() = utils::base_velocity_from_twist(rdyn::spatialRotation(
-        utils::twist_from_base_velocity(m_velocity_base_in_base),
-        m_T_world_base.linear()));
-    // END - Check Saturation Base
-  }
+  //   // BEGIN - Check Saturation Base
+  //   // If the QP works, this shouldn't be necessary
+  //   for (size_t idx = 0; idx < M_SE2; ++idx) {
+  //     if (std::abs(m_velocity_base_in_base(idx)) >
+  //         m_mobile_base->vel_limits(idx)) {
+  //       LOG_ERROR_THROTTLE_COUNT(
+  //           this->get_node()->get_logger(), get_node()->get_clock(), 1,
+  //           "Saturation of Velocity on base linear direction "
+  //               << idx << ": " << m_velocity_base_in_base(idx) << " should be
+  //               "
+  //               << utils::sgn(m_velocity_base_in_base(idx)) *
+  //                      m_mobile_base->vel_limits(idx));
+  //       m_velocity_base_in_base(idx) =
+  //           utils::sgn(m_velocity_base_in_base(idx)) *
+  //           m_mobile_base->vel_limits(idx);
+  //     }
+  //   }
+  //   m_qp.head<M_SE2>() =
+  //   utils::base_velocity_from_twist(rdyn::spatialRotation(
+  //       utils::twist_from_base_velocity(m_velocity_base_in_base),
+  //       m_T_world_base.linear()));
+  //   // END - Check Saturation Base
+  // }
+  m_velocity_base_in_base = m_qp.head<3>();
 
   // BEGIN - Saturation Manipulator
   for (size_t idx = 0; idx < m_nax; ++idx) {
@@ -1793,8 +1810,9 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
                  std::min(m_limits.vel(idx), m_qp(idx + (m_full_nax - m_nax))));
     if (!utils::almost_equal(q, m_q(idx + (m_full_nax - m_nax)))) {
       RCLCPP_WARN(get_node()->get_logger(),
-                  "Saturation of POSITION on manipulator joint with index %ld",
-                  idx);
+                  "Saturation at %f of POSITION (cmd: %f) on manipulator joint "
+                  "with index %ld",
+                  q, m_q(idx + (m_full_nax - m_nax)), idx);
     }
     if (!utils::almost_equal(dq, m_qp(idx + (m_full_nax - m_nax)))) {
       RCLCPP_WARN(get_node()->get_logger(),
