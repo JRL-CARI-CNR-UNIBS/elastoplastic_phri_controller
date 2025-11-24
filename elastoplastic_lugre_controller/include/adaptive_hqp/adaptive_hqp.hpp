@@ -30,6 +30,7 @@
 #include "semantic_components/force_torque_sensor.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
+#include <control_toolbox/pid.hpp>
 
 // ros msgs
 // IWYU pragma: begin_keep
@@ -137,6 +138,7 @@ private:
   pin::Data m_chain_world_tool_data;
 
   std::vector<pin::JointIndex> m_jnt_id;
+  std::vector<pin::JointIndex> m_jnt_vs_id;
   pin::FrameIndex m_tool_id;
   pin::FrameIndex m_sensor_id;
   pin::FrameIndex m_base_id;
@@ -149,6 +151,10 @@ private:
   Eigen::VectorXd m_q;
   Eigen::VectorXd m_qp;
   Eigen::VectorXd m_qpp;
+
+  Eigen::VectorXd m_q_in;
+  Eigen::VectorXd m_qp_in;
+  Eigen::VectorXd m_tau_in;
 
   double m_dt;
 
@@ -253,14 +259,13 @@ private:
 
   enum class FTSource { FT_SENSOR, TOPIC, TORQUE } m_ft_source;
 
-  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr
-      m_wrench_sub;
+  rclcpp::Subscription<geometry_msgs::msg::Wrench>::SharedPtr m_wrench_sub;
   constexpr static char FT_TOPIC[] = "~/wrench_input";
-  realtime_tools::RealtimeBuffer<geometry_msgs::msg::WrenchStamped>
+  realtime_tools::RealtimeBuffer<geometry_msgs::msg::Wrench>
       m_wrench_topic_buffer;
 
   Eigen::Vector6d get_wrench_from_topic() {
-    auto w = m_wrench_topic_buffer.readFromRT()->wrench;
+    auto w = *(m_wrench_topic_buffer.readFromRT());
     return Eigen::Vector6d(
         {w.force.x, w.force.y, w.force.z, w.torque.x, w.torque.y, w.torque.z});
   }

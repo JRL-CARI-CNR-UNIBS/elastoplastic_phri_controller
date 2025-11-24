@@ -44,7 +44,7 @@
 #endif
 
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
+// #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
 #define USE_CARTESIAN_REFERENCE
 
@@ -111,13 +111,7 @@ inline ElastoplasticModelData get_model_data(const adaptive_hqp::Params &params,
             data.k.diagonal().begin());
   std::copy(params.impedance.d.begin(), params.impedance.d.end(),
             data.d.diagonal().begin());
-  data.z_max = params.impedance.z_max;
-  data.z_start = params.impedance.z_start;
-  data.z_kmax = params.impedance.z_kmax;
   data.enable_axis = params.impedance.enable_axis;
-  data.buffer_size =
-      static_cast<size_t>(params.impedance.reset.time * update_rate);
-  data.reset_threshold = params.impedance.reset.threshold;
   return data;
 }
 } // namespace utils
@@ -388,6 +382,12 @@ void AdaptiveHQP::configure_after_robot_description_callback(
     m_jnt_id.push_back(m_chain_world_tool_model
                            .idx_qs[m_chain_world_tool_model.getJointId(jnt)]);
   }
+  m_jnt_vs_id.reserve(m_parameters.joints.size());
+  for (const auto &jnt : m_parameters.joints) {
+    m_jnt_vs_id.push_back(
+        m_chain_world_tool_model
+            .idx_vs[m_chain_world_tool_model.getJointId(jnt)]);
+  }
   // END - pinocchio models
 
   m_limits.pos_upper.resize(m_nax);
@@ -485,6 +485,10 @@ AdaptiveHQP::on_configure(const rclcpp_lifecycle::State & /*previous_state*/) {
   m_qp.resize(m_full_nax);
   m_qpp.resize(m_full_nax);
 
+  m_q_in.resize(m_full_nax);
+  m_qp_in.resize(m_full_nax);
+  m_tau_in.resize(m_full_nax);
+
   m_q_prec.resize(m_full_nax);
   m_qp_prec.resize(m_full_nax);
   m_qpp_prec.resize(m_full_nax);
@@ -530,6 +534,10 @@ AdaptiveHQP::on_configure(const rclcpp_lifecycle::State & /*previous_state*/) {
     m_invert_torque = m_parameters.wrench.invert_torque ? -1 : 1;
   } else if (m_parameters.wrench.source == "topic") {
     m_ft_source = FTSource::TOPIC;
+  } else {
+    RCLCPP_ERROR(get_node()->get_logger(), "'%s' is not a valid source",
+                 m_parameters.wrench.source.c_str());
+    return controller_interface::CallbackReturn::FAILURE;
   }
 
   if (m_ft_source == FTSource::FT_SENSOR) {
@@ -563,14 +571,13 @@ AdaptiveHQP::on_configure(const rclcpp_lifecycle::State & /*previous_state*/) {
     RCLCPP_INFO(get_node()->get_logger(), "State interface name: %s",
                 hardware_interface::HW_IF_TORQUE);
   } else if (m_ft_source == FTSource::TOPIC) {
-    m_wrench_topic_buffer.initRT(geometry_msgs::msg::WrenchStamped(
-        rosidl_runtime_cpp::MessageInitialization::ALL));
-    m_wrench_sub =
-        get_node()->create_subscription<geometry_msgs::msg::WrenchStamped>(
-            FT_TOPIC, rclcpp::SensorDataQoS(),
-            [this](const geometry_msgs::msg::WrenchStamped &msg) {
-              m_wrench_topic_buffer.writeFromNonRT(msg);
-            });
+    m_wrench_topic_buffer.initRT(geometry_msgs::msg::Wrench(
+        rosidl_runtime_cpp::MessageInitialization::ZERO));
+    m_wrench_sub = get_node()->create_subscription<geometry_msgs::msg::Wrench>(
+        FT_TOPIC, rclcpp::SensorDataQoS(),
+        [this](const geometry_msgs::msg::Wrench msg) {
+          m_wrench_topic_buffer.writeFromNonRT(msg);
+        });
   }
 
   for (const auto &interface : m_required_interface_types) {
@@ -647,11 +654,6 @@ AdaptiveHQP::on_configure(const rclcpp_lifecycle::State & /*previous_state*/) {
   m_mobile_base->acc_limits = {m_parameters.mobile_base.max_acc_x,
                                m_parameters.mobile_base.max_acc_y,
                                m_parameters.mobile_base.max_acc_yaw};
-
-  m_logistic = {.max = m_parameters.impedance.logistic.max,
-                .slope = m_parameters.impedance.logistic.slope,
-                .inflection = m_parameters.impedance.logistic.inflection *
-                              m_mobile_base->vel_limits};
 
   m_carteisan_trj_sub =
       get_node()->create_subscription<moveit_msgs::msg::CartesianTrajectory>(
@@ -1174,6 +1176,17 @@ AdaptiveHQP::on_activate(const rclcpp_lifecycle::State & /*previous_state*/) {
 
   // m_pos_task_slider.init(1, 1e4, 1e-5,
   // utils::Slider::SliderFunction::SIGMOID);
+  std::transform(m_joint_state_interfaces.at(0).begin(),
+                 m_joint_state_interfaces.at(0).end(), m_q.tail(m_nax).begin(),
+                 [](const hardware_interface::LoanedStateInterface &lsi) {
+                   return GET_VALUE_FROM_INTERFACE(lsi);
+                 });
+  std::transform(m_joint_state_interfaces.at(1).begin(),
+                 m_joint_state_interfaces.at(1).end(), m_qp.tail(m_nax).begin(),
+                 [](const hardware_interface::LoanedStateInterface &lsi) {
+                   return GET_VALUE_FROM_INTERFACE(lsi);
+                 });
+  m_qpp.setZero();
   RCLCPP_DEBUG(get_node()->get_logger(), "Activated...");
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -1380,36 +1393,36 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   bool got_new_odom = true;
 #endif
 
-  Eigen::VectorXd q_in(m_full_nax), qp_in(m_full_nax), tau_in(m_full_nax);
-  q_in.head<3>() = m_q.head<3>();
-  qp_in.head<3>() = m_qp.head<3>();
-  tau_in.head<3>().setZero();
+  m_q_in.head<3>() = m_q.head<3>();
+  m_qp_in.head<3>() = m_qp.head<3>();
+  m_tau_in.head<3>().setZero();
   std::transform(m_joint_state_interfaces.at(0).begin(),
-                 m_joint_state_interfaces.at(0).end(), q_in.tail(m_nax).begin(),
+                 m_joint_state_interfaces.at(0).end(),
+                 m_q_in.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface &lsi) {
                    return GET_VALUE_FROM_INTERFACE(lsi);
                  });
   std::transform(m_joint_state_interfaces.at(1).begin(),
                  m_joint_state_interfaces.at(1).end(),
-                 qp_in.tail(m_nax).begin(),
+                 m_qp_in.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface &lsi) {
                    return GET_VALUE_FROM_INTERFACE(lsi);
                  });
   std::transform(m_joint_state_interfaces.at(2).begin(),
                  m_joint_state_interfaces.at(2).end(),
-                 tau_in.tail(m_nax).begin(),
+                 m_tau_in.tail(m_nax).begin(),
                  [](const hardware_interface::LoanedStateInterface &lsi) {
                    return GET_VALUE_FROM_INTERFACE(lsi);
                  });
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
   // Manipulator State
 #ifdef ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
-  q_qp_out = m_joint_filter.update(q_qp_in, m_qpp.tail(m_nax));
+  q_qp_out = m_joint_filter.update(q_m_qp_in, m_qpp.tail(m_nax));
   m_q.tail(m_nax) = q_qp_out.head(m_nax);
   m_qp.tail(m_nax) = q_qp_out.tail(m_nax);
 #else
-  m_q.tail(m_nax) = q_in.tail(m_nax);
-  m_qp.tail(m_nax) = qp_in.tail(m_nax);
+  m_q.tail(m_nax) = m_q_in.tail(m_nax);
+  m_qp.tail(m_nax) = m_qp_in.tail(m_nax);
 #endif
 
 #endif
@@ -1497,20 +1510,6 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
         m_chain_world_tool->getTransformation(m_initial_q);
   }
   if (m_mobile_base->enabled) {
-    // full_velocity_references.head<M_SE2>() =
-    // utils::base_velocity_from_twist(reference_target_twist_tool_world_in_world);
-    // full_position_references.head<M_SE2>() =
-    // utils::base_velocity_from_twist(utils::vector_from_affine(
-    // reference_target_T_world_tool *
-    // m_chain_base_tool->getTransformation(m_initial_q.tail(m_nax)).inverse()));
-    // ---
-    // full_velocity_references.head<M_SE2>() =
-    // utils::base_velocity_from_twist(m_computed_target_twist_tool_world_in_world);
-    // full_position_references.head<M_SE2>() =
-    // utils::base_velocity_from_twist(utils::vector_from_affine(
-    //   m_computed_target_T_world_tool *
-    //   m_chain_base_tool->getTransformation(m_initial_q.tail(m_nax)).inverse()));
-    // ---
     full_velocity_references.head<M_SE2>() = utils::base_velocity_from_twist(
         m_computed_target_twist_tool_world_in_world);
     Eigen::Affine3d T_world_base_ref =
@@ -1573,15 +1572,7 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
       wrench_sensor_in_sensor.setZero();
     }
 
-    // // Wrench deadband
-    // utils::deadband(m_parameters.wrench.deadband[0],
-    // m_parameters.wrench.deadband[1], wrench_sensor_in_sensor);
-
     if (m_parameters.wrench.notch_filter.enable) {
-      // std::transform(
-      // wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(),
-      // m_wrench_filters.begin(), wrench_sensor_in_sensor.begin(),
-      // [](const double w, NotchFilter &f) { return f.update(w); });
       std::transform(
           wrench_sensor_in_sensor.begin(), wrench_sensor_in_sensor.end(),
           m_low_pass_filters.begin(), wrench_sensor_in_sensor.begin(),
@@ -1637,8 +1628,11 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     if (m_parameters.wrench.notch_filter.enable) {
       std::transform(
           wrench_tool_in_tool.begin(), wrench_tool_in_tool.end(),
-          m_wrench_filters.begin(), wrench_tool_in_tool.begin(),
-          [](const double w, NotchFilter &f) { return f.update(w); });
+          m_low_pass_filters.begin(), wrench_tool_in_tool.begin(),
+          [](const double w, eigen_control_toolbox::FilteredScalar &f) {
+            f.update(w);
+            return f.getUpdatedValue();
+          });
     }
 
     // Exponential filter
@@ -1652,7 +1646,9 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
 
     wrench_tool_in_world =
         rdyn::spatialRotation(wrench_tool_in_tool, T_world_tool.linear()) -
-        m_offset_wrench_tool_in_world;
+        ((m_offset_future.wait_for(0s) != std::future_status::ready)
+             ? Eigen::Vector6d::Zero()
+             : m_offset_wrench_tool_in_world);
   }
 
   m_q_prec = m_q;
@@ -1690,17 +1686,23 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
                          1000, "[Waiting] Computing Offset Force");
     tau_cmd = pin::computeGeneralizedGravity(m_chain_world_tool_model,
                                              m_chain_world_tool_data,
-                                             to_pinocchio_config(m_q));
+                                             to_pinocchio_config(m_q_in));
+    tau_cmd += 10 * (m_initial_q - m_q_in) - 1.0 * m_qp_in;
+    tau_cmd.head<3>().setZero();
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
 
-      if (m_used_command_interfaces.at(0))
+      if (m_used_command_interfaces.at(0)) {
         result &= m_joint_command_interfaces.at(0).at(idx).get().set_value(
             GET_VALUE_FROM_INTERFACE(
                 m_joint_state_interfaces.at(0).at(idx).get()));
-      else if (m_used_command_interfaces.at(2))
+      }
+      if (m_used_command_interfaces.at(1)) {
+        result &= m_joint_command_interfaces.at(1).at(idx).get().set_value(0.0);
+      } else if (m_used_command_interfaces.at(2)) {
         result &= m_joint_command_interfaces.at(2).at(idx).get().set_value(
             tau_cmd(3 + idx));
+      }
     }
     if (!result) {
       RCLCPP_ERROR(
@@ -1715,22 +1717,7 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     RCLCPP_ERROR(get_node()->get_logger(),
                  "Cannot find a solution for the CLIK QP problem. "
                  "Keeping actual position");
-    m_admittance_value.setZero();
-    m_qpp = -(m_qp / m_dt);
-    tau_cmd.setZero();
-    // Eigen::MatrixXd M(m_full_nax, m_full_nax);
-    // M.bottomRightCorner(m_nax, m_nax) =
-    //     pin::crba(m_chain_world_tool_model, m_chain_world_tool_data,
-    //               to_pinocchio_config(m_q))
-    //         .bottomRightCorner(m_nax, m_nax);
-    // M.bottomRightCorner(m_nax, m_nax) =
-    //     M.bottomRightCorner(m_nax, m_nax).selfadjointView<Eigen::Upper>();
-    // M.topLeftCorner<3, 3>() = Eigen::Matrix3d{
-    //     {20.0, 0.0, 0.0}, {0.0, 20.0, 0.0}, {0.0, 0.0, 4.0}}; // To tune
-    tau_cmd = tau_in;
-    // m_computed_target_acc_tool_world_in_world.setZero();
-    // m_computed_target_acc_tool_world_in_world =
-    // -m_computed_target_twist_tool_world_in_world / m_dt;
+    assert(false); // Handled inside clik();
   } else {
     Eigen::VectorXd sol = solution_qp.value();
     // RCLCPP_INFO_STREAM(get_node()->get_logger(), "qepp\n " <<
@@ -1740,24 +1727,14 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     tau_cmd = sol.segment(m_full_nax, m_full_nax);
   }
 
-  std::tie(m_q, m_qp) = utils::rk4_double(
-      [](const auto &, const auto &, const auto &u) { return u; }, m_q, m_qp,
-      m_qpp, m_dt);
+  // std::tie(m_q, m_qp) = utils::rk4_double(
+  //     [](const auto &, const auto &, const auto &u) { return u; }, m_q, m_qp,
+  //     m_qpp, m_dt);
+  m_q += m_qp * m_dt + 0.5 * m_qpp * m_dt * m_dt;
+  m_qp += m_qpp * m_dt;
 
-  // std::transform(m_q.begin(), m_q.end(), m_q_prec.begin(), m_q.begin(),
-  //                [](const double d, const double d2) {
-  //                  return filters::exponentialSmoothing(d, d2, 0.99);
-  //                });
-
-  if (m_used_command_interfaces.at(2)) {
-    tau_cmd += m_parameters.clik.joint_task.kp * (m_q - q_in) +
-               m_parameters.clik.joint_task.kv * (qp_in);
-  }
-
-  Eigen::Vector6d cmp_t_wt =
-      utils::vector_from_affine(m_computed_target_T_world_tool);
-
-  m_computed_target_T_world_tool = utils::affine_from_vector(cmp_t_wt);
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(),
+  //  "tau_cmd pre-PD -> " << tau_cmd.transpose());
 
   // if (m_mobile_base->enabled) {
   //   Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
@@ -1822,6 +1799,36 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   }
   // END - Saturation Manipulator
 
+  Eigen::VectorXd cmd(m_full_nax);
+
+  if (m_used_command_interfaces.at(0)) {
+    // Consider the case where in gazebo there is no PID on
+    // position
+    // if (get_node()->get_parameter("use_sim_time").as_bool()) {
+    // cmd = m_qpp + m_parameters.clik.joint_task.kv * (m_qp - m_qp_in) +
+    // m_parameters.clik.joint_task.kp * (m_q - m_q_in);
+    // } else {
+    cmd = m_q;
+    // }
+  } else if (m_used_command_interfaces.at(1)) {
+    cmd = m_qp + m_parameters.clik.joint_task.kp * (m_q - m_q_in);
+  } else if (m_used_command_interfaces.at(2)) {
+    // tau_cmd += m_parameters.clik.joint_task.kp * (m_q - m_q_in) +
+    //  m_parameters.clik.joint_task.kv * (m_qp - m_qp_in);
+    tau_cmd += -m_parameters.clik.joint_task.kv * m_qp_in;
+  }
+
+  // FIXED PD
+  // auto JJ = m_chain_base_tool->getJacobian(m_q);
+  // tau_cmd = JJ.transpose() *
+  //           (m_parameters.clik.joint_task.kp *
+  //                utils::get_frame_distance(reference_target_T_world_tool,
+  //                                          T_world_tool) -
+  //            m_parameters.clik.joint_task.kv * twist_tool_world_in_world);
+
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(),
+  //  "tau_cmd post-PD -> " << tau_cmd.transpose());
+
   // ***********
   // ** Write **
   // ***********
@@ -1829,13 +1836,13 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   if (m_used_command_interfaces.at(0)) {
     for (size_t ax = 0; ax < m_nax; ++ax) {
       is_value_set &= m_joint_command_interfaces.at(0).at(ax).get().set_value(
-          m_q(ax + (m_full_nax - m_nax)));
+          cmd(ax + (m_full_nax - m_nax)));
     }
   }
   if (m_used_command_interfaces.at(1)) {
     for (size_t ax = 0; ax < m_nax; ++ax) {
       is_value_set &= m_joint_command_interfaces.at(1).at(ax).get().set_value(
-          m_qp(ax + (m_full_nax - m_nax)));
+          cmd(ax + (m_full_nax - m_nax)));
     }
   }
   if (m_used_command_interfaces.at(2)) {
@@ -1899,9 +1906,9 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
       tf2::toMsg(m_chain_world_tool->getDTwistTool(m_q, m_qp, m_qpp));
 
   msg.cart_actual_pose =
-      tf2::toMsg(m_chain_world_tool->getTransformation(q_in));
+      tf2::toMsg(m_chain_world_tool->getTransformation(m_q_in));
   msg.cart_actual_twist =
-      tf2::toMsg(m_chain_world_tool->getTwistTool(q_in, qp_in));
+      tf2::toMsg(m_chain_world_tool->getTwistTool(m_q_in, m_qp_in));
 
   std::tie(msg.reset_buffer_state, msg.reset_buffer_fill) =
       m_elastoplastic_model->get_reset_buffer_status();

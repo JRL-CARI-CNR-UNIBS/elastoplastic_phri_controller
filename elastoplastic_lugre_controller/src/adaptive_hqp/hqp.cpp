@@ -31,17 +31,20 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   constexpr static double WRENCH_THRESH = 1.0;
 
   Eigen::VectorXd q(m_full_nax + 1), qp(m_full_nax), qpp(m_full_nax);
+  Eigen::VectorXd q_in(m_full_nax + 1), qp_in(m_full_nax);
   q = to_pinocchio_config(m_q);
-  qp.head<3>() = m_qp.head<3>();
-  qp(m_jnt_id) = m_qp.tail(m_nax);
-  qpp.head<3>() = m_qpp.head<3>();
-  qpp(m_jnt_id) = m_qpp.tail(m_nax);
-  pin::computeForwardKinematicsDerivatives(m_chain_world_tool_model,
-                                           m_chain_world_tool_data, q, qp, qpp);
+  qp = m_qp;
+  qpp = m_qpp;
+
+  q_in = to_pinocchio_config(m_q_in);
+  qp_in = m_qp_in;
+
+  pin::computeForwardKinematicsDerivatives(
+      m_chain_world_tool_model, m_chain_world_tool_data, q_in, qp_in, qpp);
   pin::computeJointJacobians(m_chain_world_tool_model, m_chain_world_tool_data,
-                             q);
+                             q_in);
   pin::computeJointJacobiansTimeVariation(m_chain_world_tool_model,
-                                          m_chain_world_tool_data, q, qp);
+                                          m_chain_world_tool_data, q_in, qp_in);
   pin::updateFramePlacements(m_chain_world_tool_model, m_chain_world_tool_data);
 
   Eigen::Matrix6Xd fdJ(6, m_full_nax), dJ(6, m_full_nax);
@@ -52,11 +55,11 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   // dJ(Eigen::all) = fdJ(Eigen::all, m_jnt_id);
   // dJ.leftCols<3>() = fdJ(Eigen::all, );
 
-  Eigen::Vector6d acc_non_linear_in_world = dJ * m_qp;
+  Eigen::Vector6d acc_non_linear_in_world = dJ * m_qp_in;
 
   Eigen::Matrix6Xd fJ(6, m_full_nax), J(6, m_full_nax);
   pin::computeFrameJacobian(m_chain_world_tool_model, m_chain_world_tool_data,
-                            q, m_tool_id, pin::LOCAL_WORLD_ALIGNED, fJ);
+                            q_in, m_tool_id, pin::LOCAL_WORLD_ALIGNED, fJ);
   J = fJ;
   // J.rightCols(m_nax) = fJ(Eigen::all, m_jnt_id);
   // J.leftCols<3>() = fJ(Eigen::all, 3);
@@ -69,7 +72,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   //=== Dynamics
   Eigen::MatrixXd M = Eigen::MatrixXd::Zero(m_full_nax, m_full_nax);
   M.bottomRightCorner(m_nax, m_nax) =
-      pin::crba(m_chain_world_tool_model, m_chain_world_tool_data, q)
+      pin::crba(m_chain_world_tool_model, m_chain_world_tool_data, q_in)
           .bottomRightCorner(m_nax, m_nax);
   M.bottomRightCorner(m_nax, m_nax) =
       M.bottomRightCorner(m_nax, m_nax).selfadjointView<Eigen::Upper>();
@@ -82,7 +85,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
 
   Eigen::MatrixXd C(m_full_nax, m_full_nax);
   C = pin::computeCoriolisMatrix(m_chain_world_tool_model,
-                                 m_chain_world_tool_data, q, qp);
+                                 m_chain_world_tool_data, q_in, qp_in);
   C.topLeftCorner<3, 3>() =
       Eigen::DiagonalMatrix<double, 3>(
           Eigen::Map<Eigen::Vector3d>(
@@ -91,7 +94,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
           .toDenseMatrix();
 
   Eigen::VectorXd grav = pin::computeGeneralizedGravity(
-      m_chain_world_tool_model, m_chain_world_tool_data, q);
+      m_chain_world_tool_model, m_chain_world_tool_data, q_in);
   //   grav.head<3>().setZero();
 
   RCLCPP_DEBUG_STREAM(get_node()->get_logger(),
@@ -129,36 +132,39 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
                                  (data.target_twist_tool_world_in_world -
                                   data.twist_tool_world_in_world) -
                              invMc * K * dist;
-  // normalize(task_motion_tracking);
+  normalize(task_motion_tracking);
 
   //=== Task admittance
   elastoplastic::Task task_pseudo_admittance(prb_dim, 6, "Admittance");
   task_pseudo_admittance.A().rightCols<6>().setIdentity();
   task_pseudo_admittance.b() = -data.wrench_tool_in_world;
-  // normalize(task_pseudo_admittance);
+  normalize(task_pseudo_admittance);
 
-  //=== Task gravity
+  //=== Task gravity - only on arm
+  // elastoplastic::Task task_gravity(prb_dim, m_nax, "Gravity");
   elastoplastic::Task task_gravity(prb_dim, m_full_nax, "Gravity");
-  task_gravity.A()
+  task_gravity
+      .A()
+      // .middleCols(m_full_nax + 3, m_nax)
       .middleCols(m_full_nax, m_full_nax)
-      //   .bottomRightCorner(m_nax, m_nax)
       .setIdentity();
   task_gravity.b() = -grav;
-  // normalize(task_gravity);
+  // task_gravity.b() = -grav.tail(m_nax);
+  normalize(task_gravity);
 
   //=== Task minimize velocity
   elastoplastic::Task task_joint_vel(prb_dim, m_full_nax,
                                      "Joint velocity minimization");
   task_joint_vel.A().leftCols(m_full_nax) +=
       Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
-  task_joint_vel.b() += qp;
-  // normalize(task_joint_vel);
+  task_joint_vel.b() += qp_in;
+  normalize(task_joint_vel);
 
   //=== Task fix position
   elastoplastic::Task task_joint_pos(prb_dim, m_full_nax, "Joint position");
   task_joint_pos.A().leftCols(m_full_nax) +=
       Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt * m_dt * 0.5;
-  task_joint_pos.b() += qp * m_dt + m_q - data.position_references;
+  task_joint_pos.b() += qp * m_dt + m_q_in - data.position_references;
 
   /***********
    ** Stack **
@@ -199,17 +205,17 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
 
   eq_model.A() << M, -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax),
       -J.transpose();
-  eq_model.b() = C * qp + grav;
+  eq_model.b() = C * qp_in + grav;
   eq_model.b().tail(m_nax) +=
       (Eigen::Map<Eigen::VectorXd>(m_parameters.joints_static_friction.data(),
                                    m_parameters.joints_static_friction.size())
            .array() *
-       qp.tail(m_nax).array().sign())
+       qp_in.tail(m_nax).array().sign())
           .matrix(); // Friction
   eq_model.b().tail(m_nax) +=
       Eigen::Map<Eigen::VectorXd>(m_parameters.joints_damping.data(),
                                   m_parameters.joints_damping.size())
-          .cwiseProduct(qp.tail(m_nax)); // Damping
+          .cwiseProduct(qp_in.tail(m_nax)); // Damping
   eq_set1.push_constraint(eq_model);
   eq_set1.compute_set();
 
@@ -236,12 +242,14 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   ineq_qp_min.CI().leftCols(m_full_nax)
       << Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   ineq_qp_min.ci().segment(m_mobile_base->nax(), m_nax) =
-      (m_qp.tail(m_nax) + m_limits.vel);
+      (m_qp_in.tail(m_nax) + m_limits.vel);
+  ineq_qp_min.ci().segment(m_mobile_base->nax(), m_nax).cwiseMax(1e-9);
 
   ineq_qp_max.CI().leftCols(m_full_nax)
       << -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
   ineq_qp_max.ci().segment(m_mobile_base->nax(), m_nax) =
-      (m_limits.vel - m_qp.tail(m_nax));
+      (m_limits.vel - m_qp_in.tail(m_nax));
+  ineq_qp_max.ci().segment(m_mobile_base->nax(), m_nax).cwiseMax(1e-9);
 
   // Acceleration
   ineq_qpp_min.CI().leftCols(m_full_nax)
@@ -256,25 +264,29 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   ineq_q_min.CI().block(0, m_mobile_base->nax(), m_nax, m_nax)
       << (Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt);
   ineq_q_min.ci().head(m_nax) =
-      ((m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt) - m_limits.pos_lower);
+      ((m_q_in.tail(m_nax) + m_qp_in.tail(m_nax) * m_dt) - m_limits.pos_lower);
   ineq_q_min.ci() = ineq_q_min.ci().cwiseMax(1e-9);
 
   ineq_q_max.CI().block(0, m_mobile_base->nax(), m_nax, m_nax)
       << (-Eigen::MatrixXd::Identity(m_nax, m_nax) * 0.5 * m_dt * m_dt);
   ineq_q_max.ci().head(m_nax) =
-      (m_limits.pos_upper - (m_q.tail(m_nax) + m_qp.tail(m_nax) * m_dt));
+      (m_limits.pos_upper - (m_q_in.tail(m_nax) + m_qp_in.tail(m_nax) * m_dt));
   ineq_q_max.ci() = ineq_q_max.ci().cwiseMax(1e-9);
 
   // Move base limits to world
   if (m_mobile_base->enabled) {
-    Eigen::Vector6d max_vel_base_in_base =
-        utils::twist_from_base_velocity(m_mobile_base->vel_limits);
-    Eigen::Vector6d max_vel_base_in_world =
-        rdyn::spatialRotation(max_vel_base_in_base, m_T_world_base.linear());
-    Eigen::Vector3d max_vel =
-        utils::base_velocity_from_twist(max_vel_base_in_world);
-    ineq_qp_min.ci().head<M_SE2>() << m_qp.head<M_SE2>() + max_vel;
-    ineq_qp_max.ci().head<M_SE2>() << max_vel - m_qp.head<M_SE2>();
+    // Eigen::Vector6d max_vel_base_in_base =
+    //     utils::twist_from_base_velocity(m_mobile_base->vel_limits);
+    // Eigen::Vector6d max_vel_base_in_world =
+    //     rdyn::spatialRotation(max_vel_base_in_base, m_T_world_base.linear());
+    // Eigen::Vector3d max_vel =
+    //     utils::base_velocity_from_twist(max_vel_base_in_world);
+    ineq_qp_min.ci().head<M_SE2>()
+        << m_qp_in.head<M_SE2>() + m_mobile_base->vel_limits;
+    ineq_qp_min.ci().head<M_SE2>().cwiseMax(1e-9);
+    ineq_qp_max.ci().head<M_SE2>()
+        << m_mobile_base->vel_limits - m_qp_in.head<M_SE2>();
+    ineq_qp_max.ci().head<M_SE2>().cwiseMax(1e-9);
 
     Eigen::Vector6d max_acc_base_in_base =
         utils::twist_from_base_velocity(m_mobile_base->acc_limits);
@@ -284,6 +296,8 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
         utils::base_velocity_from_twist(max_acc_base_in_world);
     ineq_qpp_min.ci().head<M_SE2>() << max_acc;
     ineq_qpp_max.ci().head<M_SE2>() << max_acc;
+    ineq_qpp_min.ci().head<M_SE2>().cwiseMax(1e-9);
+    ineq_qpp_max.ci().head<M_SE2>().cwiseMax(1e-9);
   }
 
   elastoplastic::InequalityConstraint ineq_tau_max(prb_dim, m_full_nax);
@@ -349,31 +363,34 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
    ** Solve **
    ***********/
   sot1.symmetrize();
-  sot1.regularize(1e-9);
+  sot1.regularize(1e-12);
   sot2.symmetrize();
   sot2.regularize(1e-9);
   sot3.symmetrize();
   sot3.regularize(1e-9);
 
-  //   RCLCPP_WARN_STREAM(get_node()->get_logger(),
-  //                      "sot.G\n"
-  //                          << sot1.G() << "\nsot.F\n"
-  //                          << sot1.F().transpose() << "\neq_set1.CE\n"
-  //                          << eq_set1.CE() << "\neq_set1.ce\n"
-  //                          << eq_set1.ce().transpose() << "\nineq_set1.CI\n"
-  //                          << ineq_set1.CI() << "\nineq_set1.ci\n"
-  //                          << ineq_set1.ci());
+  // RCLCPP_WARN_STREAM(get_node()->get_logger(),
+  //                    "sot.G\n"
+  //                        << sot1.G() << "\nsot.F\n"
+  //                        << sot1.F().transpose() << "\neq_set1.CE\n"
+  //                        << eq_set1.CE() << "\neq_set1.ce\n"
+  //                        << eq_set1.ce().transpose() << "\nineq_set1.CI\n"
+  //                        << ineq_set1.CI() << "\nineq_set1.ci\n"
+  //                        << ineq_set1.ci());
   //   assert(false);
 
   // =============== First level
   RCLCPP_INFO_STREAM(get_node()->get_logger(),
                      "ci -> " << ineq_set1.ci().transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(), "qp -> " << qp.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(), "q -> " << m_q.transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),
-                     "limits_sup_q -> " << m_limits.pos_upper.transpose());
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(), "qp -> " << qp.transpose());
+  // RCLCPP_INFO_STREAM(get_node()->get_logger(), "q -> " <<
+  // m_q_in.transpose()); RCLCPP_INFO_STREAM(get_node()->get_logger(),
+  //                    "limits_sup_q -> " << m_limits.pos_upper.transpose());
   elastoplastic::SolverQP solver1(prb_dim, sot1, eq_set1, ineq_set1);
   auto [sol1, status] = solver1.solve();
+
+  std::optional<Eigen::VectorXd> return_val;
+  Eigen::VectorXd solutionQP = sol1;
 
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
     RCLCPP_ERROR(get_node()->get_logger(), "Problem unfeasible: ");
@@ -404,7 +421,8 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
     default:
       break;
     }
-    return std::nullopt;
+    return_val = std::nullopt;
+    // return std::nullopt;
   } else if (sol1.hasNaN()) {
     RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution at level 1!");
     RCLCPP_ERROR_STREAM(get_node()->get_logger(),
@@ -415,10 +433,34 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
                             << eq_set1.ce().transpose() << "\nineq_set1.CI\n"
                             << ineq_set1.CI() << "\nineq_set1.ci\n"
                             << ineq_set1.ci());
-    return std::nullopt;
+    assert(false);
+    return_val = std::nullopt;
+    // return std::nullopt;
+  } else {
+    // RCLCPP_INFO_STREAM(
+    //     get_node()->get_logger(),
+    //     "\ntask_admittance:\n"
+    //         << task_pseudo_admittance.value(solutionQP).transpose()
+    //         << "\ntask_gravity:\n"
+    //         << task_gravity.value(solutionQP).transpose());
+
+    // solutionQP.setZero();
+    // solutionQP.head(m_full_nax) = M.inverse() * (C * qp);
+    return_val = solutionQP;
   }
 
-  Eigen::VectorXd solutionQP = sol1;
+  if (!return_val.has_value()) {
+    Eigen::VectorXd v(prb_dim);
+    v.head(m_full_nax) = -(m_qp_in / m_dt);
+    v.head(m_full_nax)
+        .tail(m_nax)
+        .cwiseMax(-m_limits.acc)
+        .cwiseMin(m_limits.acc); // clamp on saturation
+    v.tail<6>().setZero();
+    v.segment(m_full_nax, m_full_nax) =
+        M * v.head(m_full_nax) + C * qp_in + grav;
+    return v;
+  }
 
   // =============== Second level
   elastoplastic::EqualityConstraint eq_prev_level_1(prb_dim, 6, "Prev level 1");
@@ -441,9 +483,6 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
     return solutionQP;
   }
 
-  RCLCPP_INFO_STREAM(
-      get_node()->get_logger(),
-      "Null space vector lv2: " << (sol_tmp - solutionQP).transpose());
   solutionQP = sol_tmp;
   status = stat_tmp;
 
@@ -477,16 +516,16 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
 
   RCLCPP_INFO_STREAM(
       get_node()->get_logger(),
-      "Null space vector lv3: " << (sol_tmp - solutionQP).transpose());
-  solutionQP = sol_tmp;
-  status = stat_tmp;
-
+      "task_admittance:\n"
+          << task_pseudo_admittance.value(solutionQP).transpose());
   RCLCPP_INFO_STREAM(get_node()->get_logger(),
-                     "\ntask_admittance:\n"
-                         << task_pseudo_admittance.value(solutionQP).transpose()
-                         << "\ntask_gravity:\n"
-                         << task_gravity.value(solutionQP).transpose()
-                         << "\nmodel:\n"
+                     "task_gravity:\n"
+                         << task_gravity.value(solutionQP).transpose());
+  RCLCPP_INFO_STREAM(get_node()->get_logger(),
+                     "J^T f\n"
+                         << (J.transpose() * solutionQP.tail<6>()).transpose());
+  RCLCPP_INFO_STREAM(get_node()->get_logger(),
+                     "model:\n"
                          << eq_model.value(solutionQP).transpose());
 
   return solutionQP;

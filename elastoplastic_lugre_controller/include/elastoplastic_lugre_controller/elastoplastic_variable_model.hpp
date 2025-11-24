@@ -29,7 +29,9 @@ struct ElastoplasticModelData {
   size_t buffer_size;
 
   std::vector<bool> enable_axis;
-  ElastoplasticModelData() : z_max(0.0), z_kmax(0.0), z_start(0.0) {
+  ElastoplasticModelData()
+      : z_max(0.0), z_kmax(0.0), z_start(0.0), reset_threshold(0.0),
+        buffer_size(0) {
     inertia_inv.setZero();
     k.setZero();
     d.setZero();
@@ -60,9 +62,10 @@ private:
   Eigen::Vector6d m_enable_axis;
 
   Eigen::Matrix6d compute_k(const double z) const;
-  Eigen::Vector6d compute_zp(const Eigen::Vector6d& z, const Eigen::Vector6d& u, const double dt) const;
-  Eigen::Matrix6d compute_coeff_in_b(const Eigen::Matrix6d& M, const Eigen::Affine3d& T_a_b) const;
-
+  Eigen::Vector6d compute_zp(const Eigen::Vector6d &z, const Eigen::Vector6d &u,
+                             const double dt) const;
+  Eigen::Matrix6d compute_coeff_in_b(const Eigen::Matrix6d &M,
+                                     const Eigen::Affine3d &T_a_b) const;
 
 #ifdef BUILD_TESTING
   FRIEND_TEST(ElastoplasticModelTest, privateComputeK);
@@ -72,7 +75,7 @@ private:
 #endif
 
 public:
-  bool reset(const Eigen::Vector6d& f, const Eigen::Vector6d& v);
+  bool reset(const Eigen::Vector6d &f, const Eigen::Vector6d &v);
   double alpha(const double z) const;
   double alpha() const;
   void clear();
@@ -85,15 +88,19 @@ public:
   Eigen::Vector6d get_enabled_axis() const { return m_enable_axis; }
   std::pair<double, double> get_reset_buffer_status() const;
 
-  Eigen::Vector6d compute_impedance(const Eigen::Vector6d& x, const Eigen::Vector6d& v, const Eigen::Vector6d& f,
-                                    const Eigen::Affine3d& T_a_b) const;
-  std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> compute_variable_matrices(const Eigen::Affine3d& T_a_b) const;
-  Eigen::Vector6d update_z(const Eigen::Vector6d& uin, const double period);
-  std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d> update(const Eigen::Vector6d& x, const Eigen::Vector6d& v,
-                                                                       const Eigen::Vector6d& f, const Eigen::Affine3d T_a_b,
-                                                                       const double period);
+  Eigen::Vector6d compute_impedance(const Eigen::Vector6d &x,
+                                    const Eigen::Vector6d &v,
+                                    const Eigen::Vector6d &f,
+                                    const Eigen::Affine3d &T_a_b) const;
+  std::tuple<Eigen::Matrix6d, Eigen::Matrix6d>
+  compute_variable_matrices(const Eigen::Affine3d &T_a_b) const;
+  Eigen::Vector6d update_z(const Eigen::Vector6d &uin, const double period);
+  std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d>
+  update(const Eigen::Vector6d &x, const Eigen::Vector6d &v,
+         const Eigen::Vector6d &f, const Eigen::Affine3d T_a_b,
+         const double period);
 
-  ElastoplasticModel(const ElastoplasticModelData& data);
+  ElastoplasticModel(const ElastoplasticModelData &data);
   ElastoplasticModel() = delete;
 };
 
