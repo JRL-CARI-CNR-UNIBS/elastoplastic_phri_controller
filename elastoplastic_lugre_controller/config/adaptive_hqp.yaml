@@ -14,7 +14,7 @@ adaptive_hqp:
     ft_invert_sign: false
     gravity: [0.0, 0.0, -9.81]
     frames:
-      map: odom
+      map: map
       # map: base_footprint
       base: base_footprint
       tool: arm_right_tool_link
@@ -85,9 +85,9 @@ adaptive_hqp:
           - 1e0
           - 1e0
           - 1e0
-    acceleration_limits_coeff: 1.0
+    acceleration_limits_coeff: 10.0
     command_interfaces:
-      - velocity
+      - position
     state_interfaces:
       - position
       - velocity
@@ -99,9 +99,9 @@ adaptive_hqp:
       - 10.0
       - 10.0
       virtual_damping: 
-      - 100.0
-      - 100.0
-      - 100.0
+      - 50.0
+      - 50.0
+      - 50.0
       enable_z_rotation: false
       input_target_topic: "/target_cmd_vel"
       localization_topic: "/amcl_pose" # Unused
@@ -132,28 +132,29 @@ adaptive_hqp:
         fc: 10.0
         Q: 1.0
     impedance:
+      wrench_threshold: 3.0
       enable_axis: [true, true, true, false, false, false]
       inertia:
-        - 1.0
-        - 1.0
-        - 1.0
-        - 1.0
-        - 1.0
-        - 1.0
+        - 5.0
+        - 5.0
+        - 5.0
+        - 5.0
+        - 5.0
+        - 5.0
       k:
-        - 50.0
-        - 50.0
-        - 50.0
-        - 50.0
-        - 50.0
-        - 50.0
+        - 100.0
+        - 100.0
+        - 100.0
+        - 100.0
+        - 100.0
+        - 100.0
       d:
-        - 100.0
-        - 100.0
-        - 100.0
-        - 100.0
-        - 100.0
-        - 100.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
+        - 40.0
       z_max:   0.1 # [0.15, 0.15] # 0.1
       z_kmax:  0.098 # [0.14, 0.14] # 0.1
       z_start: 0.07  # [0.1, 0.1]   # 0.05
@@ -166,10 +167,10 @@ adaptive_hqp:
         time: 5.0
         threshold: 1e0
       plastic_restoration: false
-    offset_force_window: 2.0 # seconds
+    offset_force_window: 0.0 # seconds
     clik:
       alpha_gain: 1.0e6
       joint_task:
-        kp: 1.0 # 1e1
+        kp: 0.1 # 1e1
         # kv: 5.0 # 1e2
-        kv: 5.0
+        kv: 0.01

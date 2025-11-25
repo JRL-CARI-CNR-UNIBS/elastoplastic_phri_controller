@@ -28,8 +28,6 @@ double normalize2(const elastoplastic::Task &t) {
 }
 
 std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
-  constexpr static double WRENCH_THRESH = 1.0;
-
   Eigen::VectorXd q(m_full_nax + 1), qp(m_full_nax), qpp(m_full_nax);
   Eigen::VectorXd q_in(m_full_nax + 1), qp_in(m_full_nax);
   q = to_pinocchio_config(m_q);
@@ -173,8 +171,9 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   elastoplastic::Stack sot2(prb_dim);
   elastoplastic::Stack sot3(prb_dim);
 
-  const bool is_force_active =
-      true; // data.wrench_tool_in_world.norm() > WRENCH_THRESH;
+  //   const bool is_force_active = true;
+  const bool is_force_active = data.wrench_tool_in_world.norm() >
+                               m_parameters.impedance.wrench_threshold;
   if (is_force_active) {
     sot1.push_task(task_pseudo_admittance);
     sot2.push_task(task_gravity);
@@ -217,10 +216,20 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
                                   m_parameters.joints_damping.size())
           .cwiseProduct(qp_in.tail(m_nax)); // Damping
   eq_set1.push_constraint(eq_model);
-  eq_set1.compute_set();
-
   eq_set2.push_constraint(eq_model);
   eq_set3.push_constraint(eq_model);
+
+  // Fix force for motion task
+  //   elastoplastic::EqualityConstraint eq_force(prb_dim, 6);
+  //   eq_force.A().rightCols<6>().setIdentity();
+  //   eq_force.b() = -data.wrench_tool_in_world;
+  //   if (!is_force_active) {
+  //     eq_set1.push_constraint(eq_force);
+  //     eq_set2.push_constraint(eq_force);
+  //     eq_set3.push_constraint(eq_force);
+  //   }
+
+  eq_set1.compute_set();
 
   /***********************
    ** DISEQ Constraints **
@@ -365,9 +374,9 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   sot1.symmetrize();
   sot1.regularize(1e-12);
   sot2.symmetrize();
-  sot2.regularize(1e-9);
+  sot2.regularize(1e-12);
   sot3.symmetrize();
-  sot3.regularize(1e-9);
+  sot3.regularize(1e-12);
 
   // RCLCPP_WARN_STREAM(get_node()->get_logger(),
   //                    "sot.G\n"
@@ -462,6 +471,10 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
     return v;
   }
 
+  RCLCPP_INFO_STREAM(get_node()->get_logger(),
+                     "task_motion (level 1) -> "
+                         << task_motion_tracking.value(solutionQP));
+
   // =============== Second level
   elastoplastic::EqualityConstraint eq_prev_level_1(prb_dim, 6, "Prev level 1");
   if (is_force_active) {
@@ -485,6 +498,10 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
 
   solutionQP = sol_tmp;
   status = stat_tmp;
+
+  RCLCPP_INFO_STREAM(get_node()->get_logger(),
+                     "task_motion (level 2) -> "
+                         << task_motion_tracking.value(solutionQP));
 
   // =============== Third level
   size_t task_prev_level_2_size =

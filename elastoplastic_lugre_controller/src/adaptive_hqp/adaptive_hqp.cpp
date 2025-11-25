@@ -44,7 +44,7 @@
 #endif
 
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
-// #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
 #define USE_CARTESIAN_REFERENCE
 
@@ -1727,11 +1727,9 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     tau_cmd = sol.segment(m_full_nax, m_full_nax);
   }
 
-  // std::tie(m_q, m_qp) = utils::rk4_double(
-  //     [](const auto &, const auto &, const auto &u) { return u; }, m_q, m_qp,
-  //     m_qpp, m_dt);
-  m_q += m_qp * m_dt + 0.5 * m_qpp * m_dt * m_dt;
-  m_qp += m_qpp * m_dt;
+  std::tie(m_q, m_qp) = utils::rk4_double(
+      [](const auto &, const auto &, const auto &u) { return u; }, m_q, m_qp,
+      m_qpp, m_dt);
 
   // RCLCPP_INFO_STREAM(get_node()->get_logger(),
   //  "tau_cmd pre-PD -> " << tau_cmd.transpose());
@@ -1801,6 +1799,9 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
 
   Eigen::VectorXd cmd(m_full_nax);
 
+  RCLCPP_INFO_STREAM(get_node()->get_logger(), "q -> " << m_q.transpose());
+  RCLCPP_INFO_STREAM(get_node()->get_logger(), "qp -> " << m_qp.transpose());
+
   if (m_used_command_interfaces.at(0)) {
     // Consider the case where in gazebo there is no PID on
     // position
@@ -1811,11 +1812,11 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     cmd = m_q;
     // }
   } else if (m_used_command_interfaces.at(1)) {
-    cmd = m_qp + m_parameters.clik.joint_task.kp * (m_q - m_q_in);
+    cmd = m_qp;
   } else if (m_used_command_interfaces.at(2)) {
-    // tau_cmd += m_parameters.clik.joint_task.kp * (m_q - m_q_in) +
-    //  m_parameters.clik.joint_task.kv * (m_qp - m_qp_in);
-    tau_cmd += -m_parameters.clik.joint_task.kv * m_qp_in;
+    tau_cmd += m_parameters.clik.joint_task.kp * (m_q - m_q_in) +
+               m_parameters.clik.joint_task.kv * (m_qp - m_qp_in);
+    // tau_cmd += -m_parameters.clik.joint_task.kv * m_qp_in;
   }
 
   // FIXED PD

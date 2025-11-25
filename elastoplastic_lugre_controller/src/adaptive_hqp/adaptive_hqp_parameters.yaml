@@ -319,6 +319,12 @@ adaptive_hqp:
       description: "Invert sign of the force computed from torque joints"
     }
   impedance:
+    wrench_threshold: {
+      type: double,
+      validation: {
+        gt_eq<>: 0.0
+      }
+    }
     enable_axis: {
       type: bool_array,
       default_value: [true, true, true, false, false, true],
