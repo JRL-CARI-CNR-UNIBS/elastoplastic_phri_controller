@@ -44,7 +44,7 @@
 #endif
 
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
-#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
+// #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
 #define USE_CARTESIAN_REFERENCE
 
@@ -220,8 +220,10 @@ void AdaptiveHQP::configure_after_robot_description_callback(
                            m_parameters.gravity.at(2)});
   m_chain_base_tool = rdyn::createChain(*urdf_model, m_parameters.frames.base,
                                         m_parameters.frames.tool, gravity);
+  RCLCPP_INFO(get_node()->get_logger(), "m_chain_base_tool model created");
   m_chain_base_sensor = rdyn::createChain(*urdf_model, m_parameters.frames.base,
                                           m_parameters.frames.sensor, gravity);
+  RCLCPP_INFO(get_node()->get_logger(), "m_chain_base_sensor model created");
   if (not m_chain_base_tool) {
     RCLCPP_ERROR(get_node()->get_logger(),
                  "Cannot create rdyn chain from base (%s) to tool (%s)",
@@ -251,6 +253,7 @@ void AdaptiveHQP::configure_after_robot_description_callback(
     m_chain_world_tool = rdyn::createChain(*urdf_model, m_parameters.frames.map,
                                            m_parameters.frames.tool, gravity);
   }
+  RCLCPP_INFO(get_node()->get_logger(), "m_chain_world_tool model created");
 
   if (!m_chain_world_tool) {
     RCLCPP_ERROR(get_node()->get_logger(),
@@ -312,17 +315,21 @@ void AdaptiveHQP::configure_after_robot_description_callback(
     m_robot_description_configuration = RDStatus::ERROR;
   }
 
+  RCLCPP_INFO(get_node()->get_logger(), "Start pinocchio chain creation");
   // Pinocchio models
   // Full model
   pin::Model chain_world_tool_full;
   pin::urdf::buildModel(urdf_model, pin::JointModelPlanar(),
                         chain_world_tool_full);
+  RCLCPP_INFO(get_node()->get_logger(), "== Pinocchio full model built");
   m_planar_joint_name = chain_world_tool_full.names[1];
   // Get unused joint names
+  RCLCPP_INFO(get_node()->get_logger(), "== Get unused joint names");
   std::vector<std::string> joint_names_to_lock = chain_world_tool_full.names;
-  joint_names_to_lock.erase(joint_names_to_lock.begin(),
-                            joint_names_to_lock.begin() +
-                                2); // Rimuovi planar joint dalla lista
+  joint_names_to_lock.erase(
+      joint_names_to_lock.begin(),
+      joint_names_to_lock.begin() +
+          2); // Rimuovi planar joint e universe dalla lista
   joint_names_to_lock.erase(
       std::remove_if(joint_names_to_lock.begin(), joint_names_to_lock.end(),
                      [this](const std::string &s) {
@@ -332,17 +339,27 @@ void AdaptiveHQP::configure_after_robot_description_callback(
                      }),
       joint_names_to_lock.end());
   // Get unused joint ids
+  RCLCPP_INFO(get_node()->get_logger(), "== Get unused joint ids");
   std::vector<pin::JointIndex> joint_id_to_lock(joint_names_to_lock.size());
   std::transform(joint_names_to_lock.begin(), joint_names_to_lock.end(),
                  joint_id_to_lock.begin(),
                  [&chain_world_tool_full](const auto &s) {
                    return chain_world_tool_full.getJointId(s);
                  });
-
+  RCLCPP_INFO_STREAM(get_node()->get_logger(), "Discarding joints: ");
+  for (size_t idx = 0; idx < joint_names_to_lock.size(); idx++) {
+    RCLCPP_INFO_STREAM(get_node()->get_logger(),
+                       "== name: " << joint_names_to_lock[idx]);
+    RCLCPP_INFO_STREAM(get_node()->get_logger(),
+                       "== id: " << joint_id_to_lock[idx]);
+  }
+  RCLCPP_INFO(get_node()->get_logger(), "== Build reduced model");
   m_chain_world_tool_model =
       pin::buildReducedModel(chain_world_tool_full, joint_id_to_lock,
                              pin::neutral(chain_world_tool_full));
+  RCLCPP_INFO(get_node()->get_logger(), "== Gravity");
   m_chain_world_tool_model.gravity.linear() << gravity;
+  RCLCPP_INFO(get_node()->get_logger(), "== Get data");
   m_chain_world_tool_data = pin::Data(m_chain_world_tool_model);
 
   RCLCPP_INFO(get_node()->get_logger(), "Pinocchio joints:");
@@ -526,6 +543,13 @@ AdaptiveHQP::on_configure(const rclcpp_lifecycle::State & /*previous_state*/) {
         realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>>(
         m_pub_cmd_vel);
   }
+
+  m_state_controller_publisher =
+      get_node()->create_publisher<std_msgs::msg::Int16>(
+          "~/hqp_state", rclcpp::SystemDefaultsQoS());
+  m_rt_state_controller_publisher =
+      std::make_unique<realtime_tools::RealtimePublisher<std_msgs::msg::Int16>>(
+          m_state_controller_publisher);
 
   if (m_parameters.wrench.source == "ft_sensor") {
     m_ft_source = FTSource::FT_SENSOR;
@@ -723,29 +747,33 @@ AdaptiveHQP::on_configure(const rclcpp_lifecycle::State & /*previous_state*/) {
   RCLCPP_INFO(get_node()->get_logger(), "Pre TF");
 
   // Map->base transform handling
-  m_tf_buffer = std::make_shared<tf2_ros::Buffer>(get_node()->get_clock());
-  // m_tf_buffer->setUsingDedicatedThread(true);
-  // m_tf_buffer->setCreateTimerInterface(
+  // m_tf_buffer = std::make_shared<tf2_ros::Buffer>(get_node()->get_clock());
+  // // m_tf_buffer->setUsingDedicatedThread(true);
+  // // m_tf_buffer->setCreateTimerInterface(
+  // //
   // std::make_shared<tf2_ros::CreateTimerROS>(get_node()->get_node_base_interface(),
-  // get_node()->get_node_timers_interface()));
-  m_tf_listener = std::make_shared<tf2_ros::TransformListener>(
-      *m_tf_buffer, this->get_node(), true);
-  // m_tf_base_pose_recovery_thread =
-  // std::make_unique<std::thread>(&AdaptiveHQP::update_base_pose_from_tf,
-  // this);
-  if (m_mobile_base->enabled) {
-    bool can_transform{false};
-    do {
-      can_transform = m_tf_buffer->canTransform(m_parameters.frames.map,
-                                                m_parameters.frames.base,
-                                                tf2::TimePointZero);
-    } while (!can_transform);
-    RCLCPP_INFO(get_node()->get_logger(), "Found transform from map to base");
-    m_T_world_base = tf2::transformToEigen(m_tf_buffer->lookupTransform(
-        m_parameters.frames.map, m_parameters.frames.base, tf2::TimePointZero));
-  } else {
-    m_T_world_base.setIdentity();
-  }
+  // // get_node()->get_node_timers_interface()));
+  // m_tf_listener = std::make_shared<tf2_ros::TransformListener>(
+  //     *m_tf_buffer, this->get_node(), true);
+  // // m_tf_base_pose_recovery_thread =
+  // // std::make_unique<std::thread>(&AdaptiveHQP::update_base_pose_from_tf,
+  // // this);
+  // if (m_mobile_base->enabled) {
+  //   bool can_transform{false};
+  //   do {
+  //     can_transform = m_tf_buffer->canTransform(m_parameters.frames.map,
+  //                                               m_parameters.frames.base,
+  //                                               tf2::TimePointZero);
+  //   } while (!can_transform);
+  //   RCLCPP_INFO(get_node()->get_logger(), "Found transform from map to
+  //   base"); m_T_world_base =
+  //   tf2::transformToEigen(m_tf_buffer->lookupTransform(
+  //       m_parameters.frames.map, m_parameters.frames.base,
+  //       tf2::TimePointZero));
+  // } else {
+  //   m_T_world_base.setIdentity();
+  // }
+  m_T_world_base.setIdentity();
 
   m_base_use_cmd_ifaces = m_parameters.mobile_base.use_command_interfaces;
 
@@ -1687,7 +1715,6 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     tau_cmd = pin::computeGeneralizedGravity(m_chain_world_tool_model,
                                              m_chain_world_tool_data,
                                              to_pinocchio_config(m_q_in));
-    tau_cmd += 10 * (m_initial_q - m_q_in) - 1.0 * m_qp_in;
     tau_cmd.head<3>().setZero();
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
@@ -1734,43 +1761,36 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   // RCLCPP_INFO_STREAM(get_node()->get_logger(),
   //  "tau_cmd pre-PD -> " << tau_cmd.transpose());
 
-  // if (m_mobile_base->enabled) {
-  //   Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
-  //   qp_base_in_world = utils::twist_from_base_velocity(m_qp.head<M_SE2>());
+  if (m_mobile_base->enabled) {
+    Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
+    qp_base_in_world = utils::twist_from_base_velocity(m_qp.head<M_SE2>());
 
-  //   Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(
-  //       qp_base_in_world, m_T_world_base.linear().transpose());
-  //   // qp_base_in_base = qp_base_in_base.unaryExpr([this](double vel) {
-  //   return
-  //   // std::abs(vel) < M_VELOCITY_TOLLERANCE ? 0.0 : vel;
-  //   // });
-  //   m_velocity_base_in_base =
-  //   utils::base_velocity_from_twist(qp_base_in_base);
+    Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(
+        qp_base_in_world, m_T_world_base.linear().transpose());
+    m_velocity_base_in_base = utils::base_velocity_from_twist(qp_base_in_base);
 
-  //   // BEGIN - Check Saturation Base
-  //   // If the QP works, this shouldn't be necessary
-  //   for (size_t idx = 0; idx < M_SE2; ++idx) {
-  //     if (std::abs(m_velocity_base_in_base(idx)) >
-  //         m_mobile_base->vel_limits(idx)) {
-  //       LOG_ERROR_THROTTLE_COUNT(
-  //           this->get_node()->get_logger(), get_node()->get_clock(), 1,
-  //           "Saturation of Velocity on base linear direction "
-  //               << idx << ": " << m_velocity_base_in_base(idx) << " should be
-  //               "
-  //               << utils::sgn(m_velocity_base_in_base(idx)) *
-  //                      m_mobile_base->vel_limits(idx));
-  //       m_velocity_base_in_base(idx) =
-  //           utils::sgn(m_velocity_base_in_base(idx)) *
-  //           m_mobile_base->vel_limits(idx);
-  //     }
-  //   }
-  //   m_qp.head<M_SE2>() =
-  //   utils::base_velocity_from_twist(rdyn::spatialRotation(
-  //       utils::twist_from_base_velocity(m_velocity_base_in_base),
-  //       m_T_world_base.linear()));
-  //   // END - Check Saturation Base
-  // }
-  m_velocity_base_in_base = m_qp.head<3>();
+    // BEGIN - Check Saturation Base
+    // If the QP works, this shouldn't be necessary
+    for (size_t idx = 0; idx < M_SE2; ++idx) {
+      if (std::abs(m_velocity_base_in_base(idx)) >
+          m_mobile_base->vel_limits(idx)) {
+        LOG_ERROR_THROTTLE_COUNT(
+            this->get_node()->get_logger(), get_node()->get_clock(), 1,
+            "Saturation of Velocity on base linear direction "
+                << idx << ": " << m_velocity_base_in_base(idx) << " should be "
+                << utils::sgn(m_velocity_base_in_base(idx)) *
+                       m_mobile_base->vel_limits(idx));
+        m_velocity_base_in_base(idx) =
+            utils::sgn(m_velocity_base_in_base(idx)) *
+            m_mobile_base->vel_limits(idx);
+      }
+    }
+    m_qp.head<M_SE2>() = utils::base_velocity_from_twist(rdyn::spatialRotation(
+        utils::twist_from_base_velocity(m_velocity_base_in_base),
+        m_T_world_base.linear()));
+    // END - Check Saturation Base
+  }
+  // m_velocity_base_in_base = m_qp.head<3>();
 
   // BEGIN - Saturation Manipulator
   for (size_t idx = 0; idx < m_nax; ++idx) {
@@ -1803,15 +1823,10 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   RCLCPP_INFO_STREAM(get_node()->get_logger(), "qp -> " << m_qp.transpose());
 
   if (m_used_command_interfaces.at(0)) {
-    // Consider the case where in gazebo there is no PID on
-    // position
-    // if (get_node()->get_parameter("use_sim_time").as_bool()) {
-    // cmd = m_qpp + m_parameters.clik.joint_task.kv * (m_qp - m_qp_in) +
-    // m_parameters.clik.joint_task.kp * (m_q - m_q_in);
-    // } else {
-    cmd = m_q;
-    // }
+    // cmd = m_q;
+    cmd = m_q_in + m_parameters.clik.joint_task.kp * (m_q - m_q_in);
   } else if (m_used_command_interfaces.at(1)) {
+    // cmd = m_qp_in + m_parameters.clik.joint_task.kv * (m_qp - m_qp_in);
     cmd = m_qp;
   } else if (m_used_command_interfaces.at(2)) {
     tau_cmd += m_parameters.clik.joint_task.kp * (m_q - m_q_in) +
@@ -1997,6 +2012,13 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   if (m_rt_pub_full_state->trylock()) {
     m_rt_pub_full_state->msg_ = msg;
     m_rt_pub_full_state->unlockAndPublish();
+  }
+
+  std_msgs::msg::Int16 hqp_state_msg;
+  hqp_state_msg.data = m_hqp_state;
+  if (m_rt_state_controller_publisher->trylock()) {
+    m_rt_state_controller_publisher->msg_ = hqp_state_msg;
+    m_rt_state_controller_publisher->unlockAndPublish();
   }
 
   // std::for_each(command_interfaces_.begin(), command_interfaces_.end(),

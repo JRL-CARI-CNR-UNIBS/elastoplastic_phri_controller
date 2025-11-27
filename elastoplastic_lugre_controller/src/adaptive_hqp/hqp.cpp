@@ -172,16 +172,19 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   elastoplastic::Stack sot3(prb_dim);
 
   //   const bool is_force_active = true;
-  const bool is_force_active = data.wrench_tool_in_world.norm() >
-                               m_parameters.impedance.wrench_threshold;
+  //   const bool is_force_active = data.wrench_tool_in_world.norm() >
+  //                                m_parameters.impedance.wrench_threshold;
+  const bool is_force_active = true;
   if (is_force_active) {
     sot1.push_task(task_pseudo_admittance);
     sot2.push_task(task_gravity);
     sot3.push_task(task_joint_vel);
+    m_hqp_state = 0;
   } else {
     sot1.push_task(task_motion_tracking);
     sot2.push_task(task_pseudo_admittance);
     sot3.push_task(task_joint_vel);
+    m_hqp_state = 1;
   }
   // sot3.push_task(task_joint_pos);
 
@@ -389,8 +392,8 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   //   assert(false);
 
   // =============== First level
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),
-                     "ci -> " << ineq_set1.ci().transpose());
+  //   RCLCPP_INFO_STREAM(get_node()->get_logger(),
+  //                      "ci -> " << ineq_set1.ci().transpose());
   // RCLCPP_INFO_STREAM(get_node()->get_logger(), "qp -> " << qp.transpose());
   // RCLCPP_INFO_STREAM(get_node()->get_logger(), "q -> " <<
   // m_q_in.transpose()); RCLCPP_INFO_STREAM(get_node()->get_logger(),

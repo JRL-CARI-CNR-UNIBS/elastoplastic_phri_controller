@@ -45,6 +45,7 @@
 #include "moveit_msgs/msg/cartesian_trajectory.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "std_msgs/msg/int16.hpp"
 #include "std_msgs/msg/string.hpp"
 // IWYU pragma: end_keep
 
@@ -113,6 +114,12 @@ private:
   std::unique_ptr<realtime_tools::RealtimePublisher<
       elastoplastic_msgs::msg::AdaptiveHQPControllerState>>
       m_rt_pub_full_state;
+
+  rclcpp::Publisher<std_msgs::msg::Int16>::SharedPtr
+      m_state_controller_publisher;
+  std::unique_ptr<realtime_tools::RealtimePublisher<std_msgs::msg::Int16>>
+      m_rt_state_controller_publisher;
+  int m_hqp_state;
 
   constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
   constexpr static double M_INITIAL_INTERPOLATOR_DELTA{5e-3};

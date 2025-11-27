@@ -10,15 +10,18 @@ adaptive_hqp:
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
-    ft_sensor_name: wrist_right_ft_sensor
+    # ft_sensor_name: wrist_right_ft_sensor
+    ft_sensor_name: robotiq_ft_sensor
     ft_invert_sign: false
-    gravity: [0.0, 0.0, -9.81]
+    gravity: [0.0, 0.0, -9.806]
     frames:
       map: map
       # map: base_footprint
       base: base_footprint
-      tool: arm_right_tool_link
-      sensor: wrist_right_ft_sensor_link
+      # tool: arm_right_tool_link
+      tool: robotiq_ft_frame_id
+      sensor: robotiq_ft_frame_id  # for robot
+      # sensor: wrist_right_ft_sensor_link  # on sim
     joints:
       - arm_right_1_joint
       - arm_right_2_joint
@@ -28,13 +31,13 @@ adaptive_hqp:
       - arm_right_6_joint
       - arm_right_7_joint
     motor_torque_constants:  # NON CAMBIARE
-      - 1.0 # -0.08  #-0.103 
-      - 1.0 # -0.095  #-0.103 
-      - 1.0 # -0.045  #-0.06  
-      - 1.0 # -0.04  #-0.06  
-      - 1.0 # -0.15  #-1.0   
-      - 1.0 # -0.04  #-0.08  
-      - 1.0 # -0.06  #-0.06  
+      - 1.0 # 0.08  #-0.103 
+      - 1.0 # 0.095  #-0.103 
+      - 1.0 # 0.045  #-0.06  
+      - 1.0 # 0.04  #-0.06  
+      - 1.0 # 0.15  #-1.0   
+      - 1.0 # 0.04  #-0.08  
+      - 1.0 # 0.06  #-0.06  
     reduction_ratios:  # NON CAMBIARE
       - 1.0 # 121.0
       - 1.0 # 121.0
@@ -44,13 +47,13 @@ adaptive_hqp:
       - 1.0 # 101.0
       - 1.0 # 101.0
     joints_static_friction:  # NON CAMBIARE
-      -  0.0 # 0.05
-      -  0.0 # 0.05
-      -  0.0 # 0.05
-      -  0.0 # 0.05
-      -  0.0 # 0.05
-      -  0.0 # 0.05
-      -  0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
     joints_damping:  # NON CAMBIARE
       - 0.0 # 0.05
       - 0.0 # -1.0
@@ -87,7 +90,7 @@ adaptive_hqp:
           - 1e0
     acceleration_limits_coeff: 10.0
     command_interfaces:
-      - position
+      - velocity
     state_interfaces:
       - position
       - velocity
@@ -97,11 +100,11 @@ adaptive_hqp:
       virtual_inertia:
       - 10.0
       - 10.0
-      - 10.0
+      - 20.0
       virtual_damping: 
       - 50.0
       - 50.0
-      - 50.0
+      - 100.0
       enable_z_rotation: false
       input_target_topic: "/target_cmd_vel"
       localization_topic: "/amcl_pose" # Unused
@@ -122,39 +125,39 @@ adaptive_hqp:
       max_dec_yaw: 0.5
     wrench:
       deadband:
-      - 1.0
-      - 1.0
+      - 2.0
+      - 2.0
       filter_alfa: 0.2
       source: "ft_sensor"
       invert_torque: true # used only for if source==torque
       notch_filter:
         enable: true
-        fc: 10.0
+        fc: 1.0
         Q: 1.0
     impedance:
       wrench_threshold: 3.0
       enable_axis: [true, true, true, false, false, false]
       inertia:
-        - 5.0
-        - 5.0
-        - 5.0
-        - 5.0
-        - 5.0
-        - 5.0
+        - 2.0
+        - 2.0
+        - 2.0
+        - 2.0
+        - 2.0
+        - 2.0
       k:
-        - 100.0
-        - 100.0
-        - 100.0
-        - 100.0
-        - 100.0
-        - 100.0
+        - 20.0
+        - 20.0
+        - 20.0
+        - 20.0
+        - 20.0
+        - 20.0
       d:
-        - 40.0
-        - 40.0
-        - 40.0
-        - 40.0
-        - 40.0
-        - 40.0
+        - 10.0
+        - 10.0
+        - 10.0
+        - 10.0
+        - 10.0
+        - 10.0
       z_max:   0.1 # [0.15, 0.15] # 0.1
       z_kmax:  0.098 # [0.14, 0.14] # 0.1
       z_start: 0.07  # [0.1, 0.1]   # 0.05
@@ -167,7 +170,7 @@ adaptive_hqp:
         time: 5.0
         threshold: 1e0
       plastic_restoration: false
-    offset_force_window: 0.0 # seconds
+    offset_force_window: 2.0 # seconds
     clik:
       alpha_gain: 1.0e6
       joint_task:
