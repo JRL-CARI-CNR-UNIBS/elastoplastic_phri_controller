@@ -38,6 +38,38 @@ Interpolator::from_msg(const moveit_msgs::msg::CartesianTrajectory &trj) {
   return inter;
 }
 
+Interpolator
+Interpolator::from_msg(const moveit_msgs::msg::CartesianTrajectory &trj,
+                       const Eigen::Affine3d &start_pose) {
+  Trajectory plan;
+  size_t size = trj.points.size();
+  plan.clear();
+  plan.resize(size);
+  for (size_t idx = 0; idx < size; ++idx) {
+    // tf2::fromMsg(trj.points.at(idx).point.pose, plan.pose.at(idx));
+    tf2::fromMsg(trj.points.at(idx).point.velocity, plan.twist.at(idx));
+    //    tf2::fromMsg(trj.points.at(idx).point.acceleration,
+    //    m_plan.acc.at(idx));
+    plan.time.at(idx) =
+        rclcpp::Time(trj.points.at(idx).time_from_start.sec,
+                     trj.points.at(idx).time_from_start.nanosec);
+    if (idx == 0) {
+      plan.pose.at(0) = start_pose;
+    } else {
+      plan.pose.at(idx).translation() =
+          plan.pose.at(idx - 1).translation() +
+          (plan.time.at(idx) - plan.time.at(idx - 1)).seconds() *
+              plan.twist.at(idx - 1).head<3>();
+      plan.pose.at(idx).linear() = plan.pose.at(0).linear();
+    }
+  }
+  std::cerr << "New interpolator created from msg, with " << size << "points."
+            << std::endl;
+
+  Interpolator inter(plan);
+  return inter;
+}
+
 void Interpolator::start_plan(const rclcpp::Time &time) {
   m_plan.start = time;
   m_state = State::Started;

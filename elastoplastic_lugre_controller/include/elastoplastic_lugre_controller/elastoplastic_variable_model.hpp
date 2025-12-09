@@ -94,6 +94,7 @@ public:
                                     const Eigen::Affine3d &T_a_b) const;
   std::tuple<Eigen::Matrix6d, Eigen::Matrix6d>
   compute_variable_matrices(const Eigen::Affine3d &T_a_b) const;
+  std::tuple<Eigen::Matrix6d, Eigen::Matrix6d> get_matrices() const;
   Eigen::Vector6d update_z(const Eigen::Vector6d &uin, const double period);
   std::tuple<Eigen::Vector6d, Eigen::Vector6d, Eigen::Vector6d>
   update(const Eigen::Vector6d &x, const Eigen::Vector6d &v,

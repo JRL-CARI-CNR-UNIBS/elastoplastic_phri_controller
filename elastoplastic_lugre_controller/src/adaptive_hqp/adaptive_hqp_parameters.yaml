@@ -1,4 +1,7 @@
 adaptive_hqp:
+  use_threshold: {
+    type: int,
+  }
   target_joint_trajectory_topic: {
     type: string,
     default_value: "/joint_trajectory",

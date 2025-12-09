@@ -116,20 +116,25 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   elastoplastic::Task task_motion_tracking(prb_dim, 6, "Motion tracking");
 
   Eigen::Matrix6d invMc = m_elastoplastic_model->get_inertia_inv();
-  auto [K, D] = m_elastoplastic_model->compute_variable_matrices(
-      Eigen::Affine3d::Identity());
+  auto [K, D] = m_elastoplastic_model->get_matrices();
+
+  Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invMc * D * m_dt +
+                        0.5 * invMc * K * std::pow(m_dt, 2);
 
   task_motion_tracking.A().leftCols(m_full_nax) = J;
   task_motion_tracking.A().rightCols<6>() = -invMc;
 
   Eigen::Vector6d dist =
-      utils::get_frame_distance(data.target_T_world_tool, data.T_world_tool);
-  task_motion_tracking.b() = acc_non_linear_in_world -
-                             data.target_acc_tool_target_in_world -
-                             invMc * D *
-                                 (data.target_twist_tool_world_in_world -
-                                  data.twist_tool_world_in_world) -
-                             invMc * K * dist;
+      //   utils::get_frame_distance(data.target_T_world_tool,
+      //   data.T_world_tool);
+      utils::get_frame_distance(data.T_world_tool, data.target_T_world_tool);
+  Eigen::Vector6d twist_error =
+      (data.twist_tool_world_in_world - data.target_twist_tool_world_in_world);
+  task_motion_tracking.b() =
+      acc_non_linear_in_world + invMc * D * twist_error + invMc * K * dist;
+  //   task_motion_tracking.b() << adm * acc_non_linear_in_world +
+  //                                   invMc * D * twist_error +
+  //                                   invMc * K * (twist_error * m_dt + dist);
   normalize(task_motion_tracking);
 
   //=== Task admittance
@@ -172,9 +177,16 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   elastoplastic::Stack sot3(prb_dim);
 
   //   const bool is_force_active = true;
-  //   const bool is_force_active = data.wrench_tool_in_world.norm() >
-  //                                m_parameters.impedance.wrench_threshold;
-  const bool is_force_active = true;
+  bool is_force_active;
+  if (m_parameters.use_threshold == 0) {
+    is_force_active = 0;
+  } else if (m_parameters.use_threshold == 1) {
+    is_force_active = 1;
+  } else {
+    is_force_active = data.wrench_tool_in_world.norm() >
+                      m_parameters.impedance.wrench_threshold;
+  }
+  //   const bool is_force_active = true;
   if (is_force_active) {
     sot1.push_task(task_pseudo_admittance);
     sot2.push_task(task_gravity);
@@ -183,7 +195,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   } else {
     sot1.push_task(task_motion_tracking);
     sot2.push_task(task_pseudo_admittance);
-    sot3.push_task(task_joint_vel);
+    sot2.push_task(task_joint_vel, 1e-3);
     m_hqp_state = 1;
   }
   // sot3.push_task(task_joint_pos);
@@ -474,10 +486,6 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
     return v;
   }
 
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),
-                     "task_motion (level 1) -> "
-                         << task_motion_tracking.value(solutionQP));
-
   // =============== Second level
   elastoplastic::EqualityConstraint eq_prev_level_1(prb_dim, 6, "Prev level 1");
   if (is_force_active) {
@@ -502,10 +510,6 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   solutionQP = sol_tmp;
   status = stat_tmp;
 
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),
-                     "task_motion (level 2) -> "
-                         << task_motion_tracking.value(solutionQP));
-
   // =============== Third level
   size_t task_prev_level_2_size =
       is_force_active ? task_gravity.size() : task_pseudo_admittance.size();
@@ -515,6 +519,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   if (is_force_active) {
     eq_prev_level_22.A() = task_gravity.A();
   } else {
+    return solutionQP;
     eq_prev_level_22.A() = task_pseudo_admittance.A();
   }
   eq_prev_level_21.A() = eq_prev_level_1.A();
@@ -530,23 +535,12 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
     RCLCPP_ERROR(get_node()->get_logger(), "Problem 3 unfeasible");
     return solutionQP;
   } else if (sol_tmp.hasNaN()) {
-    RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution at level 3 !");
+    RCLCPP_ERROR(get_node()->get_logger(), "NaN in the solution at level 3!");
     return solutionQP;
   }
 
-  RCLCPP_INFO_STREAM(
-      get_node()->get_logger(),
-      "task_admittance:\n"
-          << task_pseudo_admittance.value(solutionQP).transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),
-                     "task_gravity:\n"
-                         << task_gravity.value(solutionQP).transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),
-                     "J^T f\n"
-                         << (J.transpose() * solutionQP.tail<6>()).transpose());
-  RCLCPP_INFO_STREAM(get_node()->get_logger(),
-                     "model:\n"
-                         << eq_model.value(solutionQP).transpose());
+  solutionQP = sol_tmp;
+  status = stat_tmp;
 
   return solutionQP;
 }

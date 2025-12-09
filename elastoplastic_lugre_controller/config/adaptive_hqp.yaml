@@ -7,6 +7,7 @@ arm_right_ft_sensor_robotiq:
 adaptive_hqp:
   ros__parameters:
     type: elastoplastic::AdaptiveHQP
+    use_threshold: 2 # 0 - only admitt, 1 - only track, 2 - mix
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
@@ -90,7 +91,7 @@ adaptive_hqp:
           - 1e0
     acceleration_limits_coeff: 10.0
     command_interfaces:
-      - velocity
+      - position
     state_interfaces:
       - position
       - velocity
@@ -125,8 +126,8 @@ adaptive_hqp:
       max_dec_yaw: 0.5
     wrench:
       deadband:
-      - 2.0
-      - 2.0
+      - 5.0
+      - 5.0
       filter_alfa: 0.2
       source: "ft_sensor"
       invert_torque: true # used only for if source==torque
@@ -145,19 +146,19 @@ adaptive_hqp:
         - 2.0
         - 2.0
       k:
-        - 20.0
-        - 20.0
-        - 20.0
-        - 20.0
-        - 20.0
-        - 20.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
       d:
-        - 10.0
-        - 10.0
-        - 10.0
-        - 10.0
-        - 10.0
-        - 10.0
+        - 20.0
+        - 20.0
+        - 20.0
+        - 20.0
+        - 20.0
+        - 20.0
       z_max:   0.1 # [0.15, 0.15] # 0.1
       z_kmax:  0.098 # [0.14, 0.14] # 0.1
       z_start: 0.07  # [0.1, 0.1]   # 0.05

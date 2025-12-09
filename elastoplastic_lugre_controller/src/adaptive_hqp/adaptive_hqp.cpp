@@ -1716,6 +1716,7 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
                                              m_chain_world_tool_data,
                                              to_pinocchio_config(m_q_in));
     tau_cmd.head<3>().setZero();
+    tau_cmd.setZero(); // FOR_UR
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
 
@@ -1823,12 +1824,15 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   RCLCPP_INFO_STREAM(get_node()->get_logger(), "qp -> " << m_qp.transpose());
 
   if (m_used_command_interfaces.at(0)) {
-    // cmd = m_q;
-    cmd = m_q_in + m_parameters.clik.joint_task.kp * (m_q - m_q_in);
+    cmd = m_q;
+    // cmd = m_q_in + m_parameters.clik.joint_task.kp * (m_q - m_q_in);
   } else if (m_used_command_interfaces.at(1)) {
     // cmd = m_qp_in + m_parameters.clik.joint_task.kv * (m_qp - m_qp_in);
     cmd = m_qp;
   } else if (m_used_command_interfaces.at(2)) {
+    tau_cmd -= pin::computeGeneralizedGravity(
+        m_chain_world_tool_model, m_chain_world_tool_data,
+        to_pinocchio_config(m_q)); // FOR_UR
     tau_cmd += m_parameters.clik.joint_task.kp * (m_q - m_q_in) +
                m_parameters.clik.joint_task.kv * (m_qp - m_qp_in);
     // tau_cmd += -m_parameters.clik.joint_task.kv * m_qp_in;
@@ -1989,7 +1993,7 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   msg.admittance_state.stiffness.data.reserve(6);
   msg.admittance_state.damping.data.reserve(6);
 
-  auto [K, D] = m_elastoplastic_model->compute_variable_matrices(T_world_tool);
+  auto [K, D] = m_elastoplastic_model->get_matrices();
   Eigen::Vector6d K_diag = K.diagonal();
   std::copy(K_diag.begin(), K_diag.end(),
             std::back_inserter(msg.admittance_state.stiffness.data));
