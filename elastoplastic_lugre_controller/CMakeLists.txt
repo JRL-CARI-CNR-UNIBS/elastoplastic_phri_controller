@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(BUILD_TESTING OFF)
 
 option(BUILD_ADAPTIVE_HQP "Build adaptive pseudo-admittance controller" ON)
-option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" ON)
+option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" OFF)
 
 
 find_package(ament_cmake                 REQUIRED)

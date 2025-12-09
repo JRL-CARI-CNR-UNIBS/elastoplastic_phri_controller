@@ -42,6 +42,10 @@
 #include "std_msgs/msg/string.hpp"
 // IWYU pragma: end_keep
 
+namespace hardware_interface {
+  static const char* const HW_IF_TORQUE = "torque";
+}
+
 namespace elastoplastic {
 
 class ElastoplasticController
@@ -292,8 +296,7 @@ protected:
   on_export_reference_interfaces() override;
 
   controller_interface::return_type
-  update_reference_from_subscribers(const rclcpp::Time &time,
-                                    const rclcpp::Duration &period) override;
+  update_reference_from_subscribers() override;
 
   void configure_after_robot_description_callback(
       const std_msgs::msg::String::SharedPtr msg);

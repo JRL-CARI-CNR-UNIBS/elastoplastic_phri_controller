@@ -1,8 +1,8 @@
 arm_right_ft_sensor_robotiq:
   ros__parameters:
     type: force_torque_sensor_broadcaster/ForceTorqueSensorBroadcaster
-    frame_id: robotiq_ft_frame_id
-    sensor_name: robotiq_ft_sensor
+    frame_id: azrael/tool0
+    sensor_name: azrael/tcp_fts_sensor
 
 adaptive_hqp:
   ros__parameters:
@@ -12,25 +12,24 @@ adaptive_hqp:
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
     # ft_sensor_name: wrist_right_ft_sensor
-    ft_sensor_name: robotiq_ft_sensor
+    ft_sensor_name: azrael/tcp_fts_sensor
     ft_invert_sign: false
     gravity: [0.0, 0.0, -9.806]
     frames:
-      map: map
+      map: azrael/odom
       # map: base_footprint
-      base: base_footprint
+      base: azrael/base_footprint
       # tool: arm_right_tool_link
-      tool: robotiq_ft_frame_id
-      sensor: robotiq_ft_frame_id  # for robot
+      tool: azrael/tool0
+      sensor: azrael/tool0  # for robot
       # sensor: wrist_right_ft_sensor_link  # on sim
     joints:
-      - arm_right_1_joint
-      - arm_right_2_joint
-      - arm_right_3_joint
-      - arm_right_4_joint
-      - arm_right_5_joint
-      - arm_right_6_joint
-      - arm_right_7_joint
+      - azrael/shoulder_pan_joint
+      - azrael/shoulder_lift_joint
+      - azrael/elbow_joint
+      - azrael/wrist_1_joint
+      - azrael/wrist_2_joint
+      - azrael/wrist_3_joint
     motor_torque_constants:  # NON CAMBIARE
       - 1.0 # 0.08  #-0.103 
       - 1.0 # 0.095  #-0.103 
@@ -38,7 +37,6 @@ adaptive_hqp:
       - 1.0 # 0.04  #-0.06  
       - 1.0 # 0.15  #-1.0   
       - 1.0 # 0.04  #-0.08  
-      - 1.0 # 0.06  #-0.06  
     reduction_ratios:  # NON CAMBIARE
       - 1.0 # 121.0
       - 1.0 # 121.0
@@ -46,9 +44,7 @@ adaptive_hqp:
       - 1.0 # 101.0
       - 1.0 # 101.0
       - 1.0 # 101.0
-      - 1.0 # 101.0
     joints_static_friction:  # NON CAMBIARE
-      - 0.0 # 0.05
       - 0.0 # 0.05
       - 0.0 # 0.05
       - 0.0 # 0.05
@@ -62,9 +58,7 @@ adaptive_hqp:
       - 0.0 # 0.05
       - 0.0 # 0.05
       - 0.0 # 0.05
-      - 0.0 # 0.05
     soft_limits:
-      - 0.0 # 0.07
       - 0.0 # 0.07
       - 0.0 # 0.07
       - 0.0 # 0.07
@@ -80,9 +74,7 @@ adaptive_hqp:
           - 1e-1
           - 1e-1
           - 1e-1
-          - 1e-1
         velocity:
-          - 1e0
           - 1e0
           - 1e0
           - 1e0
@@ -91,7 +83,7 @@ adaptive_hqp:
           - 1e0
     acceleration_limits_coeff: 10.0
     command_interfaces:
-      - position
+      - effort
     state_interfaces:
       - position
       - velocity
@@ -109,7 +101,7 @@ adaptive_hqp:
       enable_z_rotation: false
       input_target_topic: "/target_cmd_vel"
       localization_topic: "/amcl_pose" # Unused
-      odom: "/direct_laser_odometry/odom"
+      odom: "/odom"
       use_command_interfaces: false
       command_interfaces:
       - "mobile_base_controller/linear/x"

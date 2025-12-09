@@ -108,7 +108,7 @@ bool ElastoplasticController::write_cmd_vel(
   bool b = true;
   if (m_base_use_cmd_ifaces) {
     for (int idx = 0; idx < 3; ++idx) {
-      b = b && m_mobile_base_command_interfaces.at(idx).get().set_value(v(idx));
+      m_mobile_base_command_interfaces.at(idx).get().set_value(v(idx));
     }
   } else {
     geometry_msgs::msg::Twist msg(
@@ -130,7 +130,7 @@ bool ElastoplasticController::write_cmd_vel_zero() {
   bool b = true;
   if (m_base_use_cmd_ifaces) {
     for (int idx = 0; idx < 3; ++idx) {
-      b = b && m_mobile_base_command_interfaces.at(idx).get().set_value(0.0);
+      m_mobile_base_command_interfaces.at(idx).get().set_value(0.0);
     }
   } else {
     geometry_msgs::msg::Twist msg(
@@ -730,10 +730,10 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(
     m_parameters = m_param_listener->get_params();
     m_elastoplastic_model = std::make_unique<ElastoplasticModel>(
         utils::get_model_data(m_parameters, get_update_rate()));
-    std_msgs::msg::String::SharedPtr rd =
-        std::make_shared<std_msgs::msg::String>();
-    rd->data = this->get_robot_description();
-    configure_after_robot_description_callback(rd);
+    // std_msgs::msg::String::SharedPtr rd =
+    //     std::make_shared<std_msgs::msg::String>();
+    // rd->data = this->get_robot_description();
+    // configure_after_robot_description_callback(rd);
 
     if (m_parameters.wrench.notch_filter.enable) {
       // std::ranges::for_each(m_wrench_filters, [this](NotchFilter &f) {
@@ -1098,8 +1098,7 @@ ElastoplasticController::on_export_reference_interfaces() {
 }
 
 controller_interface::return_type
-ElastoplasticController::update_reference_from_subscribers(
-    const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/) {
+ElastoplasticController::update_reference_from_subscribers() {
   /* "Joint trajectory available only in chainable mode with
    * joint_trajectory_controller" */
 
@@ -1126,7 +1125,7 @@ ElastoplasticController::update_and_write_commands(
                          1000, "[Waiting] Computing Offset Force");
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
-      result &= m_joint_command_interfaces.at(0).at(idx).get().set_value(
+      m_joint_command_interfaces.at(0).at(idx).get().set_value(
           GET_VALUE_FROM_INTERFACE(
               m_joint_state_interfaces.at(0).at(idx).get()));
     }
@@ -1652,13 +1651,13 @@ ElastoplasticController::update_and_write_commands(
   bool is_value_set{true};
   if (m_used_command_interfaces.at(0)) {
     for (size_t ax = 0; ax < m_nax; ++ax) {
-      is_value_set &= m_joint_command_interfaces.at(0).at(ax).get().set_value(
+      m_joint_command_interfaces.at(0).at(ax).get().set_value(
           m_q(ax + (m_full_nax - m_nax)));
     }
   }
   if (m_used_command_interfaces.at(1)) {
     for (size_t ax = 0; ax < m_nax; ++ax) {
-      is_value_set &= m_joint_command_interfaces.at(1).at(ax).get().set_value(
+      m_joint_command_interfaces.at(1).at(ax).get().set_value(
           m_qp(ax + (m_full_nax - m_nax)));
     }
   }

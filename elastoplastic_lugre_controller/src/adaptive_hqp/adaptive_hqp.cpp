@@ -122,7 +122,7 @@ bool AdaptiveHQP::write_cmd_vel(const Eigen::Ref<Eigen::Vector3d> &v) {
   bool b = true;
   if (m_base_use_cmd_ifaces) {
     for (int idx = 0; idx < 3; ++idx) {
-      b = b && m_mobile_base_command_interfaces.at(idx).get().set_value(v(idx));
+      m_mobile_base_command_interfaces.at(idx).get().set_value(v(idx));
     }
   } else {
     geometry_msgs::msg::Twist msg(
@@ -144,7 +144,7 @@ bool AdaptiveHQP::write_cmd_vel_zero() {
   bool b = true;
   if (m_base_use_cmd_ifaces) {
     for (int idx = 0; idx < 3; ++idx) {
-      b = b && m_mobile_base_command_interfaces.at(idx).get().set_value(0.0);
+      m_mobile_base_command_interfaces.at(idx).get().set_value(0.0);
     }
   } else {
     geometry_msgs::msg::Twist msg(
@@ -923,10 +923,10 @@ AdaptiveHQP::on_activate(const rclcpp_lifecycle::State & /*previous_state*/) {
     m_parameters = m_param_listener->get_params();
     m_elastoplastic_model = std::make_unique<ElastoplasticModel>(
         utils::get_model_data(m_parameters, get_update_rate()));
-    std_msgs::msg::String::SharedPtr rd =
-        std::make_shared<std_msgs::msg::String>();
-    rd->data = this->get_robot_description();
-    configure_after_robot_description_callback(rd);
+    // std_msgs::msg::String::SharedPtr rd =
+    //     std::make_shared<std_msgs::msg::String>();
+    // rd->data = this->get_robot_description();
+    // configure_after_robot_description_callback(rd);
 
     if (m_parameters.wrench.notch_filter.enable) {
       // std::ranges::for_each(m_wrench_filters, [this](NotchFilter &f) {
@@ -1303,8 +1303,7 @@ AdaptiveHQP::on_export_reference_interfaces() {
 }
 
 controller_interface::return_type
-AdaptiveHQP::update_reference_from_subscribers(
-    const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/) {
+AdaptiveHQP::update_reference_from_subscribers() {
   /* "Joint trajectory available only in chainable mode with
    * joint_trajectory_controller" */
 
@@ -1721,14 +1720,14 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     for (size_t idx = 0; idx < m_nax; ++idx) {
 
       if (m_used_command_interfaces.at(0)) {
-        result &= m_joint_command_interfaces.at(0).at(idx).get().set_value(
+        m_joint_command_interfaces.at(0).at(idx).get().set_value(
             GET_VALUE_FROM_INTERFACE(
                 m_joint_state_interfaces.at(0).at(idx).get()));
       }
       if (m_used_command_interfaces.at(1)) {
-        result &= m_joint_command_interfaces.at(1).at(idx).get().set_value(0.0);
+        m_joint_command_interfaces.at(1).at(idx).get().set_value(0.0);
       } else if (m_used_command_interfaces.at(2)) {
-        result &= m_joint_command_interfaces.at(2).at(idx).get().set_value(
+        m_joint_command_interfaces.at(2).at(idx).get().set_value(
             tau_cmd(3 + idx));
       }
     }
@@ -1855,19 +1854,19 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
   bool is_value_set{true};
   if (m_used_command_interfaces.at(0)) {
     for (size_t ax = 0; ax < m_nax; ++ax) {
-      is_value_set &= m_joint_command_interfaces.at(0).at(ax).get().set_value(
+      m_joint_command_interfaces.at(0).at(ax).get().set_value(
           cmd(ax + (m_full_nax - m_nax)));
     }
   }
   if (m_used_command_interfaces.at(1)) {
     for (size_t ax = 0; ax < m_nax; ++ax) {
-      is_value_set &= m_joint_command_interfaces.at(1).at(ax).get().set_value(
+      m_joint_command_interfaces.at(1).at(ax).get().set_value(
           cmd(ax + (m_full_nax - m_nax)));
     }
   }
   if (m_used_command_interfaces.at(2)) {
     for (size_t ax = 0; ax < m_nax; ++ax) {
-      is_value_set &= m_joint_command_interfaces.at(2).at(ax).get().set_value(
+      m_joint_command_interfaces.at(2).at(ax).get().set_value(
           tau_cmd(ax + (m_full_nax - m_nax)) /
           (m_parameters.reduction_ratios[ax] *
            m_parameters.motor_torque_constants[ax]));
