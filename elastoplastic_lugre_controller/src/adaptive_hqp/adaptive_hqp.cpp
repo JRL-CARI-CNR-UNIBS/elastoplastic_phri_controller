@@ -44,7 +44,7 @@
 #endif
 
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MOBILE_BASE
-// #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
+#define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR
 // #define ELASTOPLASTIC__READ_STATES_FROM_INTERFACES__MANIPULATOR__USE_KALMAN
 #define USE_CARTESIAN_REFERENCE
 
@@ -107,6 +107,9 @@ inline ElastoplasticModelData get_model_data(const adaptive_hqp::Params &params,
   ElastoplasticModelData data;
   std::copy(params.impedance.inertia.begin(), params.impedance.inertia.end(),
             data.inertia_inv.diagonal().begin());
+  for (int idx = 0; idx < 6; idx++) {
+    data.inertia_inv.diagonal()(idx) = 1.0 / data.inertia_inv.diagonal()(idx);
+  }
   std::copy(params.impedance.k.begin(), params.impedance.k.end(),
             data.k.diagonal().begin());
   std::copy(params.impedance.d.begin(), params.impedance.d.end(),
@@ -1716,7 +1719,6 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
                                              m_chain_world_tool_data,
                                              to_pinocchio_config(m_q_in));
     tau_cmd.head<3>().setZero();
-    tau_cmd.setZero(); // FOR_UR
     bool result{true};
     for (size_t idx = 0; idx < m_nax; ++idx) {
 
@@ -1830,9 +1832,6 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     // cmd = m_qp_in + m_parameters.clik.joint_task.kv * (m_qp - m_qp_in);
     cmd = m_qp;
   } else if (m_used_command_interfaces.at(2)) {
-    tau_cmd -= pin::computeGeneralizedGravity(
-        m_chain_world_tool_model, m_chain_world_tool_data,
-        to_pinocchio_config(m_q)); // FOR_UR
     tau_cmd += m_parameters.clik.joint_task.kp * (m_q - m_q_in) +
                m_parameters.clik.joint_task.kv * (m_qp - m_qp_in);
     // tau_cmd += -m_parameters.clik.joint_task.kv * m_qp_in;

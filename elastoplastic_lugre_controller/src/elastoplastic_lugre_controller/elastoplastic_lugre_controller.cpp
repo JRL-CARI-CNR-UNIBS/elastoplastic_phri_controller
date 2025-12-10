@@ -86,6 +86,9 @@ get_model_data(const elastoplastic_controller::Params &params,
   ElastoplasticModelData data;
   std::copy(params.impedance.inertia.begin(), params.impedance.inertia.end(),
             data.inertia_inv.diagonal().begin());
+  for (int idx = 0; idx < 6; idx++) {
+    data.inertia_inv.diagonal()(idx) = 1.0 / data.inertia_inv.diagonal()(idx);
+  }
   std::copy(params.impedance.k.begin(), params.impedance.k.end(),
             data.k.diagonal().begin());
   std::copy(params.impedance.d.begin(), params.impedance.d.end(),

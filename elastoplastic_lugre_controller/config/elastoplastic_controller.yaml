@@ -72,10 +72,10 @@ elastoplastic_controller:
       max_vel:
         linear: [0.5, 0.5]
         angular: 0.2
-      max_acc_x: 0.5
-      max_dec_x: 0.5
-      max_acc_y: 0.5
-      max_dec_y: 0.5
+      max_acc_x: 0.3
+      max_dec_x: 0.3
+      max_acc_y: 0.3
+      max_dec_y: 0.3
       max_acc_yaw: 0.5
       max_dec_yaw: 0.5
     wrench:
@@ -92,12 +92,12 @@ elastoplastic_controller:
     impedance:
       enable_axis: [true, true, true, false, false, false]
       inertia:
-        - 1.0
-        - 1.0
-        - 1.0
-        - 1.0
-        - 1.0
-        - 1.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
       k:
         - 30.0
         - 30.0
@@ -121,7 +121,7 @@ elastoplastic_controller:
         inflection: 0.5
       leak_coefficient: 0.02
       reset:
-        time: 5.0
+        time: 2.0
         threshold: 1e0
       plastic_restoration: false
     offset_force_window: 2.0 # seconds
