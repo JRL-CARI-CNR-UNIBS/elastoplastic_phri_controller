@@ -688,13 +688,12 @@ AdaptiveHQP::on_configure(const rclcpp_lifecycle::State & /*previous_state*/) {
           [this](const moveit_msgs::msg::CartesianTrajectory &msg) {
             RCLCPP_INFO_STREAM(get_node()->get_logger(), "got trajectory");
             if (msg.header.frame_id != m_parameters.frames.map) {
-              RCLCPP_WARN_STREAM(get_node()->get_logger(),
-                                 "Trajectory received but in wrong reference "
-                                 "frame. Should be in {"
-                                     << m_parameters.frames.map
-                                     << "} but instead is in {"
-                                     << msg.header.frame_id << "}. Skipping");
-              return;
+              RCLCPP_WARN_STREAM(
+                  get_node()->get_logger(),
+                  "Trajectory received but in wrong reference "
+                  "frame. Should be in {"
+                      << m_parameters.frames.map << "} but instead is in {"
+                      << msg.header.frame_id << "}. Continuing anyways...");
             }
             // if([this](const moveit_msgs::msg::CartesianTrajectoryPoint& p) ->
             // bool {

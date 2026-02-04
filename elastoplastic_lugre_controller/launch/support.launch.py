@@ -30,7 +30,7 @@ def launch_setup(context):
     executable='generate_cartesian_trajectory',
     parameters=[{
       'frame' : LaunchConfiguration('frame'),
-      'world_frame' : 'map',
+      'world_frame' : 'base_footprint',
       'axis' : [1,1,1,0,0,0],
     }],
   )
