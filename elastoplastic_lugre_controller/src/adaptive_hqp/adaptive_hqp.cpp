@@ -1756,42 +1756,54 @@ AdaptiveHQP::update_and_write_commands(const rclcpp::Time & /*time*/,
     tau_cmd = sol.segment(m_full_nax, m_full_nax);
   }
 
-  std::tie(m_q, m_qp) = utils::rk4_double(
-      [](const auto &, const auto &, const auto &u) { return u; }, m_q, m_qp,
-      m_qpp, m_dt);
+  m_qpp.tail(m_full_nax) =
+      (tau_cmd.tail(m_full_nax) -
+       m_parameters.clik.joint_task.kv * m_qp.tail(m_full_nax) -
+       m_parameters.clik.joint_task.kp *
+           (m_q.tail(m_full_nax) - m_initial_q.tail(m_full_nax))) /
+      10.0;
+
+  // std::tie(m_q, m_qp) = utils::rk4_double(
+  // [](const auto &, const auto &, const auto &u) { return u; }, m_q, m_qp,
+  // m_qpp, m_dt);
+  m_qp += m_qpp * m_dt;
+  m_q += m_qp * m_dt;
 
   // RCLCPP_INFO_STREAM(get_node()->get_logger(),
   //  "tau_cmd pre-PD -> " << tau_cmd.transpose());
 
-  if (m_mobile_base->enabled) {
-    Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
-    qp_base_in_world = utils::twist_from_base_velocity(m_qp.head<M_SE2>());
+  // if (m_mobile_base->enabled) {
+  //   Eigen::Vector6d qp_base_in_world = Eigen::Vector6d::Zero();
+  //   qp_base_in_world = utils::twist_from_base_velocity(m_qp.head<M_SE2>());
 
-    Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(
-        qp_base_in_world, m_T_world_base.linear().transpose());
-    m_velocity_base_in_base = utils::base_velocity_from_twist(qp_base_in_base);
+  //   Eigen::Vector6d qp_base_in_base = rdyn::spatialRotation(
+  //       qp_base_in_world, m_T_world_base.linear().transpose());
+  //   m_velocity_base_in_base =
+  //   utils::base_velocity_from_twist(qp_base_in_base);
 
-    // BEGIN - Check Saturation Base
-    // If the QP works, this shouldn't be necessary
-    for (size_t idx = 0; idx < M_SE2; ++idx) {
-      if (std::abs(m_velocity_base_in_base(idx)) >
-          m_mobile_base->vel_limits(idx)) {
-        LOG_ERROR_THROTTLE_COUNT(
-            this->get_node()->get_logger(), get_node()->get_clock(), 1,
-            "Saturation of Velocity on base linear direction "
-                << idx << ": " << m_velocity_base_in_base(idx) << " should be "
-                << utils::sgn(m_velocity_base_in_base(idx)) *
-                       m_mobile_base->vel_limits(idx));
-        m_velocity_base_in_base(idx) =
-            utils::sgn(m_velocity_base_in_base(idx)) *
-            m_mobile_base->vel_limits(idx);
-      }
-    }
-    m_qp.head<M_SE2>() = utils::base_velocity_from_twist(rdyn::spatialRotation(
-        utils::twist_from_base_velocity(m_velocity_base_in_base),
-        m_T_world_base.linear()));
-    // END - Check Saturation Base
-  }
+  //   // BEGIN - Check Saturation Base
+  //   // If the QP works, this shouldn't be necessary
+  //   for (size_t idx = 0; idx < M_SE2; ++idx) {
+  //     if (std::abs(m_velocity_base_in_base(idx)) >
+  //         m_mobile_base->vel_limits(idx)) {
+  //       LOG_ERROR_THROTTLE_COUNT(
+  //           this->get_node()->get_logger(), get_node()->get_clock(), 1,
+  //           "Saturation of Velocity on base linear direction "
+  //               << idx << ": " << m_velocity_base_in_base(idx) << " should be
+  //               "
+  //               << utils::sgn(m_velocity_base_in_base(idx)) *
+  //                      m_mobile_base->vel_limits(idx));
+  //       m_velocity_base_in_base(idx) =
+  //           utils::sgn(m_velocity_base_in_base(idx)) *
+  //           m_mobile_base->vel_limits(idx);
+  //     }
+  //   }
+  //   m_qp.head<M_SE2>() =
+  //   utils::base_velocity_from_twist(rdyn::spatialRotation(
+  //       utils::twist_from_base_velocity(m_velocity_base_in_base),
+  //       m_T_world_base.linear()));
+  //   // END - Check Saturation Base
+  // }
   // m_velocity_base_in_base = m_qp.head<3>();
 
   // BEGIN - Saturation Manipulator

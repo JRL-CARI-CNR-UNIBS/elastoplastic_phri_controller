@@ -11,13 +11,15 @@
 #include <pinocchio/algorithm/kinematics-derivatives.hpp>
 #include <pinocchio/algorithm/rnea.hpp>
 #include <pinocchio/multibody/fwd.hpp>
+#include <rclcpp/logging.hpp>
 
 namespace elastoplastic {
 
 void normalize(elastoplastic::Task &t) {
   Eigen::MatrixXd H = t.A().transpose() * t.A();
   t.W() *= std::max(utils::K_ABS_EPSILON,
-                    std::sqrt(t.A().rows()) / std::sqrt(H.trace()));
+                    std::sqrt(t.A().rows()) /
+                        std::sqrt(std::max(utils::K_ABS_EPSILON, H.trace())));
 }
 
 double normalize2(const elastoplastic::Task &t) {
@@ -37,12 +39,12 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   q_in = to_pinocchio_config(m_q_in);
   qp_in = m_qp_in;
 
-  pin::computeForwardKinematicsDerivatives(
-      m_chain_world_tool_model, m_chain_world_tool_data, q_in, qp_in, qpp);
+  pin::computeForwardKinematicsDerivatives(m_chain_world_tool_model,
+                                           m_chain_world_tool_data, q, qp, qpp);
   pin::computeJointJacobians(m_chain_world_tool_model, m_chain_world_tool_data,
-                             q_in);
+                             q);
   pin::computeJointJacobiansTimeVariation(m_chain_world_tool_model,
-                                          m_chain_world_tool_data, q_in, qp_in);
+                                          m_chain_world_tool_data, q, qp);
   pin::updateFramePlacements(m_chain_world_tool_model, m_chain_world_tool_data);
 
   Eigen::Matrix6Xd fdJ(6, m_full_nax), dJ(6, m_full_nax);
@@ -53,11 +55,11 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   // dJ(Eigen::all) = fdJ(Eigen::all, m_jnt_id);
   // dJ.leftCols<3>() = fdJ(Eigen::all, );
 
-  Eigen::Vector6d acc_non_linear_in_world = dJ * m_qp_in;
+  Eigen::Vector6d acc_non_linear_in_world = dJ * qp;
 
   Eigen::Matrix6Xd fJ(6, m_full_nax), J(6, m_full_nax);
   pin::computeFrameJacobian(m_chain_world_tool_model, m_chain_world_tool_data,
-                            q_in, m_tool_id, pin::LOCAL_WORLD_ALIGNED, fJ);
+                            q, m_tool_id, pin::LOCAL_WORLD_ALIGNED, fJ);
   J = fJ;
   // J.rightCols(m_nax) = fJ(Eigen::all, m_jnt_id);
   // J.leftCols<3>() = fJ(Eigen::all, 3);
@@ -70,7 +72,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   //=== Dynamics
   Eigen::MatrixXd M = Eigen::MatrixXd::Zero(m_full_nax, m_full_nax);
   M.bottomRightCorner(m_nax, m_nax) =
-      pin::crba(m_chain_world_tool_model, m_chain_world_tool_data, q_in)
+      pin::crba(m_chain_world_tool_model, m_chain_world_tool_data, q)
           .bottomRightCorner(m_nax, m_nax);
   M.bottomRightCorner(m_nax, m_nax) =
       M.bottomRightCorner(m_nax, m_nax).selfadjointView<Eigen::Upper>();
@@ -81,9 +83,11 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
               m_parameters.mobile_base.virtual_inertia.size()))
           .toDenseMatrix();
 
-  Eigen::MatrixXd C(m_full_nax, m_full_nax);
-  C = pin::computeCoriolisMatrix(m_chain_world_tool_model,
-                                 m_chain_world_tool_data, q_in, qp_in);
+  Eigen::MatrixXd C(m_full_nax, m_full_nax), Ctmp(m_full_nax, m_full_nax);
+  Ctmp = pin::computeCoriolisMatrix(m_chain_world_tool_model,
+                                    m_chain_world_tool_data, q, qp);
+  C.setIdentity();
+  C.bottomRightCorner(m_nax, m_nax) = Ctmp.bottomRightCorner(m_nax, m_nax);
   C.topLeftCorner<3, 3>() =
       Eigen::DiagonalMatrix<double, 3>(
           Eigen::Map<Eigen::Vector3d>(
@@ -92,15 +96,18 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
           .toDenseMatrix();
 
   Eigen::VectorXd grav = pin::computeGeneralizedGravity(
-      m_chain_world_tool_model, m_chain_world_tool_data, q_in);
+      m_chain_world_tool_model, m_chain_world_tool_data, q);
   //   grav.head<3>().setZero();
 
-  RCLCPP_DEBUG_STREAM(get_node()->get_logger(),
-                      "M\n"
-                          << M << "\nC\n"
-                          << C << "\ng\n"
-                          << grav << "\nJ^T f\n"
-                          << J.transpose() * data.wrench_tool_in_world);
+  RCLCPP_INFO_STREAM_EXPRESSION(get_node()->get_logger(),
+                                C.bottomRightCorner(m_nax, m_nax).norm() >
+                                    0.001,
+                                "M\n"
+                                    << M << "\nC\n"
+                                    << C << "\ng\n"
+                                    << grav << "\nJ^T f\n"
+                                    << J.transpose() *
+                                           data.wrench_tool_in_world);
 
   //=== Tikhonov
   elastoplastic::Task task_tikhonov_regular(prb_dim, prb_dim);
@@ -160,14 +167,14 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
                                      "Joint velocity minimization");
   task_joint_vel.A().leftCols(m_full_nax) +=
       Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt;
-  task_joint_vel.b() += qp_in;
+  task_joint_vel.b() += qp;
   normalize(task_joint_vel);
 
   //=== Task fix position
   elastoplastic::Task task_joint_pos(prb_dim, m_full_nax, "Joint position");
   task_joint_pos.A().leftCols(m_full_nax) +=
       Eigen::MatrixXd::Identity(m_full_nax, m_full_nax) * m_dt * m_dt * 0.5;
-  task_joint_pos.b() += qp * m_dt + m_q_in - data.position_references;
+  task_joint_pos.b() += qp * m_dt + m_q - data.position_references;
 
   /***********
    ** Stack **
@@ -195,7 +202,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
   } else {
     sot1.push_task(task_motion_tracking);
     sot2.push_task(task_pseudo_admittance);
-    sot2.push_task(task_joint_vel, 1e-3);
+    sot3.push_task(task_joint_vel);
     m_hqp_state = 1;
   }
   // sot3.push_task(task_joint_pos);
@@ -219,17 +226,17 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
 
   eq_model.A() << M, -Eigen::MatrixXd::Identity(m_full_nax, m_full_nax),
       -J.transpose();
-  eq_model.b() = C * qp_in + grav;
+  eq_model.b() = C * qp + grav;
   eq_model.b().tail(m_nax) +=
       (Eigen::Map<Eigen::VectorXd>(m_parameters.joints_static_friction.data(),
                                    m_parameters.joints_static_friction.size())
            .array() *
-       qp_in.tail(m_nax).array().sign())
+       qp.tail(m_nax).array().sign())
           .matrix(); // Friction
   eq_model.b().tail(m_nax) +=
       Eigen::Map<Eigen::VectorXd>(m_parameters.joints_damping.data(),
                                   m_parameters.joints_damping.size())
-          .cwiseProduct(qp_in.tail(m_nax)); // Damping
+          .cwiseProduct(qp.tail(m_nax)); // Damping
   eq_set1.push_constraint(eq_model);
   eq_set2.push_constraint(eq_model);
   eq_set3.push_constraint(eq_model);
@@ -481,8 +488,7 @@ std::optional<Eigen::VectorXd> AdaptiveHQP::clik(const ClikData &data) {
         .cwiseMax(-m_limits.acc)
         .cwiseMin(m_limits.acc); // clamp on saturation
     v.tail<6>().setZero();
-    v.segment(m_full_nax, m_full_nax) =
-        M * v.head(m_full_nax) + C * qp_in + grav;
+    v.segment(m_full_nax, m_full_nax) = M * v.head(m_full_nax) + C * qp + grav;
     return v;
   }
 

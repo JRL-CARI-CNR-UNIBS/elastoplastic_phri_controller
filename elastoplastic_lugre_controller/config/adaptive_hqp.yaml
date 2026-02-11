@@ -101,10 +101,10 @@ adaptive_hqp:
       virtual_inertia:
       - 10.0
       - 10.0
-      - 20.0
+      - 50.0
       virtual_damping: 
-      - 50.0
-      - 50.0
+      - 70.0
+      - 70.0
       - 100.0
       enable_z_rotation: false
       input_target_topic: "/target_cmd_vel"
@@ -175,6 +175,6 @@ adaptive_hqp:
     clik:
       alpha_gain: 1.0e6
       joint_task:
-        kp: 0.1 # 1e1
+        kp: 70.0 # 1e1
         # kv: 5.0 # 1e2
-        kv: 0.01
+        kv: 50.0
