@@ -24,7 +24,7 @@
     /* current time */                                                         \
     auto UNIQUE_NAME(_now_) = clock->now();                                    \
                                                                                \
-    /* if enough time has elapsed… */                                        \
+    /* if enough time has elapsed… */                                          \
     if ((UNIQUE_NAME(_now_) - UNIQUE_NAME(_last_time_)).seconds() >=           \
         (period_sec)) {                                                        \
       /* log the count + your message */                                       \
@@ -54,7 +54,7 @@
     /* current time */                                                         \
     auto UNIQUE_NAME(_now_) = clock->now();                                    \
                                                                                \
-    /* if enough time has elapsed… */                                        \
+    /* if enough time has elapsed… */                                          \
     if ((UNIQUE_NAME(_now_) - UNIQUE_NAME(_last_time_)).seconds() >=           \
         (period_sec)) {                                                        \
       /* log the count + your message */                                       \

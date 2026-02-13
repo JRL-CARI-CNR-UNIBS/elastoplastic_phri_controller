@@ -1,7 +1,0 @@
-<library path="adaptive_hqp">
-  <class type="elastoplastic::AdaptiveHQP" base_class_type="controller_interface::ChainableControllerInterface">
-    <description>
-      AdaptiveHQP
-    </description>
-  </class>
-</library>

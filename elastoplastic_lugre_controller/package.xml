@@ -12,8 +12,8 @@
 
   <depend>backward_ros</depend>
   <depend>eigen</depend>
-  <depend>control_toolbox</depend>
   <depend>filters</depend>
+  <depend>control_toolbox</depend>
   <depend>pal_statistics</depend>
   <depend>controller_interface</depend>
   <depend>hardware_interface</depend>
