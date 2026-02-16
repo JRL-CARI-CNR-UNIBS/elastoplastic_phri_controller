@@ -96,7 +96,7 @@ bool ElastoplasticControllerDual::write_cmd_vel(const Eigen::Vector3d &v) {
   bool b = true;
   if (m_base_use_cmd_ifaces) {
     for (int idx = 0; idx < 3; ++idx) {
-      b = b && m_mobile_base_command_interfaces.at(idx).get().set_value(v(idx));
+      m_mobile_base_command_interfaces.at(idx).get().set_value(v(idx));
     }
   } else {
     geometry_msgs::msg::Twist msg;
@@ -510,14 +510,6 @@ controller_interface::CallbackReturn ElastoplasticControllerDual::on_configure(
     rd->data = get_node()->get_parameter("robot_description").as_string();
     configure_after_robot_description_callback(rd);
   } else {
-#ifdef USE_LATEST_ROS2_CONTROL
-    RCLCPP_DEBUG(get_node()->get_logger(),
-                 "Robot description from controller manager");
-    std_msgs::msg::String::SharedPtr rd =
-        std::make_shared<std_msgs::msg::String>();
-    rd->data = this->get_robot_description();
-    configure_after_robot_description_callback(rd);
-#else
     RCLCPP_DEBUG(get_node()->get_logger(), "Robot description from topic");
     rclcpp::QoS qos(1);
     qos.transient_local();

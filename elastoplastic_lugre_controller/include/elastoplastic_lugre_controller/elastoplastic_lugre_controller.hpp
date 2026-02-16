@@ -148,7 +148,7 @@ private:
   const std::vector<std::string> m_required_interface_types{
       hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY};
   const std::vector<std::string> m_allowed_interface_types{
-      hardware_interface::HW_IF_TORQUE};
+      "torque"};
   std::array<bool, 2> m_used_command_interfaces;
 
   struct FloatBaseData {
@@ -292,8 +292,7 @@ protected:
   on_export_reference_interfaces() override;
 
   controller_interface::return_type
-  update_reference_from_subscribers(const rclcpp::Time &time,
-                                    const rclcpp::Duration &period) override;
+  update_reference_from_subscribers() override;
 
   void configure_after_robot_description_callback(
       const std_msgs::msg::String::SharedPtr msg);
