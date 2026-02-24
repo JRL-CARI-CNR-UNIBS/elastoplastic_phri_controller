@@ -1,7 +1,6 @@
 std_msgs/Header header
 
 control_msgs/AdmittanceControllerState admittance_state
-geometry_msgs/Wrench virtual_force
 
 float64[] z
 float64[] zp
@@ -25,4 +24,8 @@ geometry_msgs/Twist cart_actual_twist
 
 float64[] tau_cmd
 
+float64[] gravity
+
 sensor_msgs/JointState joint_reference
+
+int64 cycle_time_nanoseconds
