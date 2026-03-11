@@ -16,11 +16,11 @@ option(USE_LATEST_ROS2_CONTROL "Use Jazzy and later versions of ros2_control" ON
 
 find_package(ament_cmake                 REQUIRED)
 find_package(backward_ros                REQUIRED)
-find_package(filters 2.2                 REQUIRED)
-
+find_package(filters 2.2 REQUIRED) # For control_toolbox ????????????????????????????????????????????????????????
 find_package(controller_interface        REQUIRED)
 find_package(hardware_interface          REQUIRED)
 find_package(control_toolbox             REQUIRED)
+find_package(Eigen3 3.4                  REQUIRED)
 find_package(control_msgs                REQUIRED)
 find_package(realtime_tools              REQUIRED)
 find_package(pluginlib                   REQUIRED)
@@ -34,16 +34,14 @@ find_package(moveit_msgs                 REQUIRED)
 find_package(tf2                         REQUIRED)
 find_package(tf2_eigen                   REQUIRED)
 find_package(urdfdom                     REQUIRED)
-find_package(generate_parameter_library  REQUIRED)
-
+find_package(pal_statistics              REQUIRED)
+find_package(pal_statistics_msgs         REQUIRED)
 
 find_package(fmt                         REQUIRED)
-find_package(rdyn_core                   REQUIRED)
 find_package(eiquadprog                  REQUIRED)
-find_package(Eigen3 3.4                  REQUIRED)
 
-find_package(state_observers             REQUIRED)
 find_package(cnr_control_toolbox         REQUIRED)
+find_package(pinocchio                   REQUIRED)
 find_package(Boost REQUIRED COMPONENTS container)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -67,13 +65,6 @@ set(FILTERS
     filters::median
     filters::transfer_function
 )
-
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-  set (RDYN_CONDITIONAL_TARGET rdyn_core::rdyn_core_compiled)
-else()
-  set (RDYN_CONDITIONAL_TARGET rdyn_core::rdyn_core)
-endif()
-
 
 set(COMMON_FILES
   include/${PROJECT_NAME}/utils.hpp
@@ -113,7 +104,6 @@ ${AMENT_LIBS}
 
 
 target_link_libraries(elastoplastic_utils PUBLIC
-PUBLIC ${RDYN_CONDITIONAL_TARGET}
 PUBLIC eiquadprog::eiquadprog
 PUBLIC Eigen3::Eigen
 PUBLIC fmt::fmt
@@ -155,7 +145,6 @@ endif()
 
 target_link_libraries(elastoplastic_controller
     PUBLIC elastoplastic_parameters
-    PUBLIC ${RDYN_CONDITIONAL_TARGET}
     PUBLIC Eigen3::Eigen
     PUBLIC fmt::fmt
     PUBLIC eiquadprog::eiquadprog
@@ -169,7 +158,6 @@ target_link_libraries(elastoplastic_controller
 
 ament_target_dependencies(elastoplastic_controller PUBLIC
 ${AMENT_LIBS}
-state_observers
 )
 
 
@@ -226,7 +214,6 @@ install(DIRECTORY config launch
 ament_export_targets(export_elastoplastic_controller HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   filters
-  rdyn_core
   pluginlib
   rclcpp
   rclcpp_lifecycle
@@ -238,7 +225,6 @@ ament_export_dependencies(
   urdfdom
   realtime_tools
   control_toolbox
-  state_observers
   elastoplastic_msgs
 )
 
