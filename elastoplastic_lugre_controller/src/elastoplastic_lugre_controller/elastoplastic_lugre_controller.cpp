@@ -501,11 +501,11 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
 {
   m_parameters = m_param_listener->get_params();
 
-  // The parameter update_rate, if not defined, is provided by the
+  // The parameter get_update_rate(), if not defined, is provided by the
   // controller_manager
-  auto update_rate = this->get_node()->get_parameter("update_rate").as_int();
-  m_dt = 1.0 / double(update_rate);
-  RCLCPP_DEBUG_STREAM(this->get_node()->get_logger(), "dt: " << m_dt);
+  // auto get_update_rate() = this->get_node()->get_parameter("get_update_rate()").as_int();
+  m_dt = 1.0 / double(get_update_rate());
+  RCLCPP_INFO_STREAM(this->get_node()->get_logger(), "dt: " << m_dt);
   if (m_dt < M_MINIMUM_SAMPLING_TIME) {
     RCLCPP_FATAL(
       this->get_node()->get_logger(), "dt: %.6f, too low. Minimum sampling time: %.6f", m_dt,
