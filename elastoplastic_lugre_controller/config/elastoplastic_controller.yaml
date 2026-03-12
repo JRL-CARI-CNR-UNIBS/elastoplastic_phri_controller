@@ -7,25 +7,24 @@ arm_right_ft_sensor_robotiq:
 elastoplastic_controller:
   ros__parameters:
     type: elastoplastic/ElastoplasticController
+    update_rate: 500
     target_joint_trajectory_topic: "/joints_target"
     robot_description_topic: "/robot_description"
     cmd_vel_topic: "/cmd_vel"
-    ft_sensor_name: robotiq_ft_sensor
+    ft_sensor_name: azrael/tcp_fts_sensor
     ft_invert_sign: false
     frames:
-      map: map
-      # map: base_footprint
-      base: base_footprint
-      tool: robotiq_ft_frame_id
-      sensor: robotiq_ft_frame_id
+      map: azrael/odom
+      base: azrael/base_footprint
+      tool: azrael/tool0
+      sensor: azrael/tool0  # for robot
     joints:
-      - arm_right_1_joint
-      - arm_right_2_joint
-      - arm_right_3_joint
-      - arm_right_4_joint
-      - arm_right_5_joint
-      - arm_right_6_joint
-      - arm_right_7_joint
+      - azrael/shoulder_pan_joint
+      - azrael/shoulder_lift_joint
+      - azrael/elbow_joint
+      - azrael/wrist_1_joint
+      - azrael/wrist_2_joint
+      - azrael/wrist_3_joint
     soft_limits:
       - 0.07
       - 0.07

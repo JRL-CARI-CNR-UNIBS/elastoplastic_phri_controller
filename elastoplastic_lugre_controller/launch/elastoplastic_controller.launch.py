@@ -38,5 +38,5 @@ def launch_setup(context):
 
   return [
     controller_spawner,
-    ft_bcast_spawner,
+    #ft_bcast_spawner,
   ]

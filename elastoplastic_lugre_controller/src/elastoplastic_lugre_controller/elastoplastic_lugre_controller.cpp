@@ -311,8 +311,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
 
   // The parameter update_rate, if not defined, is provided by the
   // controller_manager
-  auto update_rate = this->get_node()->get_parameter("update_rate").as_int();
-  m_dt = 1.0 / double(update_rate);
+  m_dt = 1.0 / double(get_update_rate());
   RCLCPP_DEBUG_STREAM(this->get_node()->get_logger(), "dt: " << m_dt);
   if (m_dt < M_MINIMUM_SAMPLING_TIME) {
     RCLCPP_FATAL(this->get_node()->get_logger(),
@@ -321,7 +320,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
     return controller_interface::CallbackReturn::ERROR;
   }
   m_elastoplastic_model = std::make_unique<ElastoplasticModel>(
-      utils::get_model_data(m_parameters, update_rate));
+      utils::get_model_data(m_parameters, get_update_rate()));
 
   m_mobile_base =
       std::make_unique<FloatBaseData>(m_parameters.mobile_base.enabled);
@@ -355,7 +354,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
   }
 
   using namespace std::placeholders;
-  m_mobile_base_pose_updated = false;
   m_sub_mobile_base_odometry =
       this->get_node()->create_subscription<nav_msgs::msg::Odometry>(
           m_parameters.mobile_base.odom, 10,
@@ -374,7 +372,6 @@ controller_interface::CallbackReturn ElastoplasticController::on_configure(
               });
 
   if (m_mobile_base->enabled) {
-    m_mobile_base_pose_updated = true;
     m_pub_cmd_vel =
         this->get_node()->create_publisher<geometry_msgs::msg::Twist>(
             m_parameters.cmd_vel_topic, rclcpp::SystemDefaultsQoS());
@@ -709,14 +706,17 @@ ElastoplasticController::command_interface_configuration() const {
 controller_interface::CallbackReturn ElastoplasticController::on_activate(
     const rclcpp_lifecycle::State & /*previous_state*/) {
   auto t_start = get_node()->get_clock()->now();
-  while (!ready_for_activation() && !m_mobile_base_pose_updated &&
+  while (!ready_for_activation() && 
          get_node()->get_clock()->now() - t_start < std::chrono::seconds(10)) {
     RCLCPP_INFO(this->get_node()->get_logger(),
                 "Waiting robot description-related operations");
     get_node()->get_clock()->sleep_for(std::chrono::milliseconds(1000));
   }
-  if (m_robot_description_configuration != RDStatus::OK) {
+  if (m_robot_description_configuration == RDStatus::EMPTY) {
     RCLCPP_ERROR(get_node()->get_logger(), "No robot description found");
+    return controller_interface::CallbackReturn::FAILURE;
+  } else if(m_robot_description_configuration == RDStatus::ERROR) {
+    RCLCPP_ERROR(get_node()->get_logger(), "Error configuring robot description");
     return controller_interface::CallbackReturn::FAILURE;
   }
 

@@ -357,14 +357,6 @@ ElastoplasticController::clik(const ClikData &data) {
     return std::nullopt;
   }
 
-  // auto contrib = sot.contibutions(solutionQP);
-  // std::stringstream ss;
-  // ss << "++++++++++++++++++\ncontributions: ";
-  // std::for_each(contrib.begin(), contrib.end(),
-  //               [&ss](const auto& ct) { ss << "\nTask: " << ct.first << "\t|
-  //               contrib: " << ct.second; });
-  // ss << "\n------------------";
-  // RCLCPP_INFO_STREAM(get_node()->get_logger(), ss.str());
   m_admittance_value =
       task_admittance.value(solutionQP) + invM * (data.wrench_tool_in_world);
   return solutionQP;
