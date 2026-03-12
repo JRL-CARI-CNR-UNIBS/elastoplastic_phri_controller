@@ -93,10 +93,11 @@ Eigen::Vector6d ElastoplasticModel::update_z(const Eigen::Vector6d &uin,
                                              const double period) {
   m_was_plastic = is_plastic();
   Eigen::Vector6d ret_zp = this->compute_zp(m_z, uin, period);
-  m_z = utils::rk4(
-      [this, &period](const Eigen::Vector6d &x_in, const Eigen::Vector6d &pu_in)
-          -> Eigen::Vector6d { return this->compute_zp(x_in, pu_in, period); },
-      m_z, uin, period);
+  // m_z = utils::rk4(
+      // [this, &period](const Eigen::Vector6d &x_in, const Eigen::Vector6d &pu_in)
+          // -> Eigen::Vector6d { return this->compute_zp(x_in, pu_in, period); },
+      // m_z, uin, period);
+  m_z += ret_zp * period;
   // m_z = std::max(0.0, m_z); // Non dovrebbe servire, però...
   m_to_restore |= this->is_plastic();
   return ret_zp;

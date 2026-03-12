@@ -927,14 +927,15 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(
       get_node()->get_logger(),
       "Wrench Offset computed: " << m_offset_wrench_tool_in_world.transpose());
 
-    m_elastoplastic_model = std::make_unique<ElastoplasticModel>(
+    return true;
+  });
+
+  m_elastoplastic_model = std::make_unique<ElastoplasticModel>(
       m_impedance.K, m_parameters.impedance.z_max, m_parameters.impedance.z_kmax,
       m_parameters.impedance.z_start,
       static_cast<size_t>(m_parameters.impedance.reset.time * get_update_rate())
       , m_parameters.impedance.reset.threshold);
-    return true;
-  });
-
+      
   pinocchio::framesForwardKinematics(m_model, m_model_data, m_q);
   const pinocchio::SE3 & world_M_tool = m_model_data.oMf[m_tool_id];
   const pinocchio::SE3 & world_M_sensor = m_model_data.oMf[m_sensor_id];
@@ -1117,9 +1118,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   }
 
   Eigen::Affine3d T_world_tool = Eigen::Affine3d(m_model_data.oMf[m_tool_id].toHomogeneousMatrix());
-  Eigen::Vector6d cart_vel_error_tool_target_in_world, twist_tool_world_in_world;
-  twist_tool_world_in_world = pin::getFrameVelocity(m_model, m_model_data, m_tool_id, pin::ReferenceFrame::LOCAL_WORLD_ALIGNED);
-  cart_vel_error_tool_target_in_world =
+  Eigen::Vector6d twist_tool_world_in_world = pin::getFrameVelocity(m_model, m_model_data, m_tool_id, pin::ReferenceFrame::LOCAL_WORLD_ALIGNED);
+  Eigen::Vector6d cart_vel_error_tool_target_in_world =
       (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
           .cwiseProduct(m_impedance.enabled_axis);
 

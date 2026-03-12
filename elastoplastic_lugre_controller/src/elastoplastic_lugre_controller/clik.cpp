@@ -139,18 +139,6 @@ ElastoplasticController::optimize(Eigen::Vector6d &wrench_tool_in_world) {
                              invM * (wrench_tool_in_world);
   normalize(task_admittance);
 
-  // elastoplastic::Task task_keep_tool_base_relative_acc(prb_dim, 3);
-  // if (m_mobile_base->enabled) {
-  // task_keep_tool_base_relative_acc.A().leftCols(m_full_nax) =
-  // (m_chain_world_tool->getJacobianLink(m_q, m_parameters.frames.base) -
-  // data.J_world_tool_in_world).topRows<3>() * m_dt;
-  // task_keep_tool_base_relative_acc.b() =
-  // (m_chain_world_base->getDTwistNonLinearPartTool(m_q.head<3>(),
-  // m_qp.head<3>()) - acc_non_linear_in_world).head<3>() * m_dt +
-  // (m_chain_world_base->getTwistTool(m_q.head<3>(), m_qp.head<3>()) -
-  // data.twist_tool_world_in_world).head<3>();
-  // }
-
   // Weighting matrix
   m_W.setIdentity();
   if (m_mobile_base->enabled) {
@@ -231,19 +219,6 @@ ElastoplasticController::optimize(Eigen::Vector6d &wrench_tool_in_world) {
    ** EQ Constraints **
    ********************/
   elastoplastic::EqualitySet eq_set(prb_dim);
-
-  // elastoplastic::EqualityConstraint eq_z(prb_dim, M_SE3);
-  // eq_z.A().leftCols(m_full_nax) = data.J_world_tool_in_world * m_dt * m_dt;
-  // eq_z.A().rightCols<M_SE3>() = -Eigen::Matrix6d::Identity() * m_dt * m_dt;
-  // eq_z.b() = acc_non_linear_in_world * m_dt * m_dt +
-  // (data.twist_tool_world_in_world -
-  // m_computed_target_twist_tool_world_in_world) +
-  // utils::get_frame_distance(data.T_world_tool,
-  // m_computed_target_T_world_tool) + m_elastoplastic_model->z();
-
-  // if (!m_elastoplastic_model->is_plastic()) {
-  // eq_set.push_constraint(eq_z);
-  // }
 
   eq_set.compute_set();
 
