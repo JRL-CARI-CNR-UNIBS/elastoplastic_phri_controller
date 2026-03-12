@@ -149,6 +149,7 @@ target_link_libraries(elastoplastic_controller
     PUBLIC fmt::fmt
     PUBLIC eiquadprog::eiquadprog
     PUBLIC elastoplastic_lugre_controller::elastoplastic_utils
+    PUBLIC state_space_filters::state_space_filters
     PUBLIC ${FILTERS}
   )
 

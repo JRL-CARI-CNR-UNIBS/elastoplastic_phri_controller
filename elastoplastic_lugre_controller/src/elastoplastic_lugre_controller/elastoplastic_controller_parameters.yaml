@@ -377,3 +377,20 @@ elastoplastic_controller:
       kv: {
         type: double,
       }
+  remove_gravity_from_torque_cmd: {
+    type: bool,
+    default_value: true
+  }
+  gains:
+    k1: {
+      type: double,
+      description: "K1"
+    }
+    k2: {
+      type: double,
+      description: "K2"
+    }
+    k3: {
+      type: double,
+      description: "K3"
+    }

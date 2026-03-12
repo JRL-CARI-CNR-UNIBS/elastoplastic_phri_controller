@@ -6,6 +6,7 @@
 #include "elastoplastic_lugre_controller/utils.hpp"
 #include <Eigen/src/Core/util/Constants.h>
 #include <elastoplastic_lugre_controller/elastoplastic_parameters.hpp>
+#include <elastoplastic_msgs/msg/elastoplastic_controller_state.hpp>
 #include <pinocchio/algorithm/joint-configuration.hpp>
 #include <pinocchio/algorithm/rnea.hpp>
 #include <pinocchio/multibody/fwd.hpp>
@@ -81,10 +82,10 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
   std::unique_ptr<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>>
       m_rt_pub_cmd_vel;
-  rclcpp::Publisher<elastoplastic_msgs::msg::AdmittanceHQPControllerState>::
+  rclcpp::Publisher<elastoplastic_msgs::msg::ElastoplasticControllerState>::
       SharedPtr m_pub_full_state;
   std::unique_ptr<realtime_tools::RealtimePublisher<
-      elastoplastic_msgs::msg::AdmittanceHQPControllerState>>
+      elastoplastic_msgs::msg::ElastoplasticControllerState>>
       m_rt_pub_full_state;
 
   rclcpp::Publisher<std_msgs::msg::Int16>::SharedPtr

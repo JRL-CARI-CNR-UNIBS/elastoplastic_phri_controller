@@ -930,7 +930,7 @@ controller_interface::CallbackReturn ElastoplasticController::on_activate(
     m_elastoplastic_model = std::make_unique<ElastoplasticModel>(
       m_impedance.K, m_parameters.impedance.z_max, m_parameters.impedance.z_kmax,
       m_parameters.impedance.z_start,
-      static_cast<size_t>(m_parameters.impedance.reset.time * update_rate);
+      static_cast<size_t>(m_parameters.impedance.reset.time * get_update_rate())
       , m_parameters.impedance.reset.threshold);
     return true;
   });
@@ -1116,18 +1116,26 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     return controller_interface::return_type::ERROR;
   }
 
-  Eigen::Vector6d cart_vel_error_shared_target_in_world =
-    (twist_shared_world_in_world - m_computed_target_twist_shared_world_in_world)
-      .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
+  Eigen::Affine3d T_world_tool = Eigen::Affine3d(m_model_data.oMf[m_tool_id].toHomogeneousMatrix());
+  Eigen::Vector6d cart_vel_error_tool_target_in_world, twist_tool_world_in_world;
+  twist_tool_world_in_world = pin::getFrameVelocity(m_model, m_model_data, m_tool_id, pin::ReferenceFrame::LOCAL_WORLD_ALIGNED);
+  cart_vel_error_tool_target_in_world =
+      (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
+          .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
 
-  m_zp = m_elastoplastic_model->update_z(cart_vel_error_shared_target_in_world, m_dt);
+  m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world,
+                                         m_dt);
   bool reset = m_elastoplastic_model->reset(
-    wrench_shared_in_world.cwiseProduct(m_elastoplastic_model->get_enabled_axis()),
-    cart_vel_error_shared_target_in_world);
+      wrench_tool_in_world.cwiseProduct(
+          m_elastoplastic_model->get_enabled_axis()),
+      cart_vel_error_tool_target_in_world);
+  m_computed_target_T_world_tool =
+      reset ? T_world_tool : m_computed_target_T_world_tool; // NOTE: useful?
 
-  m_computed_target_T_world_shared = reset ? m_T_world_shared : m_computed_target_T_world_shared;
-  m_computed_target_twist_shared_world_in_world =
-    reset ? twist_shared_world_in_world : m_computed_target_twist_shared_world_in_world;
+  if (reset) {
+    RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
+  }
+
 
   if (reset) {
     RCLCPP_WARN_STREAM(get_node()->get_logger(), "Reset to Elastic Mode");
@@ -1179,8 +1187,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   m_qp += m_qpp * m_dt;
   m_q = pinocchio::integrate(m_model, m_q, m_qp * m_dt);
 
-  m_computed_target_twist_shared_world_in_world += m_computed_target_acc_shared_world_in_world * m_dt;
-  Eigen::Affine3d comp_target_pose = integratePoseLocalWorldAligned(pin::SE3(m_computed_target_T_world_tool), pin::Motion(m_computed_target_twist_tool_world_in_world), m_dt);
+  m_computed_target_twist_tool_world_in_world += m_computed_target_acc_tool_world_in_world * m_dt;
+  Eigen::Affine3d comp_target_pose = utils::integratePoseLocalWorldAligned(pin::SE3(m_computed_target_T_world_tool.matrix()), pin::Motion(m_computed_target_twist_tool_world_in_world), m_dt);
   m_computed_target_T_world_tool = comp_target_pose;
 
   // BEGIN - Saturation Manipulator
@@ -1278,15 +1286,31 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   std::copy(msg_z.begin(), msg_z.end(), std::back_inserter(msg.z));
   std::copy(m_zp.begin(), m_zp.end(), std::back_inserter(msg.zp));
 
-  msg.cart_ref_pose = tf2::toMsg(reference_target_T_world_tool);
-  msg.cart_ref_twist = tf2::toMsg(reference_target_twist_tool_world_in_world);
+  msg.cart_ref_pose = tf2::toMsg(m_reference_target_T_world_tool);
+  msg.cart_ref_twist = tf2::toMsg(m_reference_target_twist_tool_world_in_world);
 
-  msg.cart_actual_cmd_pose = tf2::toMsg(m_chain_world_tool->getTransformation(m_q));
-  msg.cart_actual_cmd_twist = tf2::toMsg(m_chain_world_tool->getTwistTool(m_q, m_qp));
-  msg.cart_actual_cmd_acc = tf2::toMsg(m_chain_world_tool->getDTwistTool(m_q, m_qp, m_qpp));
 
-  msg.cart_actual_pose = tf2::toMsg(m_chain_world_tool->getTransformation(q_in));
-  msg.cart_actual_twist = tf2::toMsg(m_chain_world_tool->getTwistTool(q_in, qp_in));
+
+pinocchio::Data input_data(m_model), computed_data(m_model);
+  pinocchio::forwardKinematics(m_model, computed_data, m_q, m_qp, m_qpp);
+
+  msg.cart_actual_cmd_pose = tf2::toMsg(Eigen::Affine3d(
+      pinocchio::updateFramePlacement(m_model, computed_data, m_tool_id)
+          .toHomogeneousMatrix()));
+  msg.cart_actual_cmd_twist = tf2::toMsg(
+      pinocchio::getFrameVelocity(m_model, computed_data, m_tool_id,
+                            pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED));
+  msg.cart_actual_cmd_acc = tf2::toMsg(
+      pinocchio::getFrameAcceleration(m_model, computed_data, m_tool_id,
+                                pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED));
+
+  pinocchio::forwardKinematics(m_model, input_data, m_q_in, m_qp_in);
+  msg.cart_actual_pose = tf2::toMsg(
+      Eigen::Affine3d(pinocchio::updateFramePlacement(m_model, input_data, m_tool_id)
+                          .toHomogeneousMatrix()));
+  msg.cart_actual_twist = tf2::toMsg(
+      pinocchio::getFrameVelocity(m_model, input_data, m_tool_id,
+                            pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED));
 
   std::tie(msg.reset_buffer_state, msg.reset_buffer_fill) =
     m_elastoplastic_model->get_reset_buffer_status();
@@ -1329,8 +1353,8 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   msg.joint_reference.name.reserve(m_joint_names.size());
   msg.joint_reference.position.reserve(m_joint_names.size());
   msg.joint_reference.velocity.reserve(m_joint_names.size());
-  std::ranges::copy(full_position_references, std::back_inserter(msg.joint_reference.position));
-  std::ranges::copy(full_velocity_references, std::back_inserter(msg.joint_reference.velocity));
+  std::ranges::copy(m_full_position_references, std::back_inserter(msg.joint_reference.position));
+  std::ranges::copy(m_full_velocity_references, std::back_inserter(msg.joint_reference.velocity));
 
   msg.admittance_state.selected_axes.data.reserve(6);
   std::copy(
@@ -1338,15 +1362,14 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
     m_elastoplastic_model->get_enabled_axis().end(),
     std::back_inserter(msg.admittance_state.selected_axes.data));
   msg.admittance_state.ft_sensor_frame.data = m_parameters.frames.sensor;
-  msg.admittance_state.ref_trans_base_ft =
-    tf2::eigenToTransform(m_chain_base_sensor->getTransformation(m_q.tail(m_nax)));
   msg.admittance_state.rot_base_control = tf2::toMsg(Eigen::Quaterniond(m_T_tool_sensor.linear()));
   msg.admittance_state.stiffness.data.reserve(6);
   msg.admittance_state.damping.data.reserve(6);
 
-  auto [K, D] = m_elastoplastic_model->compute_variable_matrices(T_world_tool);
+  Eigen::Matrix6d K = m_elastoplastic_model->compute_variable_matrices(T_world_tool);
   Eigen::Vector6d K_diag = K.diagonal();
   std::copy(K_diag.begin(), K_diag.end(), std::back_inserter(msg.admittance_state.stiffness.data));
+  Eigen::Matrix6d& D = m_impedance.D;
   std::copy(
     D.diagonal().begin(), D.diagonal().end(),
     std::back_inserter(msg.admittance_state.damping.data));
@@ -1377,5 +1400,5 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
 
 }  // namespace elastoplastic
 
-PLUGINLIB_EXPORT_CLASS(
-  elastoplastic::ElastoplasticController, controller_interface::ChainableControllerInterface);
+#include <pluginlib/class_list_macros.hpp>
+PLUGINLIB_EXPORT_CLASS(elastoplastic::ElastoplasticController, controller_interface::ChainableControllerInterface);
