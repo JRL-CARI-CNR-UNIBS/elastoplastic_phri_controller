@@ -107,6 +107,7 @@ target_link_libraries(elastoplastic_utils PUBLIC
 PUBLIC eiquadprog::eiquadprog
 PUBLIC Eigen3::Eigen
 PUBLIC fmt::fmt
+PUBLIC pinocchio::pinocchio
 PUBLIC ${FILTERS}
 )
 
@@ -150,6 +151,7 @@ target_link_libraries(elastoplastic_controller
     PUBLIC eiquadprog::eiquadprog
     PUBLIC elastoplastic_lugre_controller::elastoplastic_utils
     PUBLIC state_space_filters::state_space_filters
+    PUBLIC pinocchio::pinocchio
     PUBLIC ${FILTERS}
   )
 

@@ -1121,13 +1121,13 @@ controller_interface::return_type ElastoplasticController::update_and_write_comm
   twist_tool_world_in_world = pin::getFrameVelocity(m_model, m_model_data, m_tool_id, pin::ReferenceFrame::LOCAL_WORLD_ALIGNED);
   cart_vel_error_tool_target_in_world =
       (twist_tool_world_in_world - m_computed_target_twist_tool_world_in_world)
-          .cwiseProduct(m_elastoplastic_model->get_enabled_axis());
+          .cwiseProduct(m_impedance.enabled_axis);
 
   m_zp = m_elastoplastic_model->update_z(cart_vel_error_tool_target_in_world,
                                          m_dt);
   bool reset = m_elastoplastic_model->reset(
       wrench_tool_in_world.cwiseProduct(
-          m_elastoplastic_model->get_enabled_axis()),
+          m_impedance.enabled_axis),
       cart_vel_error_tool_target_in_world);
   m_computed_target_T_world_tool =
       reset ? T_world_tool : m_computed_target_T_world_tool; // NOTE: useful?
@@ -1358,8 +1358,8 @@ pinocchio::Data input_data(m_model), computed_data(m_model);
 
   msg.admittance_state.selected_axes.data.reserve(6);
   std::copy(
-    m_elastoplastic_model->get_enabled_axis().begin(),
-    m_elastoplastic_model->get_enabled_axis().end(),
+    m_impedance.enabled_axis.begin(),
+    m_impedance.enabled_axis.end(),
     std::back_inserter(msg.admittance_state.selected_axes.data));
   msg.admittance_state.ft_sensor_frame.data = m_parameters.frames.sensor;
   msg.admittance_state.rot_base_control = tf2::toMsg(Eigen::Quaterniond(m_T_tool_sensor.linear()));
