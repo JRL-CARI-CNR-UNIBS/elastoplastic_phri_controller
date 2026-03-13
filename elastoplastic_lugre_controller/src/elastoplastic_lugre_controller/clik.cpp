@@ -26,7 +26,7 @@ pin::Motion frame_distance(const pin::SE3& A, const pin::SE3& B)
   // B - A
   pin::SE3 R = pin::SE3(A.rotation(), Eigen::Vector3d::Zero());
   // error in reference coordinates
-  pin::Motion e_ref = pin::log6(A.inverse() * B);
+  pin::Motion e_ref = pin::log6(A.actInv(B));
   return R.act(e_ref);
 }
 
@@ -53,8 +53,6 @@ ElastoplasticController::optimize(Eigen::Vector6d &wrench_tool_in_world) {
 
   auto t_start_QP = get_node()->get_clock()->now();
   Eigen::Vector6d& enabled_axis = m_impedance.enabled_axis;
-
-  auto t_start_qp = get_node()->get_clock()->now();
   const unsigned int prb_dim = m_model.nv + M_SE3;
 
   Eigen::Vector6d twist_tool_world_in_world = pin::getFrameVelocity(m_model, m_model_data, m_tool_id, pin::ReferenceFrame::LOCAL_WORLD_ALIGNED).toVector();
@@ -90,8 +88,8 @@ ElastoplasticController::optimize(Eigen::Vector6d &wrench_tool_in_world) {
   // computed one
   pin::SE3 oMref(m_reference_target_T_world_tool.rotation(),
                 m_reference_target_T_world_tool.translation());
-  const pin::SE3 & oMtool = m_model_data.oMf[m_tool_id];
-  Eigen::Vector6d ref_p_err = frame_distance(oMref, oMtool).toVector();
+  pin::SE3 oMcomp(m_computed_target_T_world_tool.matrix());
+  Eigen::Vector6d ref_p_err = frame_distance(oMref, oMcomp).toVector();
 
   task_cart_pos.A().middleCols<M_SE3>(m_model.nv) =
       Eigen::Matrix6d::Identity() * 0.5 * std::pow(m_dt, 2);
@@ -124,7 +122,8 @@ ElastoplasticController::optimize(Eigen::Vector6d &wrench_tool_in_world) {
       twist_tool_world_in_world -
       m_computed_target_twist_tool_world_in_world;
   Eigen::Vector6d pose_error_tool_world_in_world;
-  pose_error_tool_world_in_world = frame_distance(pin::SE3(m_computed_target_T_world_tool.matrix()), oMtool).toVector();
+  const pin::SE3 & oMtool = m_model_data.oMf[m_tool_id];
+  pose_error_tool_world_in_world = frame_distance(oMcomp, oMtool).toVector();
 
   Eigen::Matrix6d adm = Eigen::Matrix6d::Identity() + invM * D * m_dt +
                         0.5 * invM * K * std::pow(m_dt, 2);
@@ -205,12 +204,12 @@ ElastoplasticController::optimize(Eigen::Vector6d &wrench_tool_in_world) {
   sot.push_task(task_cart_vel, 4);
   sot.new_level();
   sot.push_task(task_minimize_cart_acc);
-  sot.new_level();
   sot.push_task(task_admittance);
+//   sot.new_level();
   sot.new_level();
-  sot.push_task(task_minimize_base_acc, m_parameters.clik.joint_task.kv);
   sot.push_task(task_joint_vel, m_parameters.clik.joint_task.kv);
   sot.push_task(task_joint_pos, m_parameters.clik.joint_task.kp);
+  sot.push_task(task_minimize_base_acc);
   sot.new_level();
   sot.push_task(task_minimize_jerk);
   sot.push_task(task_minimize_joint_acc);
@@ -245,33 +244,37 @@ ElastoplasticController::optimize(Eigen::Vector6d &wrench_tool_in_world) {
   // Velocity
   ineq_qp_min.CI().leftCols(m_model.nv)
       << Eigen::MatrixXd::Identity(m_model.nv, m_model.nv) * m_dt;
-  ineq_qp_min.ci().segment(m_mobile_base->nax(), m_arm_nax) =
+  ineq_qp_min.ci().segment(m_model.nv - m_arm_nax, m_arm_nax) =
       (m_qp.tail(m_arm_nax) + m_limits.vel);
 
   ineq_qp_max.CI().leftCols(m_model.nv)
       << -Eigen::MatrixXd::Identity(m_model.nv, m_model.nv) * m_dt;
-  ineq_qp_max.ci().segment(m_mobile_base->nax(), m_arm_nax) =
+  ineq_qp_max.ci().segment(m_model.nv - m_arm_nax, m_arm_nax) =
       (m_limits.vel - m_qp.tail(m_arm_nax));
 
   // Acceleration
   ineq_qpp_min.CI().leftCols(m_model.nv)
       << Eigen::MatrixXd::Identity(m_model.nv, m_model.nv);
-  ineq_qpp_min.ci().segment(m_mobile_base->nax(), m_arm_nax) = m_limits.acc;
+  ineq_qpp_min.ci().segment(m_model.nv - m_arm_nax, m_arm_nax) = m_limits.acc;
 
   ineq_qpp_max.CI().leftCols(m_model.nv)
       << -Eigen::MatrixXd::Identity(m_model.nv, m_model.nv);
-  ineq_qpp_max.ci().segment(m_mobile_base->nax(), m_arm_nax) = m_limits.acc;
+  ineq_qpp_max.ci().segment(m_model.nv - m_arm_nax, m_arm_nax) = m_limits.acc;
 
   // Positions
   ineq_q_min.CI().block(0, m_mobile_base->nax(), m_arm_nax, m_arm_nax)
-      << Eigen::MatrixXd::Identity(m_arm_nax, m_arm_nax) * 0.5 * m_dt * m_dt;
+      << (Eigen::MatrixXd::Identity(m_arm_nax, m_arm_nax) * 0.5 * m_dt * m_dt);
   ineq_q_min.ci().head(m_arm_nax) =
-      (m_q.tail(m_arm_nax) + m_qp.tail(m_arm_nax) * m_dt) - m_limits.pos_lower;
+      ((m_q_in.tail(m_arm_nax) + m_qp_in.tail(m_arm_nax) * m_dt) -
+       m_limits.pos_lower);
+  ineq_q_min.ci() = ineq_q_min.ci().cwiseMax(1e-9);
 
   ineq_q_max.CI().block(0, m_mobile_base->nax(), m_arm_nax, m_arm_nax)
-      << -Eigen::MatrixXd::Identity(m_arm_nax, m_arm_nax) * 0.5 * m_dt * m_dt;
+      << (-Eigen::MatrixXd::Identity(m_arm_nax, m_arm_nax) * 0.5 * m_dt * m_dt);
   ineq_q_max.ci().head(m_arm_nax) =
-      m_limits.pos_upper - (m_q.tail(m_arm_nax) + m_qp.tail(m_arm_nax) * m_dt);
+      (m_limits.pos_upper -
+       (m_q_in.tail(m_arm_nax) + m_qp_in.tail(m_arm_nax) * m_dt));
+  ineq_q_max.ci() = ineq_q_max.ci().cwiseMax(1e-9);
 
   // Acceleration
   ineq_xpp_min.CI().middleCols<M_SE3>(m_model.nv) = Eigen::Matrix6d::Identity();
@@ -321,6 +324,7 @@ ElastoplasticController::optimize(Eigen::Vector6d &wrench_tool_in_world) {
   /***********
    ** Solve **
    ***********/
+
   sot.symmetrize();
   sot.regularize();
   elastoplastic::SolverQP solver(prb_dim, sot, eq_set, ineq_set);
@@ -328,11 +332,14 @@ ElastoplasticController::optimize(Eigen::Vector6d &wrench_tool_in_world) {
 
   if (status != SolverStatus::EIQUADPROG_FAST_OPTIMAL) {
     Eigen::LLT<Eigen::MatrixXd> chol(sot.G());
-    LOG_ERROR_THROTTLE_COUNT(
-        get_node()->get_logger(), get_node()->get_clock(), 1.0,
-        "Problem unfeasible. Solver status: "
+    RCLCPP_ERROR_STREAM(
+        get_node()->get_logger(), "Problem unfeasible. Solver status: "
             << status << ". Is G Positive Definite: "
-            << (chol.info() == Eigen::ComputationInfo::Success));
+            << (chol.info() == Eigen::ComputationInfo::Success) << "\neq_set.CE\n"
+                            << eq_set.CE() << "\n ## eq_set.ce()\n ## "
+                            << eq_set.ce().transpose() << "\n## CI\n ## "
+                            << ineq_set.CI() << "\n## ci ##\n"
+                            << ineq_set.ci().transpose());
     return std::nullopt;
   }
 

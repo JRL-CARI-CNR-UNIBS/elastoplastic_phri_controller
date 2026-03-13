@@ -155,6 +155,8 @@ private:
   Eigen::VectorXd m_initial_q;
   Eigen::Vector6d m_wrench_in_sensor_prec;
   Eigen::Affine3d m_T_tool_sensor;
+  Eigen::Affine3d m_ref_T_world_base;
+  Eigen::Affine3d m_init_T_world_tool;
 
   Eigen::Vector6d m_admittance_value;
 
