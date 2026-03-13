@@ -1,0 +1,149 @@
+arm_right_ft_sensor_robotiq:
+  ros__parameters:
+    type: force_torque_sensor_broadcaster/ForceTorqueSensorBroadcaster
+    frame_id: robotiq_ft_frame_id
+    sensor_name: robotiq_ft_sensor
+
+elastoplastic_controller:
+  ros__parameters:
+    type: elastoplastic/ElastoplasticController
+    update_rate: 500
+    use_threshold: 0 # 0 - only track, 1 - only adm, 2 - mix
+    target_joint_trajectory_topic: "/joints_target"
+    robot_description_topic: "/robot_description"
+    cmd_vel_topic: "/azrael/cmd_vel"
+    ft_sensor_name: azrael/tcp_fts_sensor
+    ft_invert_sign: false
+    gravity: [0.0, 0.0, -9.806]
+    frames:
+      map: azrael/odom
+      base: azrael/base_footprint
+      tool: azrael/tool0
+      sensor: azrael/tool0  # for robot
+    joints:
+      - azrael/shoulder_pan_joint
+      - azrael/shoulder_lift_joint
+      - azrael/elbow_joint
+      - azrael/wrist_1_joint
+      - azrael/wrist_2_joint
+      - azrael/wrist_3_joint
+    motor_torque_constants:  # NON CAMBIARE
+      - 1.0 # 0.08  #-0.103 
+      - 1.0 # 0.095  #-0.103 
+      - 1.0 # 0.045  #-0.06  
+      - 1.0 # 0.04  #-0.06  
+      - 1.0 # 0.15  #-1.0   
+      - 1.0 # 0.04  #-0.08   
+    reduction_ratios:  # NON CAMBIARE
+      - 1.0 # 121.0
+      - 1.0 # 121.0
+      - 1.0 # 101.0
+      - 1.0 # 101.0
+      - 1.0 # 101.0
+      - 1.0 # 101.0
+    joints_static_friction:  # NON CAMBIARE
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+    joints_damping:  # NON CAMBIARE
+      - 0.0 # -1.0
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+      - 0.0 # 0.05
+    soft_limits:
+      - 0.0 # 0.07
+      - 0.0 # 0.07
+      - 0.0 # 0.07
+      - 0.0 # 0.07
+      - 0.0 # 0.07
+      - 0.0 # 0.07
+    acceleration_limits_coeff: 1.0
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+      - effort
+    mobile_base:
+      enabled: true
+      enable_z_rotation: false
+      input_target_topic: "/target_cmd_vel"
+      localization_topic: "/amcl_pose" # Unused
+      odom: "/direct_laser_odometry/odom"
+      use_command_interfaces: false
+      command_interfaces:
+      - "mobile_base_controller/linear/x"
+      - "mobile_base_controller/linear/y"
+      - "mobile_base_controller/angular/z"
+      max_vel:
+        linear: [0.5, 0.5]
+        angular: 0.2
+      max_acc_x: 0.3
+      max_dec_x: 0.3
+      max_acc_y: 0.3
+      max_dec_y: 0.3
+      max_acc_yaw: 0.5
+      max_dec_yaw: 0.5
+    wrench:
+      deadband:
+      - 2.0
+      - 2.0
+      filter_alfa: 0.2
+      source: "ft_sensor"
+      invert_torque: true # used only for if source==torque
+      notch_filter:
+        enable: true
+        fc: 1.0
+        Q: 1.0
+    impedance:
+      enable_axis: [true, true, true, false, false, false]
+      inertia:
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+      k:
+        - 30.0
+        - 30.0
+        - 30.0
+        - 30.0
+        - 30.0
+        - 30.0
+      d:
+        - 30.0
+        - 30.0
+        - 30.0
+        - 30.0
+        - 30.0
+        - 30.0
+      z_max:   0.1 # [0.15, 0.15] # 0.1
+      z_kmax:  0.098 # [0.14, 0.14] # 0.1
+      z_start: 0.07  # [0.1, 0.1]   # 0.05
+      logistic:
+        max: 1.0
+        slope: 10.0
+        inflection: 0.5
+      leak_coefficient: 0.02
+      reset:
+        time: 2.0
+        threshold: 1e0
+      plastic_restoration: false
+    offset_force_window: 2.0 # seconds
+    clik:
+      alpha_gain: 1.0e6
+      joint_task:
+        kp: 1e1 # 1e1
+        kv: 1e2 # 1e2
+    remove_gravity_from_torque_cmd: false
+    gains:
+      k1: 0.0
+      k2: 0.0
+      k3: 0.0
+    use_threshold: 0 # Not used

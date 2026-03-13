@@ -1,10 +1,6 @@
 elastoplastic_controller:
-  target_joint_trajectory_topic: {
-    type: string,
-    default_value: "/joint_trajectory",
-    validation: {
-      not_empty<>: []
-    }
+  use_threshold: {
+    type: int,
   }
   cartesian_trajectory_topic: {
     type: string,
@@ -74,29 +70,31 @@ elastoplastic_controller:
     default_value: [],
     description: "Robot Joints",
   }
+  motor_torque_constants: {
+    type: double_array,
+    description: "Motor torque constants for each joint defined in 'joints'",
+    read_only: true
+  }
+  reduction_ratios: {
+    type: double_array,
+    description: "reduction ratios for each joint transmission defined in 'joints'",
+    read_only: true
+  }
+  joints_static_friction: {
+    type: double_array,
+    description: "static friction for each joint transmission defined in 'joints'",
+    read_only: true
+  }
+  joints_damping: {
+    type: double_array,
+    description: "Damping for each joint transmission defined in 'joints'",
+    read_only: true
+  }
   soft_limits: {
     type: double_array,
     default_value: [],
     description: "joint constraint = |joint_limit| - soft_limit",
   }
-  kalman_filter:
-    manipulator:
-      position: {
-        type: double_array,
-        default_value: [],
-        description: "Q over R for manipulator kalman filter",
-        validation: {
-          not_empty<>: []
-        }
-      }
-      velocity: {
-        type: double_array,
-        default_value: [],
-        description: "Q over R for manipulator kalman filter",
-        validation: {
-          not_empty<>: []
-        }
-      }
   acceleration_limits_coeff: {
     type: double,
     default_value: 10,
@@ -113,34 +111,20 @@ elastoplastic_controller:
       description: "Use mobile base",
       read_only: true
     }
-    enable_z_rotation: {
-      type: bool,
-      default_value: true,
-      description: "Enable rotation around Z axis of the base",
-      read_only: true
-    }
-    input_target_topic: {
-      type: string,
-      default_value: "/input_cmd_vel",
-      description: "auxiliary axis command",
+    virtual_inertia: {
+      type: double_array,
+      default_value: [1.0,1.0,1.0],
+      description: "virtual inertia for the mobile base dynamic model",
       validation: {
-        not_empty<>: []
+        fixed_size<>: [3]
       }
     }
-    localization_topic: {
-      type: string,
-      default_value: "/amcl_pose",
-      description: "Topic published by the localization node with the base position",
+    virtual_damping: {
+      type: double_array,
+      default_value: [1.0,1.0,1.0],
+      description: "virtual damping for the mobile base dynamic model",
       validation: {
-        not_empty<>: []
-      }
-    }
-    odom: {
-      type: string,
-      default_value: "/odom",
-      description: "Odometry topic",
-      validation: {
-        not_empty<>: []
+        fixed_size<>: [3]
       }
     }
     use_command_interfaces: {
@@ -248,7 +232,7 @@ elastoplastic_controller:
         gt_eq<>: 0
       }
     }
-    notch_filter:
+    lpf:
       enable: {
         type: bool,
         default_value: true
@@ -256,17 +240,9 @@ elastoplastic_controller:
       fc: {
         type: double,
         default_value: 3.45,
-        description: "Cut frequency for wrench notch filter [Hz]",
+        description: "Cut frequency for wrench low pass filter [Hz]",
         validation: {
           gt_eq<>: 0.0
-        }
-      }
-      Q: {
-        type: double,
-        default_value: 1.0,
-        description: "Quality factor",
-        validation: {
-          gt<>: 0.0
         }
       }
     source: {
@@ -401,3 +377,20 @@ elastoplastic_controller:
       kv: {
         type: double,
       }
+  remove_gravity_from_torque_cmd: {
+    type: bool,
+    default_value: true
+  }
+  gains:
+    k1: {
+      type: double,
+      description: "K1"
+    }
+    k2: {
+      type: double,
+      description: "K2"
+    }
+    k3: {
+      type: double,
+      description: "K3"
+    }

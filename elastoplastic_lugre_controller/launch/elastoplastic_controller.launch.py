@@ -10,7 +10,7 @@ from ament_index_python.packages import get_package_share_directory, PackageNotF
 package_name = 'elastoplastic_lugre_controller'
 
 def generate_launch_description():
-  default_config = os.path.join(get_package_share_directory(package_name), 'config', 'elastoplastic_controller.yaml')
+  default_config = os.path.join(get_package_share_directory(package_name), 'config', 'azrael.yaml')
 
   launch_args = [
     DeclareLaunchArgument('config', default_value=default_config, description='Controller config path'),
@@ -38,5 +38,5 @@ def launch_setup(context):
 
   return [
     controller_spawner,
-    #ft_bcast_spawner,
+#    ft_bcast_spawner,
   ]

@@ -1,5 +1,7 @@
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
-#include "rdyn_core/spacevect_algebra.h"
+#include <pinocchio/spatial/se3.hpp>
+#include <pinocchio/spatial/motion.hpp>
+#include <pinocchio/spatial/explog.hpp>
 #include <cmath>
 
 #define DEBUG
@@ -79,13 +81,13 @@ Interpolator Interpolator::clone_with_transform(
     const geometry_msgs::msg::TransformStamped &tf) {
   Trajectory new_plan;
   new_plan.resize(m_plan.size());
+  Eigen::Isometry3d tf_eigen = tf2::transformToEigen(tf);
+  pinocchio::SE3 tf_pin = pinocchio::SE3(tf_eigen.matrix());
   for (size_t idx = 0; idx < new_plan.size(); ++idx) {
     //    tf2::doTransform(m_plan.pose.at(idx), new_plan.pose.at(idx),t_tf);
-    Eigen::Isometry3d tf_eigen = tf2::transformToEigen(tf);
     new_plan.pose.at(idx) = m_plan.pose.at(idx) * tf_eigen;
     // map -> object * object -> grasp
-    new_plan.twist.at(idx) =
-        rdyn::spatialTranslation(m_plan.twist.at(idx), tf_eigen.translation());
+    new_plan.twist.at(idx) = tf_pin.act(pinocchio::Motion(m_plan.twist.at(idx))).toVector();
     new_plan.time.at(idx) = m_plan.time.at(idx);
   }
   return Interpolator(new_plan);

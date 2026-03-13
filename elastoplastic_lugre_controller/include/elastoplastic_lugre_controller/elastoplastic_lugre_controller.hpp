@@ -3,32 +3,33 @@
 
 // local libs
 #include "elastoplastic_lugre_controller/interpolation/interpolator.hpp"
-#include "elastoplastic_lugre_controller/notch_filter.hpp"
 #include "elastoplastic_lugre_controller/utils.hpp"
-#include "elastoplastic_parameters.hpp"
-#include "elastoplastic_variable_model.hpp"
+#include <Eigen/src/Core/util/Constants.h>
+#include <elastoplastic_lugre_controller/elastoplastic_parameters.hpp>
+#include <elastoplastic_msgs/msg/elastoplastic_controller_state.hpp>
+#include <pinocchio/algorithm/joint-configuration.hpp>
+#include <pinocchio/algorithm/rnea.hpp>
+#include <pinocchio/multibody/fwd.hpp>
 #include <state_space_filters/filtered_values.h>
 
 // fundamental libs
 #include "Eigen/Dense"
 
 // other libs
-#include "rdyn_core/primitives.h" // IWYU pragma: export
-#include "state_observers/kalman_filter.hpp"
 
 // ros lib
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp" // IWYU pragma: export
-#include "realtime_tools/realtime_buffer.hpp"
 #include "realtime_tools/realtime_publisher.hpp"
 #include "semantic_components/force_torque_sensor.hpp"
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
+#include <control_toolbox/pid.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <urdf_world/types.h>
 
 // ros msgs
 // IWYU pragma: begin_keep
-#include "elastoplastic_msgs/msg/elastoplastic_controller_state.hpp"
+#include "elastoplastic_msgs/msg/admittance_hqp_controller_state.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
@@ -39,10 +40,17 @@
 #include "moveit_msgs/msg/cartesian_trajectory.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "std_msgs/msg/int16.hpp"
 #include "std_msgs/msg/string.hpp"
 // IWYU pragma: end_keep
 
+namespace Eigen {
+using Matrix6Xd = Matrix<double, 6, Dynamic>;
+}
+
 namespace elastoplastic {
+
+namespace pin = pinocchio;
 
 class ElastoplasticController
     : public controller_interface::ChainableControllerInterface {
@@ -57,8 +65,6 @@ private:
       m_joint_state_interfaces;
   std::vector<InterfaceReference<hardware_interface::LoanedCommandInterface>>
       m_joint_command_interfaces;
-  // InterfaceReference<hardware_interface::LoanedStateInterface>
-  // m_mobile_base_state_interfaces;
   InterfaceReference<hardware_interface::LoanedCommandInterface>
       m_mobile_base_command_interfaces;
 
@@ -71,19 +77,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
       m_sub_mobile_base_pose;
 
-  realtime_tools::RealtimeBuffer<nav_msgs::msg::Odometry> m_rt_buffer_base_odom;
-  realtime_tools::RealtimeBuffer<geometry_msgs::msg::PoseWithCovarianceStamped>
-      m_rt_buffer_base_local;
-  std::atomic<bool> m_got_new_base_pose;
-
-  rclcpp::Time m_last_odom_msg_time;
-
-  std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
-  std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
   std::unique_ptr<std::thread> m_tf_base_pose_recovery_thread;
-  std::unique_ptr<rclcpp::executors::MultiThreadedExecutor> m_support_node_exec;
-  rclcpp::Node::SharedPtr m_node_support; // tf and log
-  void update_base_pose_from_tf();
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_pub_cmd_vel;
   std::unique_ptr<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>>
@@ -94,10 +88,18 @@ private:
       elastoplastic_msgs::msg::ElastoplasticControllerState>>
       m_rt_pub_full_state;
 
+  rclcpp::Publisher<std_msgs::msg::Int16>::SharedPtr
+      m_state_controller_publisher;
+  std::unique_ptr<realtime_tools::RealtimePublisher<std_msgs::msg::Int16>>
+      m_rt_state_controller_publisher;
+  int m_hqp_state;
+
   constexpr static double M_MINIMUM_SAMPLING_TIME{1e-4};
   constexpr static double M_INITIAL_INTERPOLATOR_DELTA{5e-3};
   constexpr static unsigned int M_SE3{6};
   constexpr static unsigned int M_SE2{3};
+
+  std::string m_planar_joint_name;
 
   enum class RDStatus {
     OK,
@@ -107,49 +109,69 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr
       m_sub_robot_description;
 
-  rdyn::ChainPtr m_chain_base_tool;
-  rdyn::ChainPtr m_chain_base_sensor;
-  rdyn::ChainPtr m_chain_world_tool;
-  rdyn::ChainPtr m_chain_world_base;
+  pin::Model m_model;
+  pin::Data m_model_data;
+
+  std::vector<pin::JointIndex> m_jnt_id;
+  std::vector<pin::JointIndex> m_jnt_vs_id;
+  pin::FrameIndex m_tool_id;
+  pin::FrameIndex m_sensor_id;
+  pin::FrameIndex m_base_id;
 
   std::vector<std::string> m_joint_names;
 
-  size_t m_nax;
-  size_t m_full_nax;
+  size_t m_arm_nax;
 
+  std::unique_ptr<ElastoplasticModel> m_elastoplastic_model;
+
+  Eigen::Vector6d m_zp;
+
+  // Impedance state
   Eigen::VectorXd m_q;
   Eigen::VectorXd m_qp;
   Eigen::VectorXd m_qpp;
 
-  double m_dt;
+  // Real states
+  Eigen::VectorXd m_q_in;
+  Eigen::VectorXd m_qp_in;
+  Eigen::VectorXd m_tau_in;
 
-  double m_kp_joint_task, m_kv_joint_task;
+  Eigen::Affine3d m_computed_target_T_world_tool;
+  Eigen::Vector6d m_computed_target_twist_tool_world_in_world;
+  Eigen::Vector6d m_computed_target_acc_tool_world_in_world;
+
+
+  Eigen::Vector6d m_reference_target_acc_tool_world_in_world;
+  Eigen::Vector6d m_reference_target_twist_tool_world_in_world;
+  Eigen::Affine3d m_reference_target_T_world_tool;
+
+  Eigen::VectorXd m_full_position_references;
+  Eigen::VectorXd m_full_velocity_references;
+
+  double m_dt;
 
   Eigen::MatrixXd m_W; // Weight matrix for CLIK
 
   Eigen::VectorXd m_initial_q;
-  Eigen::VectorXd m_q_prec;
-  Eigen::VectorXd m_qp_prec;
-  Eigen::VectorXd m_qpp_prec;
   Eigen::Vector6d m_wrench_in_sensor_prec;
   Eigen::Affine3d m_T_tool_sensor;
+  Eigen::Affine3d m_ref_T_world_base;
+  Eigen::Affine3d m_init_T_world_tool;
 
   Eigen::Vector6d m_admittance_value;
 
-  Eigen::Affine3d m_T_world_base;
+  pin::SE3 m_world_M_base;
 
   Eigen::Vector6d m_offset_wrench_tool_in_world;
   std::future<bool> m_offset_future;
 
-  state_observer::KalmanFilter m_base_position_filter;
-  state_observer::KalmanFilter m_joint_filter;
-
   // Required both for states and at least one for command
   const std::vector<std::string> m_required_interface_types{
-      hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY};
+      hardware_interface::HW_IF_POSITION, hardware_interface::HW_IF_VELOCITY,
+      hardware_interface::HW_IF_EFFORT};
   const std::vector<std::string> m_allowed_interface_types{
-      "torque"};
-  std::array<bool, 2> m_used_command_interfaces;
+      hardware_interface::HW_IF_EFFORT};
+  std::array<bool, 3> m_used_command_interfaces;
 
   struct FloatBaseData {
     FloatBaseData() = delete;
@@ -172,11 +194,20 @@ private:
   };
   std::unique_ptr<FloatBaseData> m_mobile_base;
 
-  Eigen::Vector3d m_velocity_base_in_base;
-  bool m_mobile_base_pose_updated;
-
   std::vector<std::string> m_state_interfaces_names;
   std::vector<std::string> m_command_interfaces_names;
+
+  struct CartesianImpedanceParams {
+    Eigen::Matrix6d K;
+    Eigen::Matrix6d D;
+    Eigen::Matrix6d invM;
+    Eigen::Vector6d enabled_axis;
+
+    CartesianImpedanceParams()
+        : K(Eigen::Matrix6d::Zero()), D(Eigen::Matrix6d::Zero()),
+          invM(Eigen::Matrix6d::Zero()), enabled_axis(Eigen::Vector6d::Zero()) {
+    }
+  } m_impedance;
 
   struct Limits {
     Eigen::VectorXd pos_upper;
@@ -185,53 +216,12 @@ private:
     Eigen::VectorXd acc;
   } m_limits;
 
-  std::unique_ptr<ElastoplasticModel> m_elastoplastic_model;
 
-  struct ClikData {
-    const Eigen::VectorXd &position_references, velocity_references;
-    const Eigen::Vector6d &twist_tool_world_in_world;
-    //, next_twist_tool_world_in_world;
-    const Eigen::Affine3d &T_world_tool;
-    //, next_T_world_tool;
-    const Eigen::Vector6d &target_acc_tool_target_in_world;
-    const Eigen::Matrix6Xd &J_world_tool_in_world;
-    const Eigen::Affine3d &target_T_world_tool;
-    const Eigen::Vector6d &target_twist_tool_world_in_world;
-    const Eigen::Vector6d &wrench_tool_in_world;
-    const bool got_new_odom;
-  };
-
-  std::vector<NotchFilter> m_wrench_filters;
   std::vector<eigen_control_toolbox::FilteredScalar> m_low_pass_filters;
 
-  Eigen::Vector6d m_zp;
-
-  utils::Logistic m_logistic;
-  double m_logis_prec;
-
-  utils::interpolation::Interpolator m_interpolator;
+  elastoplastic::utils::interpolation::Interpolator m_interpolator;
   rclcpp::Subscription<moveit_msgs::msg::CartesianTrajectory>::SharedPtr
       m_carteisan_trj_sub;
-
-  utils::Slider m_pos_task_slider;
-
-  Eigen::Vector6d m_computed_target_acc_tool_world_in_world;
-  Eigen::Vector6d m_computed_target_twist_tool_world_in_world;
-  Eigen::Affine3d m_computed_target_T_world_tool;
-
-  enum class FTSource { FT_SENSOR, TOPIC, TORQUE } m_ft_source;
-
-  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr
-      m_wrench_sub;
-  constexpr static char FT_TOPIC[] = "~/wrench_input";
-  realtime_tools::RealtimeBuffer<geometry_msgs::msg::WrenchStamped>
-      m_wrench_topic_buffer;
-
-  Eigen::Vector6d get_wrench_from_topic() {
-    auto w = m_wrench_topic_buffer.readFromRT()->wrench;
-    return Eigen::Vector6d(
-        {w.force.x, w.force.y, w.force.z, w.torque.x, w.torque.y, w.torque.z});
-  }
 
   Eigen::Vector6d get_wrench_from_sensor() {
     geometry_msgs::msg::Wrench w;
@@ -241,12 +231,12 @@ private:
                             s * w.torque.x, s * w.torque.y, s * w.torque.z});
   }
 
-  bool m_invert_torque;
-  Eigen::Vector6d
-  get_wrench_from_torque(const Eigen::JacobiSVD<Eigen::Matrix6Xd> &svd,
-                         const Eigen::VectorXd &tau) {
-    return m_invert_torque * svd.solve(tau);
-  }
+  enum class SoTEnabled {
+    TRACKING,
+    ADMITTANCE,
+    FROM_TRACKING_TO_ADMITTANCE,
+    FROM_ADMITTANCE_TO_TRACKING
+  } m_what_sot_is_active;
 
   bool m_base_use_cmd_ifaces;
 
@@ -297,23 +287,18 @@ protected:
   void configure_after_robot_description_callback(
       const std_msgs::msg::String::SharedPtr msg);
 
-  std::optional<Eigen::VectorXd> clik(const ClikData &data);
-  Eigen::VectorXd compute_clik_as_qp(const ClikData &data,
-                                     const Eigen::Vector6d &a_position_error,
-                                     const Eigen::Vector6d &a_twist_error,
-                                     const Eigen::Vector6d &a_acc_non_linear);
-  Eigen::VectorXd compute_clik_as_inv(const ClikData &data,
-                                      const Eigen::Vector6d &a_position_error,
-                                      const Eigen::Vector6d &a_twist_error,
-                                      const Eigen::Vector6d &a_acc_non_linear);
+  std::optional<Eigen::VectorXd> optimize(Eigen::Vector6d &wrench);
 
   bool write_cmd_vel_zero();
   bool write_cmd_vel(const Eigen::Ref<Eigen::Vector3d> &v);
   void get_target_callback(const geometry_msgs::msg::Twist &msg);
   void get_mobile_base_target_callback(const geometry_msgs::msg::Twist &msg);
-  void get_odometry_callback(const nav_msgs::msg::Odometry &msg);
+  //   void get_odometry_callback(const nav_msgs::msg::Odometry &msg);
   void get_localization_callback(
       const geometry_msgs::msg::PoseWithCovarianceStamped &msg);
+  void build_pinocchio_model(urdf::ModelInterfaceSharedPtr &urdf_model,
+                             bool attach_mobile_base);
+  Eigen::Vector6d get_wrench_in_world(pin::Data &data);
 };
 } // namespace elastoplastic
 
