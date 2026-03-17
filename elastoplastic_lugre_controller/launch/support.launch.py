@@ -12,7 +12,7 @@ package_name = 'elastoplastic_lugre_controller'
 def generate_launch_description():
 
   launch_args = [
-    DeclareLaunchArgument(name='frame', default_value='robotiq_ft_frame_id', description='Frame to plan for')
+    DeclareLaunchArgument(name='frame', default_value='azrael/tcp', description='Frame to plan for')
   ]
 
   launch_actions = [
@@ -30,7 +30,7 @@ def launch_setup(context):
     executable='generate_cartesian_trajectory',
     parameters=[{
       'frame' : LaunchConfiguration('frame'),
-      'world_frame' : 'base_footprint',
+      'world_frame' : 'azrael/odom',
       'axis' : [1,1,1,0,0,0],
     }],
   )
