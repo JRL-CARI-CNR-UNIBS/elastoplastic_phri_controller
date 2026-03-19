@@ -210,13 +210,21 @@ Interpolator::interpolate(const rclcpp::Time &now, Eigen::Vector6d &acc,
   // “delta” in the Lie algebra
   Eigen::Vector3d delta = quat_log(r0.conjugate() * q1m);
 
-  // Hermite coefficients
-  Eigen::Vector3d C = w0;
-  Eigen::Vector3d B = 3.0 * delta - 2.0 * w0 - w1;
-  Eigen::Vector3d A = -2.0 * delta + w0 + w1;
+  // Quintic spline in Lie algebra with endpoint angular velocity constraints
+  // and zero endpoint angular acceleration in normalized time s in [0, 1].
+  const Eigen::Vector3d D = delta - w0;
+  const Eigen::Vector3d V = w1 - w0;
+  const Eigen::Vector3d A5 = 6.0 * D - 3.0 * V;
+  const Eigen::Vector3d A4 = -15.0 * D + 7.0 * V;
+  const Eigen::Vector3d A3 = 10.0 * D - 4.0 * V;
 
-  Eigen::Vector3d X = ((A * s + B) * s + C) * s;
-  Eigen::Vector3d Xp = ((3.0 * A * s + 2.0 * B) * s + C);
+  const double s2 = s * s;
+  const double s3 = s2 * s;
+  const double s4 = s3 * s;
+  const double s5 = s4 * s;
+
+  Eigen::Vector3d X = A5 * s5 + A4 * s4 + A3 * s3 + w0 * s;
+  Eigen::Vector3d Xp = 5.0 * A5 * s4 + 4.0 * A4 * s3 + 3.0 * A3 * s2 + w0;
 
   // map back to S3 and prepend q0
   pose.linear() = (r0 * quat_exp(X)).normalized().toRotationMatrix();
